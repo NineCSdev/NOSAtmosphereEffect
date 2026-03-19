@@ -51,6 +51,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
     private lateinit var switchColors: MaterialSwitch
+    private lateinit var switchWallpaperScroll: MaterialSwitch
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -74,6 +75,7 @@ class MainActivity : AppCompatActivity() {
         sliderBlurStrength = findViewById(R.id.sliderBlurStrength)
         btnUpdateBlur = findViewById(R.id.btnUpdateBlur)
         switchColors = findViewById(R.id.switchNotifyColors)
+        switchWallpaperScroll = findViewById(R.id.switchWallpaperScroll)
 
         btnSetupWallpaper.setOnClickListener {
             startActivity(Intent(this, EffectSelectionActivity::class.java))
@@ -123,6 +125,17 @@ class MainActivity : AppCompatActivity() {
             intent.setPackage(packageName)
             sendBroadcast(intent)
         }
+        val prefs = getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
+        switchWallpaperScroll.isChecked = prefs.getBoolean("enable_parallax", false)
+
+            switchWallpaperScroll.setOnCheckedChangeListener { _, isChecked ->
+                prefs.edit().putBoolean("enable_parallax", isChecked).apply()
+
+                // Tell the active live wallpaper service to update its settings right now
+                val intent = Intent("com.app.nosatmosphereeffect.UPDATE_CONFIG")
+                intent.setPackage(packageName)
+                sendBroadcast(intent)
+            }
     }
 
     override fun onResume() {

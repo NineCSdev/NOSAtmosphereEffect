@@ -251,6 +251,7 @@ class AtmosphereService : GLWallpaperService() {
                     "com.app.nosatmosphereeffect.RELOAD_WALLPAPER" -> {
                         cachedColors = null
                         myRenderer?.reloadTexture()
+                        updateRendererConfig()
                         requestRender()
                         notifyColorsChanged()
                     }
@@ -366,6 +367,8 @@ class AtmosphereService : GLWallpaperService() {
             val noise = prefs.getBoolean("enable_noise", false)
             val scale = prefs.getFloat("noise_scale", 2000.0f)
             val strength = prefs.getFloat("noise_strength", 0.06f)
+
+            myRenderer?.isParallaxEnabled = prefs.getBoolean("enable_parallax", false)
 
             enableSystemColorUpdate = prefs.getBoolean("notify_system_colors", false)
 
