@@ -8,6 +8,7 @@ import android.opengl.GLES30
 import android.opengl.GLSurfaceView
 import android.opengl.GLUtils
 import androidx.core.graphics.createBitmap
+import com.app.nosatmosphereeffect.helper.GLWallpaperService
 import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -20,7 +21,7 @@ import kotlin.math.hypot
 import kotlin.math.min
 import kotlin.math.pow
 
-class AtmosphereRenderer(private val context: Context) : GLSurfaceView.Renderer {
+class AtmosphereRenderer(private val context: Context) : GLSurfaceView.Renderer, GLWallpaperService.OffsetUpdatable {
 
     // --- RING BUFFER LOGIC ---
     private class TextureSet {
@@ -48,6 +49,12 @@ class AtmosphereRenderer(private val context: Context) : GLSurfaceView.Renderer 
     @Volatile var enableNoise: Boolean = false
     @Volatile var noiseScale: Float = 2000.0f
     @Volatile var noiseStrength: Float = 0.06f
+
+    @Volatile override var isParallaxEnabled: Boolean = false
+    @Volatile private var xOffset: Float = 0.5f
+    private var screenWidth = 1f
+    private var screenHeight = 1f
+    private var imageAspect = 1f
 
     private var programId: Int = 0
     private var blurProgramId: Int = 0
@@ -80,6 +87,10 @@ class AtmosphereRenderer(private val context: Context) : GLSurfaceView.Renderer 
         1f,  1f,  1f, 0f
     )
     private lateinit var vertexBuffer: FloatBuffer
+
+    override fun updateOffset(offset: Float) {
+        xOffset = offset
+    }
 
     fun reloadTexture() {
         needsReload = true
@@ -126,39 +137,54 @@ class AtmosphereRenderer(private val context: Context) : GLSurfaceView.Renderer 
         GLES30.glGenFramebuffers(1, fbo, 0)
         fboId = fbo[0]
 
+        val prefs = context.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
+        isParallaxEnabled = prefs.getBoolean("enable_parallax", false)
+
         loadAndApplyTextures()
     }
 
     private fun loadAndApplyTextures() {
-        // Destroy ONLY current set
-        if (currentSet.isValid()) {
-            val ids = intArrayOf(currentSet.sharpId, currentSet.blurId)
-            GLES30.glDeleteTextures(2, ids, 0)
-            currentSet.reset()
+        val activeWallpaper = File(context.filesDir, "wallpaper.jpg")
+        if (activeWallpaper.exists()) {
+            val bitmap = BitmapFactory.decodeFile(activeWallpaper.absolutePath)
+
+            imageAspect = bitmap.width.toFloat() / bitmap.height.toFloat()
+
+            // Destroy ONLY current set
+            if (currentSet.isValid()) {
+                val ids = intArrayOf(currentSet.sharpId, currentSet.blurId)
+                GLES30.glDeleteTextures(2, ids, 0)
+                currentSet.reset()
+            }
+            // Destroy temp if exists
+            if (tempTextureId != 0) {
+                GLES30.glDeleteTextures(1, intArrayOf(tempTextureId), 0)
+                tempTextureId = 0
+            }
+
+            val sharpBitmap = loadFixedWallpaper()
+
+            // Populate Current Set
+            currentSet.sharpId = uploadTexture(sharpBitmap)
+            tempTextureId = createEmptyTexture(sharpBitmap.width, sharpBitmap.height)
+            currentSet.blurId =
+                gpuBlur(currentSet.sharpId, sharpBitmap.width, sharpBitmap.height, 200f)
+
+            val blurredBitmap =
+                downloadTexture(currentSet.blurId, sharpBitmap.width, sharpBitmap.height)
+            initBaseBlobs(blurredBitmap)
+
+            sharpBitmap.recycle()
+            blurredBitmap.recycle()
+            bitmap.recycle()
         }
-        // Destroy temp if exists
-        if (tempTextureId != 0) {
-            GLES30.glDeleteTextures(1, intArrayOf(tempTextureId), 0)
-            tempTextureId = 0
-        }
-
-        val sharpBitmap = loadFixedWallpaper()
-
-        // Populate Current Set
-        currentSet.sharpId = uploadTexture(sharpBitmap)
-        tempTextureId = createEmptyTexture(sharpBitmap.width, sharpBitmap.height)
-        currentSet.blurId = gpuBlur(currentSet.sharpId, sharpBitmap.width, sharpBitmap.height, 200f)
-
-        val blurredBitmap = downloadTexture(currentSet.blurId, sharpBitmap.width, sharpBitmap.height)
-        initBaseBlobs(blurredBitmap)
-
-        sharpBitmap.recycle()
-        blurredBitmap.recycle()
     }
 
-    // NEW: Ring Buffer Swapping Logic
     private fun processPlaylistTransition() {
         val bitmap = pendingPlaylistBitmap ?: return
+
+
+        imageAspect = bitmap.width.toFloat() / bitmap.height.toFloat()
 
         // 1. Clean up the "Next" set if it has garbage (recycle bin)
         if (nextSet.isValid()) {
@@ -171,8 +197,6 @@ class AtmosphereRenderer(private val context: Context) : GLSurfaceView.Renderer 
         nextSet.sharpId = uploadTexture(bitmap)
 
         // 3. Ensure temp texture matches size (Recreate if size changed)
-        // Note: For simplicity, we recreate temp if we want to be safe, or reuse if size match.
-        // Let's safe-recreate temp to handle different aspect ratios in playlist
         if (tempTextureId != 0) {
             GLES30.glDeleteTextures(1, intArrayOf(tempTextureId), 0)
         }
@@ -281,6 +305,8 @@ class AtmosphereRenderer(private val context: Context) : GLSurfaceView.Renderer 
 
     override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {
         GLES30.glViewport(0, 0, width, height)
+        screenWidth = width.toFloat()
+        screenHeight = height.toFloat()
         aspectRatio = width.toFloat() / height.toFloat()
     }
 
@@ -305,6 +331,14 @@ class AtmosphereRenderer(private val context: Context) : GLSurfaceView.Renderer 
 
         GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
         GLES30.glUseProgram(programId)
+
+
+        val screenAspect = screenWidth / screenHeight
+        GLES30.glUniform1f(GLES30.glGetUniformLocation(programId, "uImageAspect"), imageAspect)
+        GLES30.glUniform1f(GLES30.glGetUniformLocation(programId, "uScreenAspect"), screenAspect)
+        GLES30.glUniform1f(GLES30.glGetUniformLocation(programId, "uOffset"), xOffset)
+        GLES30.glUniform1f(GLES30.glGetUniformLocation(programId, "uEnableParallax"), if (isParallaxEnabled) 1.0f else 0.0f)
+
 
         val t = blurStrength.coerceIn(0f, 1f)
 
@@ -377,6 +411,13 @@ class AtmosphereRenderer(private val context: Context) : GLSurfaceView.Renderer 
         GLES30.glUseProgram(blurProgramId)
         val aPosLoc = GLES30.glGetAttribLocation(blurProgramId, "aPosition")
         val aTexLoc = GLES30.glGetAttribLocation(blurProgramId, "aTexCoord")
+
+        val screenAspect = screenWidth / screenHeight
+        GLES30.glUniform1f(GLES30.glGetUniformLocation(blurProgramId, "uImageAspect"), imageAspect)
+        GLES30.glUniform1f(GLES30.glGetUniformLocation(blurProgramId, "uScreenAspect"), screenAspect)
+        GLES30.glUniform1f(GLES30.glGetUniformLocation(blurProgramId, "uEnableParallax"), 0.0f)
+        GLES30.glUniform1f(GLES30.glGetUniformLocation(blurProgramId, "uOffset"), 0.5f)
+
         GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, fboId)
         GLES30.glFramebufferTexture2D(GLES30.GL_FRAMEBUFFER, GLES30.GL_COLOR_ATTACHMENT0, GLES30.GL_TEXTURE_2D, tempTextureId, 0)
         GLES30.glViewport(0, 0, width, height)
