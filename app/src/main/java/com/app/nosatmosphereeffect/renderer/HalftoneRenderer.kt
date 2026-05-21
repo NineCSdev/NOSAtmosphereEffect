@@ -86,13 +86,12 @@ class HalftoneRenderer(
 
     private fun processPlaylistTransition() {
         val bitmap = pendingPlaylistBitmap ?: return
-        if (nextSet.isValid()) {
-            GLES30.glDeleteTextures(1, intArrayOf(nextSet.sharpId), 0)
-            nextSet.reset()
-        }
-        nextSet.sharpId = uploadTexture(bitmap)
+
+        // Overwrite the existing nextSet.sharpId instead of deleting it
+        nextSet.sharpId = uploadTexture(bitmap, nextSet.sharpId)
         bitmap.recycle()
 
+        // SWAP! Old current becomes next
         val temp = currentSet
         currentSet = nextSet
         nextSet = temp
@@ -147,10 +146,10 @@ class HalftoneRenderer(
         GLES30.glDisableVertexAttribArray(aTexLoc)
     }
 
-    private fun uploadTexture(bitmap: Bitmap): Int {
-        val textureHandle = IntArray(1)
-        GLES30.glGenTextures(1, textureHandle, 0)
+    private fun uploadTexture(bitmap: Bitmap, existingTextureId: Int = 0): Int {
+        val textureHandle = if (existingTextureId != 0) intArrayOf(existingTextureId) else { val arr = IntArray(1); GLES30.glGenTextures(1, arr, 0); arr }
         GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, textureHandle[0])
+        // Keep mipmaps for Halftone!
         GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, GLES30.GL_LINEAR_MIPMAP_LINEAR)
         GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, GLES30.GL_LINEAR)
         GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_S, GLES30.GL_CLAMP_TO_EDGE)
