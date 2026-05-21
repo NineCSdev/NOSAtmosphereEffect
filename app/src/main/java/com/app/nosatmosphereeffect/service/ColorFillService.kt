@@ -352,7 +352,7 @@ class ColorFillService : GLWallpaperService() {
 
             pollInterval = if (savedPoll != -1L) savedPoll else if (isSamsungDevice()) 30000L else 50L
             lockDelay = if (savedDelay != -1L) savedDelay else if (isSamsungDevice()) 0L else 800L
-            animDuration = if (savedDuration != -1L) savedDuration else 500L
+            animDuration = if (savedDuration != -1L) savedDuration else 1500L
         }
     }
 }

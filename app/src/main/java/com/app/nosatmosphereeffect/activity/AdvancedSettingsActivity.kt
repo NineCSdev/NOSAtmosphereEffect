@@ -75,7 +75,7 @@ class AdvancedSettingsActivity : AppCompatActivity() {
         }
 
         val isSamsung = intent.getBooleanExtra("IS_SAMSUNG", false)
-        val defaultDuration = if (activeEffect == "REVERSE") 1500L else if (activeEffect == "ORIGINAL") 2500L else 500L
+        val defaultDuration = if (activeEffect == "REVERSE" || activeEffect.contains("COLORFILL")) 1500L else if (activeEffect == "ORIGINAL") 2500L else 500L
         val defaultPoll = if (isSamsung) 30000L else 50L
         val defaultDelay = if (isSamsung) 0L else 800L
         val layoutRotationContainer = findViewById<com.google.android.material.textfield.TextInputLayout>(R.id.layoutRotationContainer)
