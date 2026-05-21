@@ -220,7 +220,7 @@ class ColorFillService : GLWallpaperService() {
                         handler.removeCallbacks(unlockChecker)
                         isLocked = true
                         handler.postDelayed(resetRunnable, lockDelay)
-                        handler.postDelayed(rotationRunnable, lockDelay + 500L)
+                        handler.postDelayed(rotationRunnable, lockDelay)
                     }
                     Intent.ACTION_USER_PRESENT -> {
                         handler.removeCallbacks(resetRunnable)
