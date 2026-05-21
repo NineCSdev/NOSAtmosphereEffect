@@ -63,6 +63,10 @@ class ColorFillService : GLWallpaperService() {
             prepareForNextUnlock()
         }
 
+        private val rotationRunnable = Runnable {
+            rotateWallpaper()
+        }
+
         fun handleThemeChange(isNightMode: Boolean) {
             rotateWallpaper(isThemeChange = true, currentNightMode = isNightMode)
         }
@@ -209,16 +213,18 @@ class ColorFillService : GLWallpaperService() {
                     Intent.ACTION_SCREEN_ON -> {
                         isLocked = true
                         handler.removeCallbacks(unlockChecker)
+                        handler.removeCallbacks(rotationRunnable)
                         handler.post(unlockChecker)
                     }
                     Intent.ACTION_SCREEN_OFF -> {
                         handler.removeCallbacks(unlockChecker)
                         isLocked = true
                         handler.postDelayed(resetRunnable, lockDelay)
-                        rotateWallpaper()
+                        handler.postDelayed(rotationRunnable, lockDelay + 500L)
                     }
                     Intent.ACTION_USER_PRESENT -> {
                         handler.removeCallbacks(resetRunnable)
+                        handler.removeCallbacks(rotationRunnable)
                         if (isLocked) {
                             isLocked = false
                             playUnlockAnimation()
