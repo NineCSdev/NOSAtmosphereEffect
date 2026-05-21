@@ -12,7 +12,7 @@ Atmo Engine is available to download from the Orion Store and F-Droid.
 ## ⚠️ Device Support & Disclaimer
 
 **Current Testing Status:**
-This application has currently been tested **exclusively on the Samsung Galaxy S25 Ultra**.
+This application has currently been tested **exclusively on the Samsung Galaxy S25 Ultra and Nothing Phone 1**.
 
 While it may work on other Android devices running Android 13+ (API 33+), behavior on different manufacturers' skins (FuntouchOS, OxygenOS, etc.) is not guaranteed.
 
