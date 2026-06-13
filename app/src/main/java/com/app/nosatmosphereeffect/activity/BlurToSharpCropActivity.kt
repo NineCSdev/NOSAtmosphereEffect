@@ -21,6 +21,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.exifinterface.media.ExifInterface
 import com.app.nosatmosphereeffect.R
 import com.app.nosatmosphereeffect.helper.TouchImageView
+import com.app.nosatmosphereeffect.helper.WallpaperFitHelper
 import com.app.nosatmosphereeffect.service.BlurToSharpService
 import com.app.nosatmosphereeffect.service.ColorFillReverseService
 import com.app.nosatmosphereeffect.service.ColorFillService
@@ -33,6 +34,7 @@ import java.io.InputStream
 
 class BlurToSharpCropActivity : AppCompatActivity() {
     private var effectId: String = "REVERSE"
+    private var sourceBitmap: Bitmap? = null // Un-cropped source, saved for fit modes
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -66,6 +68,7 @@ class BlurToSharpCropActivity : AppCompatActivity() {
                 val correctedBitmap = decodeSampledBitmapFromUri(this, uri, 4096, 4096)
                 runOnUiThread {
                     if (correctedBitmap != null) {
+                        sourceBitmap = correctedBitmap
                         cropView.setInitialImage(correctedBitmap)
                     } else {
                         Toast.makeText(this, "Could not load image format.", Toast.LENGTH_SHORT).show()
@@ -216,8 +219,12 @@ class BlurToSharpCropActivity : AppCompatActivity() {
 
                 val nextWallpaper = File(filesDir, "next_wallpaper.jpg")
                 if (nextWallpaper.exists()) nextWallpaper.delete()
+                WallpaperFitHelper.deleteNextSource(filesDir)
 
                 saveFixedWallpaper(bitmap)
+                // Save the un-cropped source so "Fit Image", "Stretch" and
+                // "Rotate to Fit" can show the whole picture.
+                WallpaperFitHelper.saveActiveSource(this, sourceBitmap)
 
                 runOnUiThread {
                     Toast.makeText(this, "Setup complete! Now lock and unlock the screen to activate.", Toast.LENGTH_LONG).show()

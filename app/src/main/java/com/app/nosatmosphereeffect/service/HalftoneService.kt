@@ -12,6 +12,7 @@ import android.opengl.GLSurfaceView
 import android.os.Build
 import android.view.animation.LinearInterpolator
 import com.app.nosatmosphereeffect.helper.GLWallpaperService
+import com.app.nosatmosphereeffect.helper.WallpaperFitHelper
 import com.app.nosatmosphereeffect.renderer.HalftoneRenderer
 import java.io.File
 
@@ -102,12 +103,13 @@ class HalftoneService : GLWallpaperService() {
 
             if (nextFile.exists()) {
                 try {
-                    val nextBitmap = BitmapFactory.decodeFile(nextFile.absolutePath)
+                    val nextBitmap = WallpaperFitHelper.decodeNextForDisplay(applicationContext)
                     if (nextBitmap != null) {
                         myRenderer?.queuePlaylistTransition(nextBitmap)
                         requestRender()
                         if (activeFile.exists()) activeFile.delete()
                         nextFile.renameTo(activeFile)
+                        WallpaperFitHelper.promoteNextSource(filesDir)
                         cachedColors = null
                         prefs.edit().putLong("last_rotation_timestamp", System.currentTimeMillis()).apply()
                         notifyColorsChanged()
@@ -134,6 +136,7 @@ class HalftoneService : GLWallpaperService() {
                             prefs.edit().putString("last_playlist_image", randomFile.name).apply()
                             val nextFile = File(filesDir, "next_wallpaper.jpg")
                             randomFile.copyTo(nextFile, overwrite = true)
+                            WallpaperFitHelper.stageNextSource(filesDir, randomFile.name)
                         }
                     }
                 } catch (e: Exception) { e.printStackTrace() }
