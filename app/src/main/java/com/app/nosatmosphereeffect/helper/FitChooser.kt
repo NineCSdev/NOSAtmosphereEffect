@@ -48,7 +48,8 @@ object FitChooser {
     fun attach(
         activity: Activity,
         initialFit: String = WallpaperFitHelper.MODE_FILL,
-        initialFill: String = WallpaperFitHelper.FILL_BLACK
+        initialFill: String = WallpaperFitHelper.FILL_BLACK,
+        onChange: ((fit: String, fill: String) -> Unit)? = null
     ): Selection {
         val layoutFill = activity.findViewById<TextInputLayout>(R.id.layoutEmptyFill)
         val dropFit = activity.findViewById<AutoCompleteTextView>(R.id.dropdownImageFit)
@@ -69,23 +70,27 @@ object FitChooser {
             layoutFill?.visibility = if (letterboxed) View.VISIBLE else View.GONE
             hint?.text = when (selection.fitMode) {
                 WallpaperFitHelper.MODE_FIT ->
-                    "The whole image is shown. Empty space uses your fill choice."
+                    "The whole image is shown. Zoom or drag to adjust; empty space uses your fill choice."
                 WallpaperFitHelper.MODE_STRETCH ->
-                    "The image is stretched to fill the screen. Cropping is ignored."
+                    "The image is stretched to fill the screen."
                 WallpaperFitHelper.MODE_ROTATE_FIT ->
-                    "Landscape photos are rotated to fill the screen."
+                    "Landscape photos are rotated to fill the screen. Zoom or drag to adjust."
                 else ->
                     "Pinch to zoom and drag to frame your wallpaper."
             }
         }
         refresh()
+        // Sync the preview to the initial mode.
+        onChange?.invoke(selection.fitMode, selection.fillMode)
 
         dropFit.setOnItemClickListener { _, _, position, _ ->
             selection.fitMode = fitValues[position]
             refresh()
+            onChange?.invoke(selection.fitMode, selection.fillMode)
         }
         dropFill.setOnItemClickListener { _, _, position, _ ->
             selection.fillMode = fillValues[position]
+            onChange?.invoke(selection.fitMode, selection.fillMode)
         }
 
         return selection
