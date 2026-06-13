@@ -289,16 +289,16 @@ class PlaylistEditorActivity : AppCompatActivity() {
                 val activeWallpaper = File(filesDir, "wallpaper.jpg")
                 if (firstFile.exists()) {
                     firstFile.copyTo(activeWallpaper, overwrite = true)
-                    // Un-cropped original for "Fit Image" / "Stretch" / "Rotate to Fit"
+                    // Un-cropped original kept for foldable re-fit of Fill images.
                     WallpaperFitHelper.stageActiveSourceFromPlaylist(filesDir, firstFile.name)
-                    // Active slot uses the first image's per-image fit mode.
-                    if (playlistItems.isNotEmpty()) {
-                        WallpaperFitHelper.setActiveModes(
-                            this@PlaylistEditorActivity,
-                            playlistItems[0].fitMode,
-                            playlistItems[0].fillMode
-                        )
-                    }
+                    // Each image's chosen fit mode is baked into its wallpaper_N.jpg, so
+                    // the renderer just displays it (Fill). The per-image mode lives in
+                    // metadata.json so re-editing can restore the chooser + preview.
+                    WallpaperFitHelper.setActiveModes(
+                        this@PlaylistEditorActivity,
+                        WallpaperFitHelper.MODE_FILL,
+                        WallpaperFitHelper.FILL_BLACK
+                    )
                 }
 
                 // 6. RESET ALL PREFERENCES TO ENSURE FRESH START
@@ -314,8 +314,8 @@ class PlaylistEditorActivity : AppCompatActivity() {
                         WallpaperFitHelper.stageNextSource(filesDir, secondFile.name)
                         WallpaperFitHelper.setNextModes(
                             this@PlaylistEditorActivity,
-                            playlistItems[1].fitMode,
-                            playlistItems[1].fillMode
+                            WallpaperFitHelper.MODE_FILL,
+                            WallpaperFitHelper.FILL_BLACK
                         )
                     }
                     // Tell the rotation logic that wallpaper_1 is queued, so it doesn't pick it again next time
@@ -328,8 +328,8 @@ class PlaylistEditorActivity : AppCompatActivity() {
                         WallpaperFitHelper.stageNextSource(filesDir, firstFile.name)
                         WallpaperFitHelper.setNextModes(
                             this@PlaylistEditorActivity,
-                            playlistItems[0].fitMode,
-                            playlistItems[0].fillMode
+                            WallpaperFitHelper.MODE_FILL,
+                            WallpaperFitHelper.FILL_BLACK
                         )
                     }
                     wallpaperPrefs.edit().putString("last_playlist_image", "wallpaper_0.jpg").apply()

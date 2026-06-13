@@ -122,32 +122,13 @@ object WallpaperFitHelper {
     }
 
     /**
-     * Reads the per-image display mode from the playlist metadata for the given
-     * cropped file (e.g. "wallpaper_2.jpg") and stores it as the NEXT slot mode.
-     * Falls back to FILL / BLACK when no metadata exists (older playlists).
+     * Sets the NEXT slot's render mode. With WYSIWYG baking, each playlist image's
+     * chosen fit mode is already baked into its wallpaper_N.jpg, so the renderer
+     * always displays it as-is (Fill). The per-image mode still lives in
+     * metadata.json for restoring the editor's chooser.
      */
     fun stageNextModeFromPlaylist(context: Context, playlistFileName: String) {
-        val (fit, fill) = readPlaylistEntryMode(context.filesDir, playlistFileName)
-        setNextModes(context, fit, fill)
-    }
-
-    private fun readPlaylistEntryMode(filesDir: File, playlistFileName: String): Pair<String, String> {
-        try {
-            val index = playlistFileName
-                .removePrefix("wallpaper_")
-                .removeSuffix(".jpg")
-                .toIntOrNull() ?: return MODE_FILL to FILL_BLACK
-            val meta = File(File(filesDir, "playlist"), "metadata.json")
-            if (!meta.exists()) return MODE_FILL to FILL_BLACK
-            val arr = org.json.JSONArray(meta.readText())
-            if (index < 0 || index >= arr.length()) return MODE_FILL to FILL_BLACK
-            val obj = arr.getJSONObject(index)
-            val fit = obj.optString("fitMode", MODE_FILL).ifEmpty { MODE_FILL }
-            val fill = obj.optString("fillMode", FILL_BLACK).ifEmpty { FILL_BLACK }
-            return fit to fill
-        } catch (e: Exception) {
-            return MODE_FILL to FILL_BLACK
-        }
+        setNextModes(context, MODE_FILL, FILL_BLACK)
     }
 
     /** Modes other than plain screen-fill want the un-cropped source image. */

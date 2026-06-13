@@ -2,9 +2,13 @@ package com.app.nosatmosphereeffect.helper
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.BitmapShader
 import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.Matrix
+import android.graphics.Paint
 import android.graphics.PointF
+import android.graphics.Shader
 import android.util.AttributeSet
 import android.view.GestureDetector
 import android.view.MotionEvent
@@ -13,7 +17,22 @@ import android.view.WindowManager
 import androidx.appcompat.widget.AppCompatImageView
 import kotlin.math.abs
 import kotlin.math.max
+import kotlin.math.min
 
+/**
+ * Pan/zoom crop view that ALSO previews the selected wallpaper fit mode live.
+ *
+ * - Screen Fill: pan/zoom to frame (image always covers the screen).
+ * - Fit Image: whole image shown; empty space filled with black / repeat / mirror
+ *   bars. The user can still zoom/pan within the fitted image.
+ * - Stretch: image distorted to fill the screen (framing is irrelevant).
+ * - Rotate to Fit: image rotated 90 deg when its orientation differs from the
+ *   screen, then fitted like "Fit Image".
+ *
+ * Whatever is shown on screen is exactly what getCroppedBitmap() returns, so the
+ * preview is WYSIWYG: the saved wallpaper already contains the chosen framing and
+ * any fill bars.
+ */
 class TouchImageView @JvmOverloads constructor(
     context: Context, attrs: AttributeSet? = null
 ) : AppCompatImageView(context, attrs) {
@@ -34,9 +53,18 @@ class TouchImageView @JvmOverloads constructor(
     private var targetWidth = 0
     private var targetHeight = 0
 
-    // Image dimensions (original)
+    // Image dimensions (of the bitmap currently being drawn)
     private var origWidth = 0f
     private var origHeight = 0f
+
+    // Fit-mode preview state
+    private var sourceBitmap: Bitmap? = null     // original image as provided
+    private var displayBitmap: Bitmap? = null    // bitmap actually drawn (rotated for ROTATE_FIT)
+    private var rotatedBitmap: Bitmap? = null     // cached rotated copy for ROTATE_FIT
+    private var fitMode: String = WallpaperFitHelper.MODE_FILL
+    private var fillMode: String = WallpaperFitHelper.FILL_BLACK
+    private val drawPaint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
+    private var pendingSavedMatrix: FloatArray? = null
 
     private val last = PointF()
     private val start = PointF()
@@ -60,6 +88,12 @@ class TouchImageView @JvmOverloads constructor(
         targetHeight = metrics.bounds.height()
 
         setOnTouchListener { _, event ->
+            // Stretch has no framing to adjust; treat touches only as taps.
+            if (fitMode == WallpaperFitHelper.MODE_STRETCH) {
+                handleTapOnly(event)
+                return@setOnTouchListener true
+            }
+
             scaleDetector.onTouchEvent(event)
             gestureDetector.onTouchEvent(event)
 
@@ -97,50 +131,102 @@ class TouchImageView @JvmOverloads constructor(
             }
 
             imageMatrix = matrixCurrent
+            invalidate()
             true // Consumed
+        }
+    }
+
+    private fun handleTapOnly(event: MotionEvent) {
+        when (event.action) {
+            MotionEvent.ACTION_DOWN -> start.set(event.x, event.y)
+            MotionEvent.ACTION_UP ->
+                if (abs(event.x - start.x) < 3 && abs(event.y - start.y) < 3) performClick()
         }
     }
 
     // --- 2. SETUP IMAGE TO FILL SCREEN RESOLUTION ---
     fun setInitialImage(bitmap: Bitmap, savedMatrixValues: FloatArray? = null) {
         super.setImageBitmap(bitmap)
+        sourceBitmap = bitmap
+        displayBitmap = bitmap
+        rotatedBitmap = null
         origWidth = bitmap.width.toFloat()
         origHeight = bitmap.height.toFloat()
+        pendingSavedMatrix = savedMatrixValues
 
         post {
             // We use the view's actual layout size for bounds checking
             viewWidth = width.toFloat()
             viewHeight = height.toFloat()
 
-            // Calculate standard center-crop scale (minScale)
-            val scaleX = targetWidth.toFloat() / origWidth
-            val scaleY = targetHeight.toFloat() / origHeight
-            val scale = max(scaleX, scaleY)
+            // Set up the display bitmap + scale bounds for the current mode.
+            updateDisplayForMode(resetPlacement = pendingSavedMatrix == null)
 
-            minScale = scale
-
-            if (savedMatrixValues != null) {
-                // RESTORE STATE
-                matrixCurrent.setValues(savedMatrixValues)
-                // Restore saveScale from the matrix (MSCALE_X is at index 0)
-                saveScale = savedMatrixValues[Matrix.MSCALE_X]
-
-                // Ensure we don't start invalid
-                if (saveScale < minScale) saveScale = minScale
-            } else {
-                // FRESH START (Center Crop)
-                matrixCurrent.reset()
-                matrixCurrent.setScale(scale, scale)
-
-                // Center the image
-                val redundantYSpace = viewHeight - (scale * origHeight)
-                val redundantXSpace = viewWidth - (scale * origWidth)
-                matrixCurrent.postTranslate(redundantXSpace / 2, redundantYSpace / 2)
-
-                saveScale = scale
-            }
+            pendingSavedMatrix?.let { restoreMatrix(it) }
+            pendingSavedMatrix = null
 
             imageMatrix = matrixCurrent
+            invalidate()
+        }
+    }
+
+    /** Switches the previewed fit mode; re-frames to the mode's natural starting point. */
+    fun setFitMode(fit: String, fill: String) {
+        fitMode = fit
+        fillMode = fill
+        if (viewWidth > 0f && sourceBitmap != null) {
+            updateDisplayForMode(resetPlacement = true)
+            invalidate()
+        }
+    }
+
+    // Picks the display bitmap (rotates for ROTATE_FIT), recomputes scale bounds,
+    // and optionally resets to the mode's base placement.
+    private fun updateDisplayForMode(resetPlacement: Boolean) {
+        val src = sourceBitmap ?: return
+
+        displayBitmap = if (fitMode == WallpaperFitHelper.MODE_ROTATE_FIT) {
+            val srcLandscape = src.width > src.height
+            val screenLandscape = targetWidth > targetHeight
+            if (srcLandscape != screenLandscape) {
+                if (rotatedBitmap == null) {
+                    val rot = Matrix().apply { postRotate(90f) }
+                    rotatedBitmap = Bitmap.createBitmap(src, 0, 0, src.width, src.height, rot, true)
+                }
+                rotatedBitmap
+            } else src
+        } else src
+
+        val db = displayBitmap ?: src
+        origWidth = db.width.toFloat()
+        origHeight = db.height.toFloat()
+
+        val scaleX = targetWidth.toFloat() / origWidth
+        val scaleY = targetHeight.toFloat() / origHeight
+        minScale = when (fitMode) {
+            WallpaperFitHelper.MODE_FILL -> max(scaleX, scaleY) // cover the screen
+            else -> min(scaleX, scaleY)                          // fit inside the screen
+        }
+        if (saveScale < minScale) saveScale = minScale
+
+        if (resetPlacement) applyBasePlacement()
+    }
+
+    private fun applyBasePlacement() {
+        matrixCurrent.reset()
+        matrixCurrent.setScale(minScale, minScale)
+        val redundantXSpace = viewWidth - (minScale * origWidth)
+        val redundantYSpace = viewHeight - (minScale * origHeight)
+        matrixCurrent.postTranslate(redundantXSpace / 2f, redundantYSpace / 2f)
+        saveScale = minScale
+    }
+
+    private fun restoreMatrix(values: FloatArray) {
+        matrixCurrent.setValues(values)
+        saveScale = values[Matrix.MSCALE_X]
+        if (saveScale < minScale) {
+            applyBasePlacement()
+        } else {
             fixTrans()
         }
     }
@@ -151,11 +237,53 @@ class TouchImageView @JvmOverloads constructor(
         return values
     }
 
+    /** Returns the screen-sized composite EXACTLY as previewed (framing + any fill bars). */
     fun getCroppedBitmap(): Bitmap {
         val bitmap = Bitmap.createBitmap(targetWidth, targetHeight, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
-        draw(canvas)
+        // The preview is laid out in view pixels; scale onto the screen-sized canvas.
+        if (viewWidth > 0f && viewHeight > 0f) {
+            canvas.scale(targetWidth / viewWidth, targetHeight / viewHeight)
+        }
+        renderComposite(canvas)
         return bitmap
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        // Draw the fit-mode preview ourselves instead of the default ImageView drawing.
+        renderComposite(canvas)
+    }
+
+    private fun renderComposite(canvas: Canvas) {
+        val db = displayBitmap ?: return
+        if (viewWidth <= 0f || viewHeight <= 0f) return
+
+        when (fitMode) {
+            WallpaperFitHelper.MODE_STRETCH -> {
+                val stretch = Matrix()
+                stretch.setScale(viewWidth / db.width.toFloat(), viewHeight / db.height.toFloat())
+                canvas.drawBitmap(db, stretch, drawPaint)
+            }
+
+            WallpaperFitHelper.MODE_FIT, WallpaperFitHelper.MODE_ROTATE_FIT -> {
+                if (fillMode == WallpaperFitHelper.FILL_BLACK) {
+                    canvas.drawColor(Color.BLACK)
+                    canvas.drawBitmap(db, matrixCurrent, drawPaint)
+                } else {
+                    val tile = if (fillMode == WallpaperFitHelper.FILL_MIRROR)
+                        Shader.TileMode.MIRROR else Shader.TileMode.REPEAT
+                    val shader = BitmapShader(db, tile, tile)
+                    shader.setLocalMatrix(matrixCurrent)
+                    drawPaint.shader = shader
+                    canvas.drawRect(0f, 0f, viewWidth, viewHeight, drawPaint)
+                    drawPaint.shader = null
+                }
+            }
+
+            else -> { // MODE_FILL
+                canvas.drawBitmap(db, matrixCurrent, drawPaint)
+            }
+        }
     }
 
     // --- BOUNDS CHECKING LOGIC ---
@@ -220,12 +348,15 @@ class TouchImageView @JvmOverloads constructor(
             }
 
             fixTrans()
+            invalidate()
             return true
         }
     }
 
     private inner class GestureListener : GestureDetector.SimpleOnGestureListener() {
         override fun onDoubleTap(e: MotionEvent): Boolean {
+            if (fitMode == WallpaperFitHelper.MODE_STRETCH) return true
+
             val origScale = saveScale
             var targetScale: Float
             if (saveScale > minScale) {
@@ -246,6 +377,7 @@ class TouchImageView @JvmOverloads constructor(
 
             fixTrans()
             imageMatrix = matrixCurrent
+            invalidate()
 
             return true
         }
