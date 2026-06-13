@@ -50,7 +50,9 @@ class PlaylistEditorActivity : AppCompatActivity() {
         val originalUri: Uri,
         var isEdited: Boolean = false,
         var editedFilePath: String? = null,
-        var matrixState: FloatArray? = null
+        var matrixState: FloatArray? = null,
+        var fitMode: String = WallpaperFitHelper.MODE_FILL,
+        var fillMode: String = WallpaperFitHelper.FILL_BLACK
     )
 
     private lateinit var btnApplyAll: Button
@@ -70,12 +72,16 @@ class PlaylistEditorActivity : AppCompatActivity() {
         if (result.resultCode == RESULT_OK) {
             val resultUriString = result.data?.getStringExtra("CROPPED_IMAGE_PATH")
             val matrixState = result.data?.getFloatArrayExtra("MATRIX_STATE")
+            val fitMode = result.data?.getStringExtra("FIT_MODE")
+            val fillMode = result.data?.getStringExtra("FILL_MODE")
 
             if (resultUriString != null && editingPosition != -1 && editingPosition < playlistItems.size) {
                 val item = playlistItems[editingPosition]
                 item.isEdited = true
                 item.editedFilePath = resultUriString
                 item.matrixState = matrixState
+                item.fitMode = fitMode ?: WallpaperFitHelper.MODE_FILL
+                item.fillMode = fillMode ?: WallpaperFitHelper.FILL_BLACK
 
                 adapter.notifyItemChanged(editingPosition)
             }
@@ -172,6 +178,9 @@ class PlaylistEditorActivity : AppCompatActivity() {
         if (item.matrixState != null) {
             intent.putExtra("MATRIX_STATE", item.matrixState)
         }
+        // Restore this image's previously chosen fit mode.
+        intent.putExtra("INITIAL_FIT_MODE", item.fitMode)
+        intent.putExtra("INITIAL_FILL_MODE", item.fillMode)
         editImageLauncher.launch(intent)
     }
 
@@ -252,6 +261,8 @@ class PlaylistEditorActivity : AppCompatActivity() {
                     val metaObj = JSONObject()
                     metaObj.put("original", "original_$index.jpg")
                     metaObj.put("isEdited", item.isEdited)
+                    metaObj.put("fitMode", item.fitMode)
+                    metaObj.put("fillMode", item.fillMode)
                     if (item.matrixState != null) {
                         val matrixJson = JSONArray()
                         item.matrixState!!.forEach { matrixJson.put(it.toDouble()) }
@@ -280,6 +291,14 @@ class PlaylistEditorActivity : AppCompatActivity() {
                     firstFile.copyTo(activeWallpaper, overwrite = true)
                     // Un-cropped original for "Fit Image" / "Stretch" / "Rotate to Fit"
                     WallpaperFitHelper.stageActiveSourceFromPlaylist(filesDir, firstFile.name)
+                    // Active slot uses the first image's per-image fit mode.
+                    if (playlistItems.isNotEmpty()) {
+                        WallpaperFitHelper.setActiveModes(
+                            this@PlaylistEditorActivity,
+                            playlistItems[0].fitMode,
+                            playlistItems[0].fillMode
+                        )
+                    }
                 }
 
                 // 6. RESET ALL PREFERENCES TO ENSURE FRESH START
@@ -293,6 +312,11 @@ class PlaylistEditorActivity : AppCompatActivity() {
                     if (secondFile.exists()) {
                         secondFile.copyTo(nextFile, overwrite = true)
                         WallpaperFitHelper.stageNextSource(filesDir, secondFile.name)
+                        WallpaperFitHelper.setNextModes(
+                            this@PlaylistEditorActivity,
+                            playlistItems[1].fitMode,
+                            playlistItems[1].fillMode
+                        )
                     }
                     // Tell the rotation logic that wallpaper_1 is queued, so it doesn't pick it again next time
                     wallpaperPrefs.edit().putString("last_playlist_image", "wallpaper_1.jpg").apply()
@@ -302,6 +326,11 @@ class PlaylistEditorActivity : AppCompatActivity() {
                     if (firstFile.exists()) {
                         firstFile.copyTo(nextFile, overwrite = true)
                         WallpaperFitHelper.stageNextSource(filesDir, firstFile.name)
+                        WallpaperFitHelper.setNextModes(
+                            this@PlaylistEditorActivity,
+                            playlistItems[0].fitMode,
+                            playlistItems[0].fillMode
+                        )
                     }
                     wallpaperPrefs.edit().putString("last_playlist_image", "wallpaper_0.jpg").apply()
                 }
@@ -464,7 +493,12 @@ class PlaylistEditorActivity : AppCompatActivity() {
                         }
                     }
 
-                    playlistItems.add(PlaylistItem(originalUri, isEdited, editedPath, matrixState))
+                    val fitMode = obj.optString("fitMode", WallpaperFitHelper.MODE_FILL)
+                        .ifEmpty { WallpaperFitHelper.MODE_FILL }
+                    val fillMode = obj.optString("fillMode", WallpaperFitHelper.FILL_BLACK)
+                        .ifEmpty { WallpaperFitHelper.FILL_BLACK }
+
+                    playlistItems.add(PlaylistItem(originalUri, isEdited, editedPath, matrixState, fitMode, fillMode))
                 }
             } catch (e: Exception) {
                 e.printStackTrace()

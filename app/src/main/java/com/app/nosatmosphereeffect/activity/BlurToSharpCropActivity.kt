@@ -21,6 +21,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.exifinterface.media.ExifInterface
 import com.app.nosatmosphereeffect.R
 import com.app.nosatmosphereeffect.helper.TouchImageView
+import com.app.nosatmosphereeffect.helper.FitChooser
 import com.app.nosatmosphereeffect.helper.WallpaperFitHelper
 import com.app.nosatmosphereeffect.service.BlurToSharpService
 import com.app.nosatmosphereeffect.service.ColorFillReverseService
@@ -35,6 +36,7 @@ import java.io.InputStream
 class BlurToSharpCropActivity : AppCompatActivity() {
     private var effectId: String = "REVERSE"
     private var sourceBitmap: Bitmap? = null // Un-cropped source, saved for fit modes
+    private var fitSelection: FitChooser.Selection? = null
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -56,6 +58,9 @@ class BlurToSharpCropActivity : AppCompatActivity() {
         val btnSave = findViewById<Button>(R.id.btnSaveCrop)
 
         btnSave.setText(R.string.action_apply)
+
+        // Let the user choose how this wallpaper is scaled to the screen.
+        fitSelection = FitChooser.attach(this)
 
         val uri = intent.data ?: run {
             Toast.makeText(this, "No Image Data Found", Toast.LENGTH_SHORT).show()
@@ -225,6 +230,12 @@ class BlurToSharpCropActivity : AppCompatActivity() {
                 // Save the un-cropped source so "Fit Image", "Stretch" and
                 // "Rotate to Fit" can show the whole picture.
                 WallpaperFitHelper.saveActiveSource(this, sourceBitmap)
+
+                // Persist the chosen fit mode for this (single) wallpaper.
+                val fit = fitSelection?.fitMode ?: WallpaperFitHelper.MODE_FILL
+                val fill = fitSelection?.fillMode ?: WallpaperFitHelper.FILL_BLACK
+                WallpaperFitHelper.setActiveModes(this, fit, fill)
+                WallpaperFitHelper.setNextModes(this, fit, fill)
 
                 runOnUiThread {
                     Toast.makeText(this, "Setup complete! Now lock and unlock the screen to activate.", Toast.LENGTH_LONG).show()

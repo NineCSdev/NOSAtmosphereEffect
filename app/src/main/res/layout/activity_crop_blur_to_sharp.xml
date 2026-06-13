@@ -36,6 +36,8 @@
         android:padding="24dp"
         android:gravity="center">
 
+        <include layout="@layout/include_fit_chooser" />
+
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnSaveCrop"
             style="@style/Widget.Material3.Button"
@@ -50,16 +52,6 @@
             android:paddingEnd="32dp"
             android:elevation="6dp"/>
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="@string/image_alignment_instructions"
-            android:textColor="?attr/colorOnSurface"
-            android:textSize="12sp"
-            android:layout_marginTop="16dp"
-            android:background="@drawable/text_bg_scrim_rounded"
-            android:paddingHorizontal="12dp"
-            android:paddingVertical="6dp"/>
     </LinearLayout>
 
 </FrameLayout>

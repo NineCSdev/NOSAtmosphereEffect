@@ -128,14 +128,18 @@ class BlurToSharpService : GLWallpaperService() {
                 try {
                     val nextBitmap = WallpaperFitHelper.decodeNextForDisplay(applicationContext)
                     if (nextBitmap != null) {
-                        myRenderer?.queuePlaylistTransition(nextBitmap)
-                        requestRender()
-
+                        // Promote the next image's files AND its fit mode to the active
+                        // slot BEFORE handing the bitmap to the renderer, so the incoming
+                        // image is fitted with its own per-image fit mode (race-free).
                         if (activeFile.exists()) {
                             activeFile.delete()
                         }
                         nextFile.renameTo(activeFile)
                         WallpaperFitHelper.promoteNextSource(filesDir)
+                        WallpaperFitHelper.promoteNextMode(applicationContext)
+
+                        myRenderer?.queuePlaylistTransition(nextBitmap)
+                        requestRender()
 
                         cachedColors = null
                         prefs.edit().putLong("last_rotation_timestamp", System.currentTimeMillis()).apply()
@@ -177,6 +181,7 @@ class BlurToSharpService : GLWallpaperService() {
                             val nextFile = File(filesDir, "next_wallpaper.jpg")
                             randomFile.copyTo(nextFile, overwrite = true)
                             WallpaperFitHelper.stageNextSource(filesDir, randomFile.name)
+                            WallpaperFitHelper.stageNextModeFromPlaylist(applicationContext, randomFile.name)
                         }
                     }
                 } catch (e: Exception) {
