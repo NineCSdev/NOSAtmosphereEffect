@@ -50,7 +50,9 @@ class MultiImageCropActivity : AppCompatActivity() {
         // Restore this image's previously chosen fit mode (per-image, not global).
         val initialFit = intent.getStringExtra("INITIAL_FIT_MODE") ?: WallpaperFitHelper.MODE_FILL
         val initialFill = intent.getStringExtra("INITIAL_FILL_MODE") ?: WallpaperFitHelper.FILL_BLACK
-        fitSelection = FitChooser.attach(this, initialFit, initialFill)
+        // The chooser drives a live WYSIWYG preview in the crop view.
+        fitSelection = FitChooser.attach(this, initialFit, initialFill,
+            onChange = { f, fl -> cropView.setFitMode(f, fl) })
 
         if (sourceUri != null) {
             loadImage(sourceUri!!, savedMatrix)

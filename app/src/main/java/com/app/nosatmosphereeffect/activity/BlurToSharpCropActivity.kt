@@ -60,7 +60,8 @@ class BlurToSharpCropActivity : AppCompatActivity() {
         btnSave.setText(R.string.action_apply)
 
         // Let the user choose how this wallpaper is scaled to the screen.
-        fitSelection = FitChooser.attach(this)
+        // The chooser drives a live WYSIWYG preview in the crop view.
+        fitSelection = FitChooser.attach(this, onChange = { f, fl -> cropView.setFitMode(f, fl) })
 
         val uri = intent.data ?: run {
             Toast.makeText(this, "No Image Data Found", Toast.LENGTH_SHORT).show()
@@ -227,15 +228,12 @@ class BlurToSharpCropActivity : AppCompatActivity() {
                 WallpaperFitHelper.deleteNextSource(filesDir)
 
                 saveFixedWallpaper(bitmap)
-                // Save the un-cropped source so "Fit Image", "Stretch" and
-                // "Rotate to Fit" can show the whole picture.
+                // The cropped bitmap already has the chosen fit mode and framing
+                // baked in, so the renderer just displays it as-is. Keep the source
+                // around for foldable re-fit of Fill.
                 WallpaperFitHelper.saveActiveSource(this, sourceBitmap)
-
-                // Persist the chosen fit mode for this (single) wallpaper.
-                val fit = fitSelection?.fitMode ?: WallpaperFitHelper.MODE_FILL
-                val fill = fitSelection?.fillMode ?: WallpaperFitHelper.FILL_BLACK
-                WallpaperFitHelper.setActiveModes(this, fit, fill)
-                WallpaperFitHelper.setNextModes(this, fit, fill)
+                WallpaperFitHelper.setActiveModes(this, WallpaperFitHelper.MODE_FILL, WallpaperFitHelper.FILL_BLACK)
+                WallpaperFitHelper.setNextModes(this, WallpaperFitHelper.MODE_FILL, WallpaperFitHelper.FILL_BLACK)
 
                 runOnUiThread {
                     Toast.makeText(this, "Setup complete! Now lock and unlock the screen to activate.", Toast.LENGTH_LONG).show()
