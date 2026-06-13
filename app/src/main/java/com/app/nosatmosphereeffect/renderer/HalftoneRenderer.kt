@@ -190,6 +190,8 @@ class HalftoneRenderer(
 
         GLUtils.texImage2D(GLES30.GL_TEXTURE_2D, 0, bitmap, 0)
 
+        GLES30.glGenerateMipmap(GLES30.GL_TEXTURE_2D)
+
         return textureHandle[0]
     }
 
