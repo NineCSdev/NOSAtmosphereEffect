@@ -105,11 +105,14 @@ class HalftoneReverseService : GLWallpaperService(){
                 try {
                     val nextBitmap = WallpaperFitHelper.decodeNextForDisplay(applicationContext)
                     if (nextBitmap != null) {
-                        myRenderer?.queuePlaylistTransition(nextBitmap)
-                        requestRender()
+                        // Promote next image's files AND fit mode before handing the
+                        // bitmap to the renderer, so it fits with the per-image mode.
                         if (activeFile.exists()) activeFile.delete()
                         nextFile.renameTo(activeFile)
                         WallpaperFitHelper.promoteNextSource(filesDir)
+                        WallpaperFitHelper.promoteNextMode(applicationContext)
+                        myRenderer?.queuePlaylistTransition(nextBitmap)
+                        requestRender()
                         cachedColors = null
                         prefs.edit().putLong("last_rotation_timestamp", System.currentTimeMillis()).apply()
                         notifyColorsChanged()
@@ -137,6 +140,7 @@ class HalftoneReverseService : GLWallpaperService(){
                             val nextFile = File(filesDir, "next_wallpaper.jpg")
                             randomFile.copyTo(nextFile, overwrite = true)
                             WallpaperFitHelper.stageNextSource(filesDir, randomFile.name)
+                            WallpaperFitHelper.stageNextModeFromPlaylist(applicationContext, randomFile.name)
                         }
                     }
                 } catch (e: Exception) { e.printStackTrace() }

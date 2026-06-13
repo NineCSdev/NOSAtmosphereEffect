@@ -41,8 +41,16 @@ import kotlin.math.min
 object WallpaperFitHelper {
 
     const val PREFS_NAME = "display_prefs"
-    const val KEY_FIT_MODE = "image_fit_mode"
-    const val KEY_FILL_MODE = "empty_fill_mode"
+
+    // Per-slot display modes. A "slot" is one of the two materialized wallpaper
+    // image sets on disk: the ACTIVE one (wallpaper.jpg / wallpaper_src.jpg) and
+    // the NEXT one queued for playlist rotation (next_wallpaper.jpg /
+    // next_wallpaper_src.jpg). Storing the fit per slot lets every playlist image
+    // keep its own fit mode (e.g. image 1 = Screen Fill, image 2 = Stretch).
+    const val KEY_ACTIVE_FIT = "active_fit_mode"
+    const val KEY_ACTIVE_FILL = "active_fill_mode"
+    const val KEY_NEXT_FIT = "next_fit_mode"
+    const val KEY_NEXT_FILL = "next_fill_mode"
 
     // Fit modes
     const val MODE_FILL = "FILL"             // Center-crop, fills the screen (default, original behavior)
@@ -67,22 +75,79 @@ object WallpaperFitHelper {
     // Preferences
     // ------------------------------------------------------------------
 
-    fun getFitMode(context: Context): String {
-        return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            .getString(KEY_FIT_MODE, MODE_FILL) ?: MODE_FILL
-    }
-
-    fun getFillMode(context: Context): String {
-        return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            .getString(KEY_FILL_MODE, FILL_BLACK) ?: FILL_BLACK
-    }
-
-    fun setDisplayModes(context: Context, fitMode: String, fillMode: String) {
+    private fun prefs(context: Context) =
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            .edit()
-            .putString(KEY_FIT_MODE, fitMode)
-            .putString(KEY_FILL_MODE, fillMode)
+
+    fun getActiveFitMode(context: Context): String =
+        prefs(context).getString(KEY_ACTIVE_FIT, MODE_FILL) ?: MODE_FILL
+
+    fun getActiveFillMode(context: Context): String =
+        prefs(context).getString(KEY_ACTIVE_FILL, FILL_BLACK) ?: FILL_BLACK
+
+    fun getNextFitMode(context: Context): String =
+        prefs(context).getString(KEY_NEXT_FIT, MODE_FILL) ?: MODE_FILL
+
+    fun getNextFillMode(context: Context): String =
+        prefs(context).getString(KEY_NEXT_FILL, FILL_BLACK) ?: FILL_BLACK
+
+    /** Sets the display mode for the active wallpaper (single-image crop, and the first playlist image). */
+    fun setActiveModes(context: Context, fitMode: String, fillMode: String) {
+        prefs(context).edit()
+            .putString(KEY_ACTIVE_FIT, fitMode)
+            .putString(KEY_ACTIVE_FILL, fillMode)
             .apply()
+    }
+
+    /** Sets the display mode for the queued next wallpaper (the next playlist image to rotate in). */
+    fun setNextModes(context: Context, fitMode: String, fillMode: String) {
+        prefs(context).edit()
+            .putString(KEY_NEXT_FIT, fitMode)
+            .putString(KEY_NEXT_FILL, fillMode)
+            .apply()
+    }
+
+    /**
+     * Promotes the queued next mode to the active slot. Mirrors [promoteNextSource]
+     * and MUST run before the renderer is handed the next bitmap, so the incoming
+     * image is fitted with the correct (now active) mode.
+     */
+    fun promoteNextMode(context: Context) {
+        val p = prefs(context)
+        val fit = p.getString(KEY_NEXT_FIT, MODE_FILL) ?: MODE_FILL
+        val fill = p.getString(KEY_NEXT_FILL, FILL_BLACK) ?: FILL_BLACK
+        p.edit()
+            .putString(KEY_ACTIVE_FIT, fit)
+            .putString(KEY_ACTIVE_FILL, fill)
+            .apply()
+    }
+
+    /**
+     * Reads the per-image display mode from the playlist metadata for the given
+     * cropped file (e.g. "wallpaper_2.jpg") and stores it as the NEXT slot mode.
+     * Falls back to FILL / BLACK when no metadata exists (older playlists).
+     */
+    fun stageNextModeFromPlaylist(context: Context, playlistFileName: String) {
+        val (fit, fill) = readPlaylistEntryMode(context.filesDir, playlistFileName)
+        setNextModes(context, fit, fill)
+    }
+
+    private fun readPlaylistEntryMode(filesDir: File, playlistFileName: String): Pair<String, String> {
+        try {
+            val index = playlistFileName
+                .removePrefix("wallpaper_")
+                .removeSuffix(".jpg")
+                .toIntOrNull() ?: return MODE_FILL to FILL_BLACK
+            val meta = File(File(filesDir, "playlist"), "metadata.json")
+            if (!meta.exists()) return MODE_FILL to FILL_BLACK
+            val arr = org.json.JSONArray(meta.readText())
+            if (index < 0 || index >= arr.length()) return MODE_FILL to FILL_BLACK
+            val obj = arr.getJSONObject(index)
+            val fit = obj.optString("fitMode", MODE_FILL).ifEmpty { MODE_FILL }
+            val fill = obj.optString("fillMode", FILL_BLACK).ifEmpty { FILL_BLACK }
+            return fit to fill
+        } catch (e: Exception) {
+            return MODE_FILL to FILL_BLACK
+        }
     }
 
     /** Modes other than plain screen-fill want the un-cropped source image. */
@@ -101,8 +166,8 @@ object WallpaperFitHelper {
      * unfitted, exactly as the legacy code did.
      */
     fun loadDisplayBitmap(context: Context, surfaceW: Int, surfaceH: Int): Bitmap {
-        val mode = getFitMode(context)
-        val fill = getFillMode(context)
+        val mode = getActiveFitMode(context)
+        val fill = getActiveFillMode(context)
         val filesDir = context.filesDir
 
         var source: Bitmap? = null
@@ -136,7 +201,7 @@ object WallpaperFitHelper {
      * the surface using the user's current display settings.
      */
     fun fitToSurface(context: Context, source: Bitmap, surfaceW: Int, surfaceH: Int): Bitmap {
-        return fitBitmap(source, surfaceW, surfaceH, getFitMode(context), getFillMode(context))
+        return fitBitmap(source, surfaceW, surfaceH, getActiveFitMode(context), getActiveFillMode(context))
     }
 
     /**
@@ -314,7 +379,7 @@ object WallpaperFitHelper {
      */
     fun decodeNextForDisplay(context: Context): Bitmap? {
         val filesDir = context.filesDir
-        if (needsSourceImage(getFitMode(context))) {
+        if (needsSourceImage(getNextFitMode(context))) {
             val srcFile = File(filesDir, NEXT_SOURCE_FILE)
             if (srcFile.exists()) {
                 val bitmap = decodeFileSampled(srcFile, MAX_DECODE_DIM)
