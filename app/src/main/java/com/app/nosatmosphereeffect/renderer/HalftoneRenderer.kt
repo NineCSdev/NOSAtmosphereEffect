@@ -188,14 +188,8 @@ class HalftoneRenderer(
         GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_S, GLES30.GL_CLAMP_TO_EDGE)
         GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_T, GLES30.GL_CLAMP_TO_EDGE)
 
-        // Memory Overwrite for Pixel/Mali support
-        if (existingTextureId != 0 && existingWidth == bitmap.width && existingHeight == bitmap.height) {
-            GLUtils.texSubImage2D(GLES30.GL_TEXTURE_2D, 0, 0, 0, bitmap)
-        } else {
-            GLUtils.texImage2D(GLES30.GL_TEXTURE_2D, 0, bitmap, 0)
-        }
+        GLUtils.texImage2D(GLES30.GL_TEXTURE_2D, 0, bitmap, 0)
 
-        GLES30.glGenerateMipmap(GLES30.GL_TEXTURE_2D)
         return textureHandle[0]
     }
 
