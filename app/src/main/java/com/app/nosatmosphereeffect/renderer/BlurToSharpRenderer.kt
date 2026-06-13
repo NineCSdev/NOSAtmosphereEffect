@@ -476,12 +476,8 @@ class BlurToSharpRenderer(private val context: Context) : GLSurfaceView.Renderer
         GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_S, GLES30.GL_CLAMP_TO_EDGE)
         GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_T, GLES30.GL_CLAMP_TO_EDGE)
 
-        // Fix for Pixel/Mali GPU: Use texSubImage2D for a direct memory overwrite if sizes match
-        if (existingTextureId != 0 && existingWidth == bitmap.width && existingHeight == bitmap.height) {
-            GLUtils.texSubImage2D(GLES30.GL_TEXTURE_2D, 0, 0, 0, bitmap)
-        } else {
-            GLUtils.texImage2D(GLES30.GL_TEXTURE_2D, 0, bitmap, 0)
-        }
+        GLUtils.texImage2D(GLES30.GL_TEXTURE_2D, 0, bitmap, 0)
+
         return textureHandle[0]
     }
 
