@@ -5,16 +5,15 @@ import android.opengl.GLSurfaceView
 import android.service.wallpaper.WallpaperService
 import android.view.SurfaceHolder
 import android.graphics.PixelFormat
+import android.os.Handler
+import android.os.Looper
 
 abstract class GLWallpaperService : WallpaperService() {
-    interface OffsetUpdatable {
-        val isParallaxEnabled: Boolean
-        fun updateOffset(xOffset: Float)
-    }
 
     open inner class GLEngine : Engine() {
         private var glSurfaceView: WallpaperGLSurfaceView? = null
-        private var currentRenderer: GLSurfaceView.Renderer? = null
+        private val pauseHandler = Handler(Looper.getMainLooper())
+        private val pauseRunnable = Runnable { glSurfaceView?.onPause() }
 
         override fun onCreate(surfaceHolder: SurfaceHolder) {
             super.onCreate(surfaceHolder)
@@ -23,7 +22,6 @@ abstract class GLWallpaperService : WallpaperService() {
         }
 
         fun setRenderer(renderer: GLSurfaceView.Renderer) {
-            currentRenderer = renderer
             glSurfaceView?.setRenderer(renderer)
             glSurfaceView?.renderMode = GLSurfaceView.RENDERMODE_WHEN_DIRTY
         }
@@ -31,30 +29,26 @@ abstract class GLWallpaperService : WallpaperService() {
         fun requestRender() {
             glSurfaceView?.requestRender()
         }
-        override fun onOffsetsChanged(
-            xOffset: Float, yOffset: Float, xOffsetStep: Float,
-            yOffsetStep: Float, xPixelOffset: Int, yPixelOffset: Int
-        ) {
-            super.onOffsetsChanged(xOffset, yOffset, xOffsetStep, yOffsetStep, xPixelOffset, yPixelOffset)
-
-            if (currentRenderer is OffsetUpdatable) {
-                val updatable = currentRenderer as OffsetUpdatable
-                updatable.updateOffset(xOffset)
-
-                // BATTERY SAVER: Only request a render frame if parallax is actually ON!
-                if (updatable.isParallaxEnabled) {
-                    requestRender()
-                }
-            }
-        }
 
         override fun onVisibilityChanged(visible: Boolean) {
             super.onVisibilityChanged(visible)
-            if (visible) glSurfaceView?.onResume() else glSurfaceView?.onPause()
+            if (visible) {
+                pauseHandler.removeCallbacks(pauseRunnable)
+                glSurfaceView?.onResume()
+            } else {
+                // Draw one more frame in the renderer's current state, then pause a few
+                // frames later instead of immediately. Pausing the GL thread the instant
+                // we go invisible leaves a stale frame latched in the surface, which the
+                // compositor flashes on the next wake. Present a fresh frame first.
+                glSurfaceView?.requestRender()
+                pauseHandler.removeCallbacks(pauseRunnable)
+                pauseHandler.postDelayed(pauseRunnable, 80L)
+            }
         }
 
         override fun onDestroy() {
             super.onDestroy()
+            pauseHandler.removeCallbacks(pauseRunnable)
             glSurfaceView?.onPause()
         }
 
