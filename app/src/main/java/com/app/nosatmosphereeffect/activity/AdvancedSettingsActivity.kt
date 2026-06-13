@@ -10,6 +10,7 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.edit
 import com.app.nosatmosphereeffect.R
+import com.app.nosatmosphereeffect.helper.WallpaperFitHelper
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.materialswitch.MaterialSwitch
 import com.google.android.material.slider.Slider
@@ -103,6 +104,51 @@ class AdvancedSettingsActivity : AppCompatActivity() {
         }
 
         val prefs = getSharedPreferences("app_prefs", MODE_PRIVATE)
+
+        // --- Image display (fit & fill) settings ---
+        val layoutEmptyFill = findViewById<TextInputLayout>(R.id.layoutEmptyFill)
+        val dropdownImageFit = findViewById<android.widget.AutoCompleteTextView>(R.id.dropdownImageFit)
+        val dropdownEmptyFill = findViewById<android.widget.AutoCompleteTextView>(R.id.dropdownEmptyFill)
+
+        val fitOptions = arrayOf("Screen Fill (Crop)", "Fit Image (Show All)", "Stretch", "Rotate to Fit (Landscape)")
+        val fitValues = arrayOf(
+            WallpaperFitHelper.MODE_FILL,
+            WallpaperFitHelper.MODE_FIT,
+            WallpaperFitHelper.MODE_STRETCH,
+            WallpaperFitHelper.MODE_ROTATE_FIT
+        )
+        val fillOptions = arrayOf("Black Bars", "Repeat Pattern", "Mirror Pattern")
+        val fillValues = arrayOf(
+            WallpaperFitHelper.FILL_BLACK,
+            WallpaperFitHelper.FILL_REPEAT,
+            WallpaperFitHelper.FILL_MIRROR
+        )
+
+        dropdownImageFit.setAdapter(android.widget.ArrayAdapter(this, R.layout.item_dropdown, fitOptions))
+        dropdownEmptyFill.setAdapter(android.widget.ArrayAdapter(this, R.layout.item_dropdown, fillOptions))
+
+        val initialFitMode = WallpaperFitHelper.getFitMode(this)
+        val initialFillMode = WallpaperFitHelper.getFillMode(this)
+        var selectedFitMode = initialFitMode
+        var selectedFillMode = initialFillMode
+
+        dropdownImageFit.setText(fitOptions[fitValues.indexOf(initialFitMode).takeIf { it >= 0 } ?: 0], false)
+        dropdownEmptyFill.setText(fillOptions[fillValues.indexOf(initialFillMode).takeIf { it >= 0 } ?: 0], false)
+
+        fun updateFillVisibility() {
+            val showsBars = selectedFitMode == WallpaperFitHelper.MODE_FIT ||
+                    selectedFitMode == WallpaperFitHelper.MODE_ROTATE_FIT
+            layoutEmptyFill.visibility = if (showsBars) View.VISIBLE else View.GONE
+        }
+        updateFillVisibility()
+
+        dropdownImageFit.setOnItemClickListener { _, _, position, _ ->
+            selectedFitMode = fitValues[position]
+            updateFillVisibility()
+        }
+        dropdownEmptyFill.setOnItemClickListener { _, _, position, _ ->
+            selectedFillMode = fillValues[position]
+        }
 
         // Load existing effect-specific values
         sliderDotSize.value = prefs.getFloat("halftone_dot_size", 12.0f)
@@ -204,6 +250,14 @@ class AdvancedSettingsActivity : AppCompatActivity() {
                 putFloat("origin_x", originX)
                 putFloat("origin_y", originY)
             }
+            val displayChanged = selectedFitMode != initialFitMode || selectedFillMode != initialFillMode
+            WallpaperFitHelper.setDisplayModes(this, selectedFitMode, selectedFillMode)
+            if (displayChanged) {
+                val reload = Intent("com.app.nosatmosphereeffect.RELOAD_WALLPAPER")
+                reload.setPackage(packageName)
+                sendBroadcast(reload)
+            }
+
             sendUpdateBroadcast()
         }
 
@@ -238,6 +292,20 @@ class AdvancedSettingsActivity : AppCompatActivity() {
             sliderCon.value = 1.0f
             sliderOriginX.value = 0.5f
             sliderOriginY.value = 0.8f
+
+            val hadCustomDisplay = WallpaperFitHelper.getFitMode(this) != WallpaperFitHelper.MODE_FILL ||
+                    WallpaperFitHelper.getFillMode(this) != WallpaperFitHelper.FILL_BLACK
+            selectedFitMode = WallpaperFitHelper.MODE_FILL
+            selectedFillMode = WallpaperFitHelper.FILL_BLACK
+            WallpaperFitHelper.setDisplayModes(this, selectedFitMode, selectedFillMode)
+            dropdownImageFit.setText(fitOptions[0], false)
+            dropdownEmptyFill.setText(fillOptions[0], false)
+            updateFillVisibility()
+            if (hadCustomDisplay) {
+                val reload = Intent("com.app.nosatmosphereeffect.RELOAD_WALLPAPER")
+                reload.setPackage(packageName)
+                sendBroadcast(reload)
+            }
 
             sendUpdateBroadcast()
         }

@@ -15,6 +15,7 @@ import android.os.Looper
 import android.view.SurfaceHolder
 import android.view.animation.LinearInterpolator
 import com.app.nosatmosphereeffect.helper.GLWallpaperService
+import com.app.nosatmosphereeffect.helper.WallpaperFitHelper
 import com.app.nosatmosphereeffect.renderer.AtmosphereRenderer
 import java.io.File
 
@@ -126,7 +127,7 @@ class AtmosphereService : GLWallpaperService() {
 
             if (nextFile.exists()) {
                 try {
-                    val nextBitmap = BitmapFactory.decodeFile(nextFile.absolutePath)
+                    val nextBitmap = WallpaperFitHelper.decodeNextForDisplay(applicationContext)
                     if (nextBitmap != null) {
                         myRenderer?.queuePlaylistTransition(nextBitmap)
                         requestRender()
@@ -135,6 +136,7 @@ class AtmosphereService : GLWallpaperService() {
                             activeFile.delete()
                         }
                         nextFile.renameTo(activeFile)
+                        WallpaperFitHelper.promoteNextSource(filesDir)
 
                         cachedColors = null
                         prefs.edit().putLong("last_rotation_timestamp", System.currentTimeMillis()).apply()
@@ -175,6 +177,7 @@ class AtmosphereService : GLWallpaperService() {
                             // 5. Copy to next_wallpaper.jpg
                             val nextFile = File(filesDir, "next_wallpaper.jpg")
                             randomFile.copyTo(nextFile, overwrite = true)
+                            WallpaperFitHelper.stageNextSource(filesDir, randomFile.name)
                         }
                     }
                 } catch (e: Exception) {

@@ -8,6 +8,7 @@ import android.opengl.GLES30
 import android.opengl.GLSurfaceView
 import android.opengl.GLUtils
 import androidx.core.graphics.createBitmap
+import com.app.nosatmosphereeffect.helper.WallpaperFitHelper
 import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -47,6 +48,13 @@ class FrostedRenderer(private val context: Context) : GLSurfaceView.Renderer {
     private var tempTextureId: Int = 0
     private var fboId: Int = 0
     private var aspectRatio: Float = 1.0f
+
+    // --- DISPLAY FIT: actual surface size + the size the textures were fitted for ---
+    @Volatile private var surfaceWidth: Int = 0
+    @Volatile private var surfaceHeight: Int = 0
+    private var fittedForWidth: Int = -1
+    private var fittedForHeight: Int = -1
+    // --------------------------------------------------------------------------------
 
     fun queuePlaylistTransition(bitmap: Bitmap, value: Float = 0.0f) {
         pendingPlaylistBitmap = bitmap
@@ -104,7 +112,13 @@ class FrostedRenderer(private val context: Context) : GLSurfaceView.Renderer {
         GLES30.glGenFramebuffers(1, fbo, 0)
         fboId = fbo[0]
 
-        loadAndApplyTextures()
+        // GL context is fresh: any previously held texture handles are invalid.
+        // Defer the texture load to the first frame, when the surface size is
+        // known, so the image can be fitted to the actual display (foldables).
+        currentSet.reset()
+        nextSet.reset()
+        tempTextureId = 0
+        needsReload = true
     }
 
     private fun loadAndApplyTextures() {
@@ -119,6 +133,8 @@ class FrostedRenderer(private val context: Context) : GLSurfaceView.Renderer {
             tempTextureId = 0
         }
 
+        fittedForWidth = surfaceWidth
+        fittedForHeight = surfaceHeight
         val sharpBitmap = loadFixedWallpaper()
 
         currentSet.sharpId = uploadTexture(sharpBitmap)
@@ -133,7 +149,11 @@ class FrostedRenderer(private val context: Context) : GLSurfaceView.Renderer {
     }
 
     private fun processPlaylistTransition() {
-        val bitmap = pendingPlaylistBitmap ?: return
+        val raw = pendingPlaylistBitmap ?: return
+        // Fit the incoming image to the current surface (display settings + foldables)
+        val bitmap = WallpaperFitHelper.fitToSurface(context, raw, surfaceWidth, surfaceHeight)
+        fittedForWidth = surfaceWidth
+        fittedForHeight = surfaceHeight
 
         // Overwrite the existing nextSet IDs instead of deleting them
         nextSet.sharpId = uploadTexture(bitmap, nextSet.sharpId)
@@ -158,6 +178,13 @@ class FrostedRenderer(private val context: Context) : GLSurfaceView.Renderer {
     override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {
         GLES30.glViewport(0, 0, width, height)
         aspectRatio = width.toFloat() / height.toFloat()
+        surfaceWidth = width
+        surfaceHeight = height
+        // The surface size changed (fold/unfold, rotation, different display):
+        // re-fit the wallpaper so it is not stretched to the new dimensions.
+        if (width != fittedForWidth || height != fittedForHeight) {
+            needsReload = true
+        }
     }
 
     override fun onDrawFrame(gl: GL10?) {
@@ -168,6 +195,11 @@ class FrostedRenderer(private val context: Context) : GLSurfaceView.Renderer {
         if (needsReload) {
             needsReload = false
             loadAndApplyTextures()
+        }
+
+        // gpuBlur/texture rebuilds change the viewport; restore it for screen drawing.
+        if (surfaceWidth > 0 && surfaceHeight > 0) {
+            GLES30.glViewport(0, 0, surfaceWidth, surfaceHeight)
         }
 
         if (!currentSet.isValid()) {
@@ -280,15 +312,8 @@ class FrostedRenderer(private val context: Context) : GLSurfaceView.Renderer {
     }
 
     private fun loadFixedWallpaper(): Bitmap {
-        val file = File(context.filesDir, "wallpaper.jpg")
-        if (file.exists()) {
-            val bitmap = BitmapFactory.decodeFile(file.absolutePath)
-            if (bitmap != null) {
-                return bitmap
-            }
-        }
-        val fallback = createBitmap(1080, 1920)
-        fallback.eraseColor(Color.BLUE)
-        return fallback
+        // Loads the active wallpaper and fits it to the current surface using
+        // the user's display settings (handles foldables and fit modes).
+        return WallpaperFitHelper.loadDisplayBitmap(context, surfaceWidth, surfaceHeight)
     }
 }

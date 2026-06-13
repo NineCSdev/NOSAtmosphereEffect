@@ -22,6 +22,7 @@ import androidx.recyclerview.widget.PagerSnapHelper
 import androidx.recyclerview.widget.RecyclerView
 import com.app.nosatmosphereeffect.R
 import com.app.nosatmosphereeffect.helper.PlaylistAdapter
+import com.app.nosatmosphereeffect.helper.WallpaperFitHelper
 import com.app.nosatmosphereeffect.service.AtmosphereService
 import com.app.nosatmosphereeffect.service.BlurToSharpService
 import com.app.nosatmosphereeffect.service.ColorFillReverseService
@@ -214,6 +215,7 @@ class PlaylistEditorActivity : AppCompatActivity() {
                 // 2. CLEANUP STALE SINGLE-IMAGE DATA (Important!)
                 val nextWallpaper = File(filesDir, "next_wallpaper.jpg")
                 if (nextWallpaper.exists()) nextWallpaper.delete()
+                WallpaperFitHelper.deleteNextSource(filesDir)
 
                 val metaArray = JSONArray()
 
@@ -276,6 +278,8 @@ class PlaylistEditorActivity : AppCompatActivity() {
                 val activeWallpaper = File(filesDir, "wallpaper.jpg")
                 if (firstFile.exists()) {
                     firstFile.copyTo(activeWallpaper, overwrite = true)
+                    // Un-cropped original for "Fit Image" / "Stretch" / "Rotate to Fit"
+                    WallpaperFitHelper.stageActiveSourceFromPlaylist(filesDir, firstFile.name)
                 }
 
                 // 6. RESET ALL PREFERENCES TO ENSURE FRESH START
@@ -288,6 +292,7 @@ class PlaylistEditorActivity : AppCompatActivity() {
                     val secondFile = File(playlistDir, "wallpaper_1.jpg")
                     if (secondFile.exists()) {
                         secondFile.copyTo(nextFile, overwrite = true)
+                        WallpaperFitHelper.stageNextSource(filesDir, secondFile.name)
                     }
                     // Tell the rotation logic that wallpaper_1 is queued, so it doesn't pick it again next time
                     wallpaperPrefs.edit().putString("last_playlist_image", "wallpaper_1.jpg").apply()
@@ -296,6 +301,7 @@ class PlaylistEditorActivity : AppCompatActivity() {
                     val nextFile = File(filesDir, "next_wallpaper.jpg")
                     if (firstFile.exists()) {
                         firstFile.copyTo(nextFile, overwrite = true)
+                        WallpaperFitHelper.stageNextSource(filesDir, firstFile.name)
                     }
                     wallpaperPrefs.edit().putString("last_playlist_image", "wallpaper_0.jpg").apply()
                 }

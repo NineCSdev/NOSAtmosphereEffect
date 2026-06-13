@@ -12,6 +12,7 @@ import android.opengl.GLSurfaceView
 import android.os.Build
 import android.view.animation.LinearInterpolator
 import com.app.nosatmosphereeffect.helper.GLWallpaperService
+import com.app.nosatmosphereeffect.helper.WallpaperFitHelper
 import com.app.nosatmosphereeffect.renderer.FrostedRenderer
 import java.io.File
 
@@ -123,7 +124,7 @@ class FrostedService : GLWallpaperService() {
 
             if (nextFile.exists()) {
                 try {
-                    val nextBitmap = BitmapFactory.decodeFile(nextFile.absolutePath)
+                    val nextBitmap = WallpaperFitHelper.decodeNextForDisplay(applicationContext)
                     if (nextBitmap != null) {
                         myRenderer?.queuePlaylistTransition(nextBitmap)
                         requestRender()
@@ -132,6 +133,7 @@ class FrostedService : GLWallpaperService() {
                             activeFile.delete()
                         }
                         nextFile.renameTo(activeFile)
+                        WallpaperFitHelper.promoteNextSource(filesDir)
 
                         cachedColors = null
                         prefs.edit().putLong("last_rotation_timestamp", System.currentTimeMillis()).apply()
@@ -172,6 +174,7 @@ class FrostedService : GLWallpaperService() {
                             // 5. Copy to next_wallpaper.jpg
                             val nextFile = File(filesDir, "next_wallpaper.jpg")
                             randomFile.copyTo(nextFile, overwrite = true)
+                            WallpaperFitHelper.stageNextSource(filesDir, randomFile.name)
                         }
                     }
                 } catch (e: Exception) {

@@ -29,6 +29,45 @@
                 android:layout_marginBottom="32dp"/>
 
             <com.google.android.material.textfield.TextInputLayout
+                android:id="@+id/layoutImageFit"
+                style="@style/Widget.Material3.TextInputLayout.OutlinedBox.ExposedDropdownMenu"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="Image Fit"
+                app:helperText="How the wallpaper is scaled to your screen"
+                app:helperTextTextColor="@color/white_alpha_70"
+                android:layout_marginBottom="24dp">
+
+                <AutoCompleteTextView
+                    android:id="@+id/dropdownImageFit"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="none"
+                    android:popupBackground="@color/black"
+                    android:textColor="@color/white"/>
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <com.google.android.material.textfield.TextInputLayout
+                android:id="@+id/layoutEmptyFill"
+                style="@style/Widget.Material3.TextInputLayout.OutlinedBox.ExposedDropdownMenu"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="Empty Space Fill"
+                app:helperText="Fills the bars when the whole image is shown"
+                app:helperTextTextColor="@color/white_alpha_70"
+                android:layout_marginBottom="24dp"
+                android:visibility="gone">
+
+                <AutoCompleteTextView
+                    android:id="@+id/dropdownEmptyFill"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="none"
+                    android:popupBackground="@color/black"
+                    android:textColor="@color/white"/>
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <com.google.android.material.textfield.TextInputLayout
                 android:id="@+id/layoutPollInterval"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
