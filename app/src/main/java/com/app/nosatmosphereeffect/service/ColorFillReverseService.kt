@@ -17,6 +17,7 @@ import android.view.animation.LinearInterpolator
 import com.app.nosatmosphereeffect.helper.GLWallpaperService
 import com.app.nosatmosphereeffect.renderer.ColorFillRenderer
 import java.io.File
+import android.os.PowerManager
 
 class ColorFillReverseService : GLWallpaperService() {
 
@@ -286,7 +287,15 @@ class ColorFillReverseService : GLWallpaperService() {
         }
 
         override fun onVisibilityChanged(visible: Boolean) {
+            if (!visible) {
+                val pm = getSystemService(POWER_SERVICE) as PowerManager
+                if (!pm.isInteractive) {
+                    myRenderer?.blurStrength = 0.0f
+                }
+            }
+
             super.onVisibilityChanged(visible)
+
             if (visible) {
                 val keyguardManager = getSystemService(KEYGUARD_SERVICE) as KeyguardManager
                 if (!keyguardManager.isKeyguardLocked) {

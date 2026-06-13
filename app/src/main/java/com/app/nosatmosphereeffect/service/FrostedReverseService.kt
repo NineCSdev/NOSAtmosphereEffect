@@ -13,8 +13,8 @@ import android.os.Build
 import android.view.animation.LinearInterpolator
 import com.app.nosatmosphereeffect.helper.GLWallpaperService
 import com.app.nosatmosphereeffect.renderer.FrostedRenderer
-import com.app.nosatmosphereeffect.service.BlurToSharpService.AtmosphereEngine
 import java.io.File
+import android.os.PowerManager
 
 class FrostedReverseService : GLWallpaperService() {
 
@@ -295,7 +295,15 @@ class FrostedReverseService : GLWallpaperService() {
         }
 
         override fun onVisibilityChanged(visible: Boolean) {
+            if (!visible) {
+                val pm = getSystemService(POWER_SERVICE) as PowerManager
+                if (!pm.isInteractive) {
+                    myRenderer?.blurStrength = 0.0f
+                }
+            }
+
             super.onVisibilityChanged(visible)
+
             if (visible) {
                 val km = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
                 if (!km.isKeyguardLocked) isLocked = false
