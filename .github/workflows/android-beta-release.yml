@@ -1,0 +1,79 @@
+name: Android Beta Release
+
+on:
+  push:
+    branches: [ "develop" ]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: gradle
+
+      - name: Extract Build Metadata
+        id: meta
+        run: |
+          # Extract Version Name
+          VERSION_NAME=$(grep "versionName =" app/build.gradle.kts | awk -F\" '{print $2}')
+          echo "Found Version Name: $VERSION_NAME"
+          echo "VERSION_NAME=$VERSION_NAME" >> $GITHUB_ENV
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Build SDK 36 (High)
+        run: ./gradlew assembleV36Release
+
+      - name: Sign SDK 36 APK
+        uses: ilharp/sign-android-release@v2
+        id: sign_app_36
+        with:
+          releaseDir: app/build/outputs/apk/v36/release
+          signingKey: ${{ secrets.SIGNING_KEY }}
+          keyAlias: ${{ secrets.ALIAS }}
+          keyStorePassword: ${{ secrets.KEY_STORE_PASSWORD }}
+          keyPassword: ${{ secrets.KEY_PASSWORD }}
+
+      - name: Rename SDK 36 APK
+        run: |
+          mv "${{ steps.sign_app_36.outputs.signedFile }}" ./app-release-beta-android-16+.apk
+
+      - name: Build SDK 33 (Legacy)
+        run: ./gradlew assembleV33Release
+
+      - name: Sign SDK 33 APK
+        uses: ilharp/sign-android-release@v2
+        id: sign_app_33
+        with:
+          releaseDir: app/build/outputs/apk/v33/release
+          signingKey: ${{ secrets.SIGNING_KEY }}
+          keyAlias: ${{ secrets.ALIAS }}
+          keyStorePassword: ${{ secrets.KEY_STORE_PASSWORD }}
+          keyPassword: ${{ secrets.KEY_PASSWORD }}
+
+      - name: Rename SDK 33 APK
+        run: |
+          mv "${{ steps.sign_app_33.outputs.signedFile }}" ./app-release-beta-android-13+.apk
+
+      - name: Create Beta Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ env.VERSION_NAME }}-beta.${{ github.run_number }}
+          name: Beta v${{ env.VERSION_NAME }} (Build ${{ github.run_number }})
+          generate_release_notes: true
+          draft: false
+          prerelease: true
+          files: |
+            app-release-beta-android-16+.apk
+            app-release-beta-android-13+.apk
