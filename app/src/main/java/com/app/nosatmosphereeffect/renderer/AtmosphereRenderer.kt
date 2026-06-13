@@ -27,14 +27,20 @@ class AtmosphereRenderer(private val context: Context) : GLSurfaceView.Renderer 
     private class TextureSet {
         var sharpId = 0
         var blurId = 0
+        var width = 0
+        var height = 0
         fun isValid() = sharpId != 0 && blurId != 0
-        fun reset() { sharpId = 0; blurId = 0 }
+        fun reset() { sharpId = 0; blurId = 0; width = 0; height = 0 }
     }
 
     private var currentSet = TextureSet()
     private var nextSet = TextureSet() // The "Back Buffer"
 
     @Volatile private var pendingPlaylistBitmap: Bitmap? = null
+
+    // Track temp texture dimensions for safe memory overwriting
+    private var tempTextureWidth: Int = 0
+    private var tempTextureHeight: Int = 0
     // -------------------------
 
     // --- RAM FIX: Cached Buffer for Pixel Reading ---
@@ -147,6 +153,8 @@ class AtmosphereRenderer(private val context: Context) : GLSurfaceView.Renderer 
         currentSet.reset()
         nextSet.reset()
         tempTextureId = 0
+        tempTextureWidth = 0
+        tempTextureHeight = 0
         needsReload = true
     }
 
@@ -161,15 +169,24 @@ class AtmosphereRenderer(private val context: Context) : GLSurfaceView.Renderer 
         if (tempTextureId != 0) {
             GLES30.glDeleteTextures(1, intArrayOf(tempTextureId), 0)
             tempTextureId = 0
+            tempTextureWidth = 0
+            tempTextureHeight = 0
         }
 
         fittedForWidth = surfaceWidth
         fittedForHeight = surfaceHeight
         val sharpBitmap = loadFixedWallpaper()
 
+        currentSet.width = sharpBitmap.width
+        currentSet.height = sharpBitmap.height
+
         // Populate Current Set
         currentSet.sharpId = uploadTexture(sharpBitmap)
+
+        tempTextureWidth = sharpBitmap.width
+        tempTextureHeight = sharpBitmap.height
         tempTextureId = createEmptyTexture(sharpBitmap.width, sharpBitmap.height)
+
         currentSet.blurId = gpuBlur(currentSet.sharpId, sharpBitmap.width, sharpBitmap.height, 200f)
 
         val blurredBitmap = downloadTexture(currentSet.blurId, sharpBitmap.width, sharpBitmap.height)
@@ -186,10 +203,17 @@ class AtmosphereRenderer(private val context: Context) : GLSurfaceView.Renderer 
         fittedForWidth = surfaceWidth
         fittedForHeight = surfaceHeight
 
-        // Overwrite the existing nextSet IDs instead of deleting them
-        nextSet.sharpId = uploadTexture(bitmap, nextSet.sharpId)
-        tempTextureId = createEmptyTexture(bitmap.width, bitmap.height, tempTextureId)
-        nextSet.blurId = gpuBlur(nextSet.sharpId, bitmap.width, bitmap.height, 200f, nextSet.blurId)
+        // Overwrite the existing nextSet IDs instead of deleting them. Pass dimensions for safe memory overwrite.
+        nextSet.sharpId = uploadTexture(bitmap, nextSet.sharpId, nextSet.width, nextSet.height)
+
+        tempTextureId = createEmptyTexture(bitmap.width, bitmap.height, tempTextureId, tempTextureWidth, tempTextureHeight)
+        tempTextureWidth = bitmap.width
+        tempTextureHeight = bitmap.height
+
+        nextSet.blurId = gpuBlur(nextSet.sharpId, bitmap.width, bitmap.height, 200f, nextSet.blurId, nextSet.width, nextSet.height)
+
+        nextSet.width = bitmap.width
+        nextSet.height = bitmap.height
 
         val blurredBitmap = downloadTexture(nextSet.blurId, bitmap.width, bitmap.height)
         initBaseBlobs(blurredBitmap)
@@ -375,7 +399,7 @@ class AtmosphereRenderer(private val context: Context) : GLSurfaceView.Renderer 
         drawQuad(aPosLoc, aTexLoc)
     }
 
-    private fun createEmptyTexture(width: Int, height: Int, existingTextureId: Int = 0): Int {
+    private fun createEmptyTexture(width: Int, height: Int, existingTextureId: Int = 0, existingWidth: Int = 0, existingHeight: Int = 0): Int {
         val t = if (existingTextureId != 0) {
             intArrayOf(existingTextureId)
         } else {
@@ -384,16 +408,20 @@ class AtmosphereRenderer(private val context: Context) : GLSurfaceView.Renderer 
             arr
         }
         GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, t[0])
-        GLES30.glTexImage2D(GLES30.GL_TEXTURE_2D, 0, GLES30.GL_RGBA, width, height, 0, GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, null)
         GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, GLES30.GL_LINEAR)
         GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, GLES30.GL_LINEAR)
         GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_S, GLES30.GL_CLAMP_TO_EDGE)
         GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_T, GLES30.GL_CLAMP_TO_EDGE)
+
+        // Only call glTexImage2D if it's a new ID or the dimensions have changed
+        if (existingTextureId == 0 || existingWidth != width || existingHeight != height) {
+            GLES30.glTexImage2D(GLES30.GL_TEXTURE_2D, 0, GLES30.GL_RGBA, width, height, 0, GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, null)
+        }
         return t[0]
     }
 
-    private fun gpuBlur(inputTexture: Int, width: Int, height: Int, radius: Float, targetOutputId: Int = 0): Int {
-        val outputTexture = createEmptyTexture(width, height, targetOutputId)
+    private fun gpuBlur(inputTexture: Int, width: Int, height: Int, radius: Float, targetOutputId: Int = 0, existingWidth: Int = 0, existingHeight: Int = 0): Int {
+        val outputTexture = createEmptyTexture(width, height, targetOutputId, existingWidth, existingHeight)
         GLES30.glUseProgram(blurProgramId)
         val aPosLoc = GLES30.glGetAttribLocation(blurProgramId, "aPosition")
         val aTexLoc = GLES30.glGetAttribLocation(blurProgramId, "aTexCoord")
@@ -444,7 +472,7 @@ class AtmosphereRenderer(private val context: Context) : GLSurfaceView.Renderer 
         return bitmap
     }
 
-    private fun uploadTexture(bitmap: Bitmap, existingTextureId: Int = 0): Int {
+    private fun uploadTexture(bitmap: Bitmap, existingTextureId: Int = 0, existingWidth: Int = 0, existingHeight: Int = 0): Int {
         val textureHandle = if (existingTextureId != 0) {
             intArrayOf(existingTextureId)
         } else {
@@ -457,7 +485,9 @@ class AtmosphereRenderer(private val context: Context) : GLSurfaceView.Renderer 
         GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, GLES30.GL_LINEAR)
         GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_S, GLES30.GL_CLAMP_TO_EDGE)
         GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_T, GLES30.GL_CLAMP_TO_EDGE)
+
         GLUtils.texImage2D(GLES30.GL_TEXTURE_2D, 0, bitmap, 0)
+
         return textureHandle[0]
     }
 
