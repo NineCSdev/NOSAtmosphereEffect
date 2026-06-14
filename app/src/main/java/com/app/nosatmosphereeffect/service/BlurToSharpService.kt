@@ -65,9 +65,9 @@ class BlurToSharpService : GLWallpaperService() {
         private val resetRunnable = Runnable {
             prepareForNextUnlock()
         }
-        private val rotationRunnable = Runnable {
-            rotateWallpaper()
-        }
+//        private val rotationRunnable = Runnable {
+//            rotateWallpaper()
+//        }
 
         // Called instantly when the OS configuration changes
         fun handleThemeChange(isNightMode: Boolean) {
@@ -241,7 +241,7 @@ class BlurToSharpService : GLWallpaperService() {
                         // Screen turned on. Start watching for unlock immediately.
                         isLocked = true
                         handler.removeCallbacks(unlockChecker)
-                        handler.removeCallbacks(rotationRunnable)
+//                        handler.removeCallbacks(rotationRunnable)
                         handler.post(unlockChecker)
                     }
                     Intent.ACTION_SCREEN_OFF -> {
@@ -249,12 +249,13 @@ class BlurToSharpService : GLWallpaperService() {
                         handler.removeCallbacks(unlockChecker)
                         isLocked = true
                         handler.postDelayed(resetRunnable, lockDelay)
-                        handler.postDelayed(rotationRunnable, lockDelay)
+//                        handler.postDelayed(rotationRunnable, lockDelay)
+                        rotateWallpaper()
                     }
                     Intent.ACTION_USER_PRESENT -> {
                         // Backup: Keep this as a failsafe in case polling misses (rare)
                         handler.removeCallbacks(resetRunnable)
-                        handler.removeCallbacks(rotationRunnable)
+//                        handler.removeCallbacks(rotationRunnable)
                         if (isLocked) {
                             isLocked = false
                             playUnlockAnimation()
