@@ -1,5 +1,6 @@
 plugins {
     id("com.android.application")
+    id("org.jetbrains.kotlin.plugin.compose")
 }
 
 android {
@@ -8,8 +9,8 @@ android {
 
     defaultConfig {
         applicationId = "com.saad_khan_rind.atmosphere_effect"
-        versionName = "5.8.8"
-        versionCode = 200588
+        versionName = "5.8.9"
+        versionCode = 200589
     }
 
     flavorDimensions += "apiLevel"
@@ -20,20 +21,20 @@ android {
             dimension = "apiLevel"
             minSdk = 36
             targetSdk = 36
-            versionCode = 200588
+            versionCode = 200589
         }
 
         create("v33") {
             dimension = "apiLevel"
             minSdk = 33
             targetSdk = 33
-            versionCode = 100588
+            versionCode = 100589
         }
 
     }
 
     buildFeatures {
-        viewBinding = true
+        compose = true
     }
 
     compileOptions {
@@ -63,6 +64,16 @@ kotlin {
 
 dependencies {
     implementation(libs.androidx.exifinterface)
+
+    // --- Jetpack Compose (common to all flavors) ---
+    val composeBom = platform(libs.androidx.compose.bom)
+    implementation(composeBom)
+    implementation(libs.androidx.ui)
+    implementation(libs.androidx.ui.graphics)
+    implementation(libs.androidx.ui.tooling.preview)
+    implementation(libs.androidx.material3)
+    implementation(libs.androidx.activity.compose)
+    debugImplementation(libs.androidx.ui.tooling)
 
     // --- Dependencies for v36 (API 36) ---
     // These only apply when building the v36 flavor
