@@ -7,7 +7,6 @@ import androidx.compose.material3.Shapes
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
@@ -66,11 +65,11 @@ fun AtmoEngineTheme(content: @Composable () -> Unit) {
     if (!view.isInEditMode) {
         SideEffect {
             val window = (view.context as Activity).window
-            // Transparent system bars; Compose draws edge-to-edge behind them.
-            window.statusBarColor = AtmoBlack.toArgb()
-            window.navigationBarColor = AtmoBlack.toArgb()
             val controller = WindowCompat.getInsetsController(window, view)
-            // Dark UI -> light (white) status/nav icons.
+            // Dark UI -> light (white) status/nav icons. The bars themselves are
+            // transparent (set in the app theme) and Compose draws edge-to-edge
+            // behind them, so no window bar-color is needed (and those setters are
+            // deprecated from Android 15 onward).
             controller.isAppearanceLightStatusBars = false
             controller.isAppearanceLightNavigationBars = false
         }
