@@ -1,9 +1,9 @@
 package com.app.nosatmosphereeffect.activity
 
-import android.app.WallpaperManager
-import android.content.ComponentName
 import android.content.Context
+import android.content.ComponentName
 import android.content.Intent
+import android.app.WallpaperManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
@@ -12,27 +12,38 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.view.WindowManager
-import android.widget.Button
 import android.widget.Toast
-import androidx.appcompat.app.AppCompatActivity
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.exifinterface.media.ExifInterface
-import com.app.nosatmosphereeffect.R
 import com.app.nosatmosphereeffect.helper.TouchImageView
+import com.app.nosatmosphereeffect.helper.WallpaperFitHelper
 import com.app.nosatmosphereeffect.service.BlurToSharpService
 import com.app.nosatmosphereeffect.service.ColorFillReverseService
-import com.app.nosatmosphereeffect.service.ColorFillService
 import com.app.nosatmosphereeffect.service.FrostedReverseService
 import com.app.nosatmosphereeffect.service.HalftoneReverseService
-import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.app.nosatmosphereeffect.ui.screens.CropController
+import com.app.nosatmosphereeffect.ui.screens.CropScreen
+import com.app.nosatmosphereeffect.ui.screens.SimpleConfirmDialog
+import com.app.nosatmosphereeffect.ui.theme.AtmoEngineTheme
 import java.io.File
 import java.io.FileOutputStream
 import java.io.InputStream
 
-class BlurToSharpCropActivity : AppCompatActivity() {
-    private var effectId: String = "REVERSE"
+class BlurToSharpCropActivity : ComponentActivity() {
+    private var effectId: String = "REVERSE" // Default
+    private var sourceBitmap: Bitmap? = null // Un-cropped source, saved for fit modes
+    private val controller = CropController()
+
+    private var pendingBitmap: Bitmap? = null
+    private var showApplyConfirm by mutableStateOf(false)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -42,18 +53,10 @@ class BlurToSharpCropActivity : AppCompatActivity() {
         val windowController = WindowCompat.getInsetsController(window, window.decorView)
         windowController.isAppearanceLightStatusBars = false
         windowController.isAppearanceLightNavigationBars = false
-
         windowController.hide(WindowInsetsCompat.Type.systemBars())
         windowController.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
 
-        setContentView(R.layout.activity_crop_blur_to_sharp)
-
         effectId = intent.getStringExtra("EFFECT_ID") ?: "REVERSE"
-
-        val cropView = findViewById<TouchImageView>(R.id.cropImageView)
-        val btnSave = findViewById<Button>(R.id.btnSaveCrop)
-
-        btnSave.setText(R.string.action_apply)
 
         val uri = intent.data ?: run {
             Toast.makeText(this, "No Image Data Found", Toast.LENGTH_SHORT).show()
@@ -61,12 +64,52 @@ class BlurToSharpCropActivity : AppCompatActivity() {
             return
         }
 
+        setContent {
+            AtmoEngineTheme {
+                CropScreen(
+                    controller = controller,
+                    buttonLabel = "Apply",
+                    initialFit = WallpaperFitHelper.MODE_FILL,
+                    initialFill = WallpaperFitHelper.FILL_BLACK,
+                    onViewCreated = { loadImageInto(uri) },
+                    onFitChanged = { f, fl -> controller.setFitMode(f, fl) },
+                    onConfirm = {
+                        val cropped = controller.getCroppedBitmap()
+                        if (cropped != null) {
+                            pendingBitmap = cropped
+                            showApplyConfirm = true
+                        }
+                    }
+                )
+
+                if (showApplyConfirm) {
+                    SimpleConfirmDialog(
+                        title = "Apply Wallpaper",
+                        message = "On the next screen, please select:\n\n" +
+                            "Set Wallpaper › Home Screen and Lock Screen.\n\n" +
+                            "(This ensures the lock-screen effect works correctly.)",
+                        confirmLabel = "Set Wallpaper",
+                        dismissLabel = "Cancel",
+                        onConfirm = {
+                            showApplyConfirm = false
+                            pendingBitmap?.let { applyWallpaper(it) }
+                        },
+                        onDismiss = { showApplyConfirm = false }
+                    )
+                }
+            }
+        }
+    }
+
+    private fun loadImageInto(uri: Uri) {
+        // Use a background thread to load heavy images to prevent UI freeze
         Thread {
             try {
                 val correctedBitmap = decodeSampledBitmapFromUri(this, uri, 4096, 4096)
                 runOnUiThread {
                     if (correctedBitmap != null) {
-                        cropView.setInitialImage(correctedBitmap)
+                        sourceBitmap = correctedBitmap
+                        controller.setInitialImage(correctedBitmap)
                     } else {
                         Toast.makeText(this, "Could not load image format.", Toast.LENGTH_SHORT).show()
                         finish()
@@ -79,11 +122,6 @@ class BlurToSharpCropActivity : AppCompatActivity() {
                 }
             }
         }.start()
-
-        btnSave.setOnClickListener {
-            val cropped = cropView.getCroppedBitmap()
-            showApplyDialog(cropped)
-        }
     }
 
     // --- ROBUST IMAGE LOADER ---
@@ -104,15 +142,15 @@ class BlurToSharpCropActivity : AppCompatActivity() {
             inputStream?.close()
 
             if (rawBitmap == null) return null
-            return handleExifRotation(context, uri, rawBitmap)
 
+            return handleExifRotation(context, uri, rawBitmap)
         } catch (e: Exception) {
             Handler(Looper.getMainLooper()).post {
                 Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
             }
             return null
         } finally {
-            try { inputStream?.close() } catch (e: Exception) {Toast.makeText(this, "Error: ${e.message}", Toast.LENGTH_LONG).show()}
+            try { inputStream?.close() } catch (e: Exception) { Toast.makeText(this, "Error: ${e.message}", Toast.LENGTH_LONG).show() }
         }
     }
 
@@ -147,7 +185,6 @@ class BlurToSharpCropActivity : AppCompatActivity() {
                 bitmap.recycle()
             }
             return rotatedBitmap
-
         } catch (e: Exception) {
             Handler(Looper.getMainLooper()).post {
                 Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
@@ -161,38 +198,15 @@ class BlurToSharpCropActivity : AppCompatActivity() {
     private fun calculateInSampleSize(options: BitmapFactory.Options, reqWidth: Int, reqHeight: Int): Int {
         val (height: Int, width: Int) = options.run { outHeight to outWidth }
         var inSampleSize = 1
-
-        // 1. Find the largest dimension of the original image
         val maxImageDimension = kotlin.math.max(height, width)
-
-        // 2. Find the texture limit (e.g., 4096)
-        // Take the min of reqWidth/Height to ensure we stay within the strictest limit provided
         val maxTextureSize = kotlin.math.min(reqWidth, reqHeight)
-
-        // 3. Only scale if the image is actually larger than the limit
         if (maxImageDimension > maxTextureSize) {
-
-            // 4. Calculate the Factor: How many times larger is the image?
             val factor = maxImageDimension.toFloat() / maxTextureSize.toFloat()
-
-            // 5. Find the nearest Power of 2 that covers this factor
             while (inSampleSize < factor) {
                 inSampleSize *= 2
             }
         }
-
         return inSampleSize
-    }
-
-    private fun showApplyDialog(bitmap: Bitmap) {
-        MaterialAlertDialogBuilder(this)
-            .setTitle("Apply Wallpaper")
-            .setMessage("In the next screen, please select:\n\nSet Wallpaper > Home Screen and Lock Screen.\n\n(This ensures the lock screen effect works correctly).")
-            .setPositiveButton("Set Wallpaper") { _, _ ->
-                applyWallpaper(bitmap)
-            }
-            .setNegativeButton("Cancel", null)
-            .show()
     }
 
     private fun applyWallpaper(bitmap: Bitmap) {
@@ -200,33 +214,26 @@ class BlurToSharpCropActivity : AppCompatActivity() {
 
         Thread {
             try {
-
-                getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
-                    .edit()
-                    .clear()
-                    .apply()
-
-                getSharedPreferences("wallpaper_prefs", Context.MODE_PRIVATE)
-                    .edit()
-                    .clear()
-                    .apply()
+                getSharedPreferences("app_prefs", Context.MODE_PRIVATE).edit().clear().apply()
+                getSharedPreferences("wallpaper_prefs", Context.MODE_PRIVATE).edit().clear().apply()
 
                 val playlistDir = File(filesDir, "playlist")
                 if (playlistDir.exists()) playlistDir.deleteRecursively()
 
                 val nextWallpaper = File(filesDir, "next_wallpaper.jpg")
                 if (nextWallpaper.exists()) nextWallpaper.delete()
+                WallpaperFitHelper.deleteNextSource(filesDir)
 
                 saveFixedWallpaper(bitmap)
+                WallpaperFitHelper.saveActiveSource(this, sourceBitmap)
+                WallpaperFitHelper.setActiveModes(this, WallpaperFitHelper.MODE_FILL, WallpaperFitHelper.FILL_BLACK)
+                WallpaperFitHelper.setNextModes(this, WallpaperFitHelper.MODE_FILL, WallpaperFitHelper.FILL_BLACK)
 
                 runOnUiThread {
-                    Toast.makeText(this, "Setup complete! Now lock and unlock the screen to activate.", Toast.LENGTH_LONG).show()
                     val intent = Intent("com.app.nosatmosphereeffect.RELOAD_WALLPAPER")
                     intent.setPackage(packageName)
                     sendBroadcast(intent)
-
                     Toast.makeText(this, "Setup complete! Now lock and unlock the screen to activate.", Toast.LENGTH_LONG).show()
-
                     activateService()
                 }
             } catch (e: Exception) {
@@ -250,9 +257,9 @@ class BlurToSharpCropActivity : AppCompatActivity() {
         try {
             val serviceClass = if (effectId == "FROSTED_REVERSE") {
                 FrostedReverseService::class.java
-            } else if (effectId == "HALFTONE_REVERSE"){
+            } else if (effectId == "HALFTONE_REVERSE") {
                 HalftoneReverseService::class.java
-            } else if (effectId == "COLORFILL_REVERSE"){
+            } else if (effectId == "COLORFILL_REVERSE") {
                 ColorFillReverseService::class.java
             } else {
                 BlurToSharpService::class.java

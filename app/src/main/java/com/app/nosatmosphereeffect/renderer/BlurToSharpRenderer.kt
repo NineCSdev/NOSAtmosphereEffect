@@ -8,6 +8,7 @@ import android.opengl.GLES30
 import android.opengl.GLSurfaceView
 import android.opengl.GLUtils
 import androidx.core.graphics.createBitmap
+import com.app.nosatmosphereeffect.helper.WallpaperFitHelper
 import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -26,14 +27,20 @@ class BlurToSharpRenderer(private val context: Context) : GLSurfaceView.Renderer
     private class TextureSet {
         var sharpId = 0
         var blurId = 0
+        var width = 0
+        var height = 0
         fun isValid() = sharpId != 0 && blurId != 0
-        fun reset() { sharpId = 0; blurId = 0 }
+        fun reset() { sharpId = 0; blurId = 0; width = 0; height = 0 }
     }
 
     private var currentSet = TextureSet()
     private var nextSet = TextureSet() // The "Back Buffer"
 
     @Volatile private var pendingPlaylistBitmap: Bitmap? = null
+
+    // Track temp texture dimensions for safe memory overwriting
+    private var tempTextureWidth: Int = 0
+    private var tempTextureHeight: Int = 0
     // -------------------------
 
     // --- RAM FIX: Cached Buffer for Pixel Reading ---
@@ -62,6 +69,13 @@ class BlurToSharpRenderer(private val context: Context) : GLSurfaceView.Renderer
     private var tempTextureId: Int = 0
     private var fboId: Int = 0
     private var aspectRatio: Float = 1.0f
+
+    // --- DISPLAY FIT: actual surface size + the size the textures were fitted for ---
+    @Volatile private var surfaceWidth: Int = 0
+    @Volatile private var surfaceHeight: Int = 0
+    private var fittedForWidth: Int = -1
+    private var fittedForHeight: Int = -1
+    // --------------------------------------------------------------------------------
 
     data class BlobPhysics(
         val color: FloatArray,
@@ -134,7 +148,13 @@ class BlurToSharpRenderer(private val context: Context) : GLSurfaceView.Renderer
         GLES30.glGenFramebuffers(1, fbo, 0)
         fboId = fbo[0]
 
-        loadAndApplyTextures()
+        // GL context is fresh: any previously held texture handles are invalid.
+        currentSet.reset()
+        nextSet.reset()
+        tempTextureId = 0
+        tempTextureWidth = 0
+        tempTextureHeight = 0
+        needsReload = true
     }
 
     private fun loadAndApplyTextures() {
@@ -148,13 +168,24 @@ class BlurToSharpRenderer(private val context: Context) : GLSurfaceView.Renderer
         if (tempTextureId != 0) {
             GLES30.glDeleteTextures(1, intArrayOf(tempTextureId), 0)
             tempTextureId = 0
+            tempTextureWidth = 0
+            tempTextureHeight = 0
         }
 
+        fittedForWidth = surfaceWidth
+        fittedForHeight = surfaceHeight
         val sharpBitmap = loadFixedWallpaper()
+
+        currentSet.width = sharpBitmap.width
+        currentSet.height = sharpBitmap.height
 
         // Populate Current Set
         currentSet.sharpId = uploadTexture(sharpBitmap)
+
+        tempTextureWidth = sharpBitmap.width
+        tempTextureHeight = sharpBitmap.height
         tempTextureId = createEmptyTexture(sharpBitmap.width, sharpBitmap.height)
+
         currentSet.blurId = gpuBlur(currentSet.sharpId, sharpBitmap.width, sharpBitmap.height, 200f)
 
         val blurredBitmap = downloadTexture(currentSet.blurId, sharpBitmap.width, sharpBitmap.height)
@@ -165,12 +196,23 @@ class BlurToSharpRenderer(private val context: Context) : GLSurfaceView.Renderer
     }
 
     private fun processPlaylistTransition() {
-        val bitmap = pendingPlaylistBitmap ?: return
+        val raw = pendingPlaylistBitmap ?: return
+        // Fit the incoming image to the current surface (display settings + foldables)
+        val bitmap = WallpaperFitHelper.fitToSurface(context, raw, surfaceWidth, surfaceHeight)
+        fittedForWidth = surfaceWidth
+        fittedForHeight = surfaceHeight
 
-        // Overwrite the existing nextSet IDs instead of deleting them
-        nextSet.sharpId = uploadTexture(bitmap, nextSet.sharpId)
-        tempTextureId = createEmptyTexture(bitmap.width, bitmap.height, tempTextureId)
-        nextSet.blurId = gpuBlur(nextSet.sharpId, bitmap.width, bitmap.height, 200f, nextSet.blurId)
+        // Overwrite the existing nextSet IDs instead of deleting them. Pass dimensions.
+        nextSet.sharpId = uploadTexture(bitmap, nextSet.sharpId, nextSet.width, nextSet.height)
+
+        tempTextureId = createEmptyTexture(bitmap.width, bitmap.height, tempTextureId, tempTextureWidth, tempTextureHeight)
+        tempTextureWidth = bitmap.width
+        tempTextureHeight = bitmap.height
+
+        nextSet.blurId = gpuBlur(nextSet.sharpId, bitmap.width, bitmap.height, 200f, nextSet.blurId, nextSet.width, nextSet.height)
+
+        nextSet.width = bitmap.width
+        nextSet.height = bitmap.height
 
         val blurredBitmap = downloadTexture(nextSet.blurId, bitmap.width, bitmap.height)
         initBaseBlobs(blurredBitmap)
@@ -270,6 +312,13 @@ class BlurToSharpRenderer(private val context: Context) : GLSurfaceView.Renderer
     override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {
         GLES30.glViewport(0, 0, width, height)
         aspectRatio = width.toFloat() / height.toFloat()
+        surfaceWidth = width
+        surfaceHeight = height
+        // The surface size changed (fold/unfold, rotation, different display):
+        // re-fit the wallpaper so it is not stretched to the new dimensions.
+        if (width != fittedForWidth || height != fittedForHeight) {
+            needsReload = true
+        }
     }
 
     override fun onDrawFrame(gl: GL10?) {
@@ -280,6 +329,11 @@ class BlurToSharpRenderer(private val context: Context) : GLSurfaceView.Renderer
         if (needsReload) {
             needsReload = false
             loadAndApplyTextures()
+        }
+
+        // Restore viewport after temp texture manipulation
+        if (surfaceWidth > 0 && surfaceHeight > 0) {
+            GLES30.glViewport(0, 0, surfaceWidth, surfaceHeight)
         }
 
         if (!currentSet.isValid()) {
@@ -347,19 +401,23 @@ class BlurToSharpRenderer(private val context: Context) : GLSurfaceView.Renderer
         drawQuad(aPosLoc, aTexLoc)
     }
 
-    private fun createEmptyTexture(width: Int, height: Int, existingTextureId: Int = 0): Int {
+    private fun createEmptyTexture(width: Int, height: Int, existingTextureId: Int = 0, existingWidth: Int = 0, existingHeight: Int = 0): Int {
         val t = if (existingTextureId != 0) intArrayOf(existingTextureId) else { val arr = IntArray(1); GLES30.glGenTextures(1, arr, 0); arr }
         GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, t[0])
-        GLES30.glTexImage2D(GLES30.GL_TEXTURE_2D, 0, GLES30.GL_RGBA, width, height, 0, GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, null)
         GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, GLES30.GL_LINEAR)
         GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, GLES30.GL_LINEAR)
         GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_S, GLES30.GL_CLAMP_TO_EDGE)
         GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_T, GLES30.GL_CLAMP_TO_EDGE)
+
+        // Only call glTexImage2D if it's a new ID or the dimensions have changed
+        if (existingTextureId == 0 || existingWidth != width || existingHeight != height) {
+            GLES30.glTexImage2D(GLES30.GL_TEXTURE_2D, 0, GLES30.GL_RGBA, width, height, 0, GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, null)
+        }
         return t[0]
     }
 
-    private fun gpuBlur(inputTexture: Int, width: Int, height: Int, radius: Float, targetOutputId: Int = 0): Int {
-        val outputTexture = createEmptyTexture(width, height, targetOutputId)
+    private fun gpuBlur(inputTexture: Int, width: Int, height: Int, radius: Float, targetOutputId: Int = 0, existingWidth: Int = 0, existingHeight: Int = 0): Int {
+        val outputTexture = createEmptyTexture(width, height, targetOutputId, existingWidth, existingHeight)
         GLES30.glUseProgram(blurProgramId)
         val aPosLoc = GLES30.glGetAttribLocation(blurProgramId, "aPosition")
         val aTexLoc = GLES30.glGetAttribLocation(blurProgramId, "aTexCoord")
@@ -410,14 +468,16 @@ class BlurToSharpRenderer(private val context: Context) : GLSurfaceView.Renderer
         return bitmap
     }
 
-    private fun uploadTexture(bitmap: Bitmap, existingTextureId: Int = 0): Int {
+    private fun uploadTexture(bitmap: Bitmap, existingTextureId: Int = 0, existingWidth: Int = 0, existingHeight: Int = 0): Int {
         val textureHandle = if (existingTextureId != 0) intArrayOf(existingTextureId) else { val arr = IntArray(1); GLES30.glGenTextures(1, arr, 0); arr }
         GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, textureHandle[0])
         GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, GLES30.GL_LINEAR)
         GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, GLES30.GL_LINEAR)
         GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_S, GLES30.GL_CLAMP_TO_EDGE)
         GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_T, GLES30.GL_CLAMP_TO_EDGE)
+
         GLUtils.texImage2D(GLES30.GL_TEXTURE_2D, 0, bitmap, 0)
+
         return textureHandle[0]
     }
 
@@ -443,14 +503,9 @@ class BlurToSharpRenderer(private val context: Context) : GLSurfaceView.Renderer
     }
 
     private fun loadFixedWallpaper(): Bitmap {
-        val file = File(context.filesDir, "wallpaper.jpg")
-        if (file.exists()) {
-            val bitmap = BitmapFactory.decodeFile(file.absolutePath)
-            if (bitmap != null) return bitmap
-        }
-        val fallback = createBitmap(1080, 1920)
-        fallback.eraseColor(Color.BLUE)
-        return fallback
+        // Loads the active wallpaper and fits it to the current surface using
+        // the user's display settings (handles foldables and fit modes).
+        return WallpaperFitHelper.loadDisplayBitmap(context, surfaceWidth, surfaceHeight)
     }
 
     data class ColorCluster(val color: Int, val centerX: Float, val centerY: Float)

@@ -15,8 +15,10 @@ import android.os.Looper
 import android.view.SurfaceHolder
 import android.view.animation.LinearInterpolator
 import com.app.nosatmosphereeffect.helper.GLWallpaperService
+import com.app.nosatmosphereeffect.helper.WallpaperFitHelper
 import com.app.nosatmosphereeffect.renderer.ColorFillRenderer
 import java.io.File
+import android.os.PowerManager
 
 class ColorFillService : GLWallpaperService() {
 
@@ -63,9 +65,9 @@ class ColorFillService : GLWallpaperService() {
             prepareForNextUnlock()
         }
 
-        private val rotationRunnable = Runnable {
-            rotateWallpaper()
-        }
+//        private val rotationRunnable = Runnable {
+//            rotateWallpaper()
+//        }
 
         fun handleThemeChange(isNightMode: Boolean) {
             rotateWallpaper(isThemeChange = true, currentNightMode = isNightMode)
@@ -115,15 +117,20 @@ class ColorFillService : GLWallpaperService() {
 
             if (nextFile.exists()) {
                 try {
-                    val nextBitmap = BitmapFactory.decodeFile(nextFile.absolutePath)
+                    val nextBitmap = WallpaperFitHelper.decodeNextForDisplay(applicationContext)
                     if (nextBitmap != null) {
-                        myRenderer?.queuePlaylistTransition(nextBitmap)
-                        requestRender()
-
+                        // Promote the next image's files AND its fit mode to the active
+                        // slot BEFORE handing the bitmap to the renderer, so the incoming
+                        // image is fitted with its own per-image fit mode (race-free).
                         if (activeFile.exists()) {
                             activeFile.delete()
                         }
                         nextFile.renameTo(activeFile)
+                        WallpaperFitHelper.promoteNextSource(filesDir)
+                        WallpaperFitHelper.promoteNextMode(applicationContext)
+
+                        myRenderer?.queuePlaylistTransition(nextBitmap)
+                        requestRender()
 
                         cachedColors = null
                         prefs.edit().putLong("last_rotation_timestamp", System.currentTimeMillis()).apply()
@@ -157,6 +164,8 @@ class ColorFillService : GLWallpaperService() {
 
                             val nextFile = File(filesDir, "next_wallpaper.jpg")
                             randomFile.copyTo(nextFile, overwrite = true)
+                            WallpaperFitHelper.stageNextSource(filesDir, randomFile.name)
+                            WallpaperFitHelper.stageNextModeFromPlaylist(applicationContext, randomFile.name)
                         }
                     }
                 } catch (e: Exception) {
@@ -213,18 +222,19 @@ class ColorFillService : GLWallpaperService() {
                     Intent.ACTION_SCREEN_ON -> {
                         isLocked = true
                         handler.removeCallbacks(unlockChecker)
-                        handler.removeCallbacks(rotationRunnable)
+//                        handler.removeCallbacks(rotationRunnable)
                         handler.post(unlockChecker)
                     }
                     Intent.ACTION_SCREEN_OFF -> {
                         handler.removeCallbacks(unlockChecker)
                         isLocked = true
                         handler.postDelayed(resetRunnable, lockDelay)
-                        handler.postDelayed(rotationRunnable, lockDelay)
+                        rotateWallpaper()
+//                        handler.postDelayed(rotationRunnable, lockDelay)
                     }
                     Intent.ACTION_USER_PRESENT -> {
                         handler.removeCallbacks(resetRunnable)
-                        handler.removeCallbacks(rotationRunnable)
+//                        handler.removeCallbacks(rotationRunnable)
                         if (isLocked) {
                             isLocked = false
                             playUnlockAnimation()
@@ -285,6 +295,12 @@ class ColorFillService : GLWallpaperService() {
         }
 
         override fun onVisibilityChanged(visible: Boolean) {
+            if (!visible) {
+                val pm = getSystemService(POWER_SERVICE) as PowerManager
+                if (!pm.isInteractive) {
+                    myRenderer?.blurStrength = 0.0f
+                }
+            }
             super.onVisibilityChanged(visible)
             if (visible) {
                 val keyguardManager = getSystemService(KEYGUARD_SERVICE) as KeyguardManager

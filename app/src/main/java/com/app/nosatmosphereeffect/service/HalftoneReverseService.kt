@@ -12,8 +12,10 @@ import android.opengl.GLSurfaceView
 import android.os.Build
 import android.view.animation.LinearInterpolator
 import com.app.nosatmosphereeffect.helper.GLWallpaperService
+import com.app.nosatmosphereeffect.helper.WallpaperFitHelper
 import com.app.nosatmosphereeffect.renderer.HalftoneRenderer
 import java.io.File
+import android.os.PowerManager
 
 class HalftoneReverseService : GLWallpaperService(){
 
@@ -55,9 +57,9 @@ class HalftoneReverseService : GLWallpaperService(){
             prepareForNextUnlock()
         }
 
-        private val rotationRunnable = Runnable {
-            rotateWallpaper()
-        }
+//        private val rotationRunnable = Runnable {
+//            rotateWallpaper()
+//        }
 
         fun handleThemeChange(isNightMode: Boolean) {
             rotateWallpaper(isThemeChange = true, currentNightMode = isNightMode)
@@ -102,12 +104,16 @@ class HalftoneReverseService : GLWallpaperService(){
 
             if (nextFile.exists()) {
                 try {
-                    val nextBitmap = BitmapFactory.decodeFile(nextFile.absolutePath)
+                    val nextBitmap = WallpaperFitHelper.decodeNextForDisplay(applicationContext)
                     if (nextBitmap != null) {
-                        myRenderer?.queuePlaylistTransition(nextBitmap)
-                        requestRender()
+                        // Promote next image's files AND fit mode before handing the
+                        // bitmap to the renderer, so it fits with the per-image mode.
                         if (activeFile.exists()) activeFile.delete()
                         nextFile.renameTo(activeFile)
+                        WallpaperFitHelper.promoteNextSource(filesDir)
+                        WallpaperFitHelper.promoteNextMode(applicationContext)
+                        myRenderer?.queuePlaylistTransition(nextBitmap)
+                        requestRender()
                         cachedColors = null
                         prefs.edit().putLong("last_rotation_timestamp", System.currentTimeMillis()).apply()
                         notifyColorsChanged()
@@ -134,6 +140,8 @@ class HalftoneReverseService : GLWallpaperService(){
                             prefs.edit().putString("last_playlist_image", randomFile.name).apply()
                             val nextFile = File(filesDir, "next_wallpaper.jpg")
                             randomFile.copyTo(nextFile, overwrite = true)
+                            WallpaperFitHelper.stageNextSource(filesDir, randomFile.name)
+                            WallpaperFitHelper.stageNextModeFromPlaylist(applicationContext, randomFile.name)
                         }
                     }
                 } catch (e: Exception) { e.printStackTrace() }
@@ -180,18 +188,19 @@ class HalftoneReverseService : GLWallpaperService(){
                     Intent.ACTION_SCREEN_ON -> {
                         isLocked = true
                         handler.removeCallbacks(unlockChecker)
-                        handler.removeCallbacks(rotationRunnable)
+//                        handler.removeCallbacks(rotationRunnable)
                         handler.post(unlockChecker)
                     }
                     Intent.ACTION_SCREEN_OFF -> {
                         handler.removeCallbacks(unlockChecker)
                         isLocked = true
                         handler.postDelayed(resetRunnable, lockDelay)
-                        handler.postDelayed(rotationRunnable, lockDelay)
+//                        handler.postDelayed(rotationRunnable, lockDelay)
+                        rotateWallpaper()
                     }
                     Intent.ACTION_USER_PRESENT -> {
                         handler.removeCallbacks(resetRunnable)
-                        handler.removeCallbacks(rotationRunnable)
+//                        handler.removeCallbacks(rotationRunnable)
                         if (isLocked) {
                             isLocked = false
                             playUnlockAnimation()
@@ -245,6 +254,12 @@ class HalftoneReverseService : GLWallpaperService(){
         }
 
         override fun onVisibilityChanged(visible: Boolean) {
+            if (!visible) {
+                val pm = getSystemService(POWER_SERVICE) as PowerManager
+                if (!pm.isInteractive) {
+                    myRenderer?.blurStrength = 0.0f
+                }
+            }
             super.onVisibilityChanged(visible)
             if (visible) {
                 val km = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager

@@ -15,8 +15,10 @@ import android.os.Looper
 import android.view.SurfaceHolder
 import android.view.animation.LinearInterpolator
 import com.app.nosatmosphereeffect.helper.GLWallpaperService
+import com.app.nosatmosphereeffect.helper.WallpaperFitHelper
 import com.app.nosatmosphereeffect.renderer.BlurToSharpRenderer
 import java.io.File
+import android.os.PowerManager
 
 class BlurToSharpService : GLWallpaperService() {
 
@@ -64,9 +66,9 @@ class BlurToSharpService : GLWallpaperService() {
         private val resetRunnable = Runnable {
             prepareForNextUnlock()
         }
-        private val rotationRunnable = Runnable {
-            rotateWallpaper()
-        }
+//        private val rotationRunnable = Runnable {
+//            rotateWallpaper()
+//        }
 
         // Called instantly when the OS configuration changes
         fun handleThemeChange(isNightMode: Boolean) {
@@ -125,15 +127,20 @@ class BlurToSharpService : GLWallpaperService() {
 
             if (nextFile.exists()) {
                 try {
-                    val nextBitmap = BitmapFactory.decodeFile(nextFile.absolutePath)
+                    val nextBitmap = WallpaperFitHelper.decodeNextForDisplay(applicationContext)
                     if (nextBitmap != null) {
-                        myRenderer?.queuePlaylistTransition(nextBitmap)
-                        requestRender()
-
+                        // Promote the next image's files AND its fit mode to the active
+                        // slot BEFORE handing the bitmap to the renderer, so the incoming
+                        // image is fitted with its own per-image fit mode (race-free).
                         if (activeFile.exists()) {
                             activeFile.delete()
                         }
                         nextFile.renameTo(activeFile)
+                        WallpaperFitHelper.promoteNextSource(filesDir)
+                        WallpaperFitHelper.promoteNextMode(applicationContext)
+
+                        myRenderer?.queuePlaylistTransition(nextBitmap)
+                        requestRender()
 
                         cachedColors = null
                         prefs.edit().putLong("last_rotation_timestamp", System.currentTimeMillis()).apply()
@@ -174,6 +181,8 @@ class BlurToSharpService : GLWallpaperService() {
                             // 5. Copy to next_wallpaper.jpg
                             val nextFile = File(filesDir, "next_wallpaper.jpg")
                             randomFile.copyTo(nextFile, overwrite = true)
+                            WallpaperFitHelper.stageNextSource(filesDir, randomFile.name)
+                            WallpaperFitHelper.stageNextModeFromPlaylist(applicationContext, randomFile.name)
                         }
                     }
                 } catch (e: Exception) {
@@ -233,7 +242,7 @@ class BlurToSharpService : GLWallpaperService() {
                         // Screen turned on. Start watching for unlock immediately.
                         isLocked = true
                         handler.removeCallbacks(unlockChecker)
-                        handler.removeCallbacks(rotationRunnable)
+//                        handler.removeCallbacks(rotationRunnable)
                         handler.post(unlockChecker)
                     }
                     Intent.ACTION_SCREEN_OFF -> {
@@ -241,12 +250,13 @@ class BlurToSharpService : GLWallpaperService() {
                         handler.removeCallbacks(unlockChecker)
                         isLocked = true
                         handler.postDelayed(resetRunnable, lockDelay)
-                        handler.postDelayed(rotationRunnable, lockDelay)
+//                        handler.postDelayed(rotationRunnable, lockDelay)
+                        rotateWallpaper()
                     }
                     Intent.ACTION_USER_PRESENT -> {
                         // Backup: Keep this as a failsafe in case polling misses (rare)
                         handler.removeCallbacks(resetRunnable)
-                        handler.removeCallbacks(rotationRunnable)
+//                        handler.removeCallbacks(rotationRunnable)
                         if (isLocked) {
                             isLocked = false
                             playUnlockAnimation()
@@ -310,6 +320,12 @@ class BlurToSharpService : GLWallpaperService() {
         }
 
         override fun onVisibilityChanged(visible: Boolean) {
+            if (!visible) {
+                val pm = getSystemService(POWER_SERVICE) as PowerManager
+                if (!pm.isInteractive) {
+                    myRenderer?.blurStrength = 0.0f
+                }
+            }
             super.onVisibilityChanged(visible)
             if (visible) {
                 val keyguardManager = getSystemService(KEYGUARD_SERVICE) as KeyguardManager

@@ -8,6 +8,7 @@ import android.opengl.GLES30
 import android.opengl.GLSurfaceView
 import android.opengl.GLUtils
 import androidx.core.graphics.createBitmap
+import com.app.nosatmosphereeffect.helper.WallpaperFitHelper
 import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -23,8 +24,10 @@ class ColorFillRenderer(
     // --- RAM Optimized Ring Buffer Logic ---
     private class TextureSet {
         var sharpId = 0
+        var width = 0
+        var height = 0
         fun isValid() = sharpId != 0
-        fun reset() { sharpId = 0 }
+        fun reset() { sharpId = 0; width = 0; height = 0 }
     }
 
     private var currentSet = TextureSet()
@@ -42,6 +45,13 @@ class ColorFillRenderer(
 
     private var programId: Int = 0
     private var aspectRatio: Float = 1.0f
+
+    // --- DISPLAY FIT: actual surface size + the size the textures were fitted for ---
+    @Volatile private var surfaceWidth: Int = 0
+    @Volatile private var surfaceHeight: Int = 0
+    private var fittedForWidth: Int = -1
+    private var fittedForHeight: Int = -1
+    // --------------------------------------------------------------------------------
 
     private val vertices = floatArrayOf(
         -1f, -1f,  0f, 1f,
@@ -74,7 +84,12 @@ class ColorFillRenderer(
         }
 
         programId = createProgram(vertexCode, fragmentCode)
-        loadAndApplyTextures()
+        // GL context is fresh: any previously held texture handles are invalid.
+        // Defer the texture load to the first frame, when the surface size is
+        // known, so the image can be fitted to the actual display (foldables).
+        currentSet.reset()
+        nextSet.reset()
+        needsReload = true
     }
 
     private fun loadAndApplyTextures() {
@@ -82,16 +97,30 @@ class ColorFillRenderer(
             GLES30.glDeleteTextures(1, intArrayOf(currentSet.sharpId), 0)
             currentSet.reset()
         }
+        fittedForWidth = surfaceWidth
+        fittedForHeight = surfaceHeight
         val sharpBitmap = loadFixedWallpaper()
+
+        currentSet.width = sharpBitmap.width
+        currentSet.height = sharpBitmap.height
+
         currentSet.sharpId = uploadTexture(sharpBitmap)
         sharpBitmap.recycle()
     }
 
     private fun processPlaylistTransition() {
-        val bitmap = pendingPlaylistBitmap ?: return
+        val raw = pendingPlaylistBitmap ?: return
+        // Fit the incoming image to the current surface (display settings + foldables)
+        val bitmap = WallpaperFitHelper.fitToSurface(context, raw, surfaceWidth, surfaceHeight)
+        fittedForWidth = surfaceWidth
+        fittedForHeight = surfaceHeight
 
-        // RAM FIX: Overwrite the existing nextSet.sharpId instead of deleting it
-        nextSet.sharpId = uploadTexture(bitmap, nextSet.sharpId)
+        // RAM FIX & PIXEL BUG FIX: Overwrite the existing nextSet.sharpId instead of deleting it
+        nextSet.sharpId = uploadTexture(bitmap, nextSet.sharpId, nextSet.width, nextSet.height)
+
+        nextSet.width = bitmap.width
+        nextSet.height = bitmap.height
+
         bitmap.recycle()
 
         // Swap Pointers
@@ -104,6 +133,13 @@ class ColorFillRenderer(
     override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {
         GLES30.glViewport(0, 0, width, height)
         aspectRatio = width.toFloat() / height.toFloat()
+        surfaceWidth = width
+        surfaceHeight = height
+        // The surface size changed (fold/unfold, rotation, different display):
+        // re-fit the wallpaper so it is not stretched to the new dimensions.
+        if (width != fittedForWidth || height != fittedForHeight) {
+            needsReload = true
+        }
     }
 
     override fun onDrawFrame(gl: GL10?) {
@@ -151,15 +187,19 @@ class ColorFillRenderer(
         GLES30.glDisableVertexAttribArray(aTexLoc)
     }
 
-    private fun uploadTexture(bitmap: Bitmap, existingTextureId: Int = 0): Int {
+    private fun uploadTexture(bitmap: Bitmap, existingTextureId: Int = 0, existingWidth: Int = 0, existingHeight: Int = 0): Int {
         val textureHandle = if (existingTextureId != 0) intArrayOf(existingTextureId) else { val arr = IntArray(1); GLES30.glGenTextures(1, arr, 0); arr }
         GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, textureHandle[0])
         GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, GLES30.GL_LINEAR_MIPMAP_LINEAR)
         GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, GLES30.GL_LINEAR)
         GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_S, GLES30.GL_CLAMP_TO_EDGE)
         GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_T, GLES30.GL_CLAMP_TO_EDGE)
+
         GLUtils.texImage2D(GLES30.GL_TEXTURE_2D, 0, bitmap, 0)
+
         GLES30.glGenerateMipmap(GLES30.GL_TEXTURE_2D)
+
+
         return textureHandle[0]
     }
 
@@ -185,13 +225,8 @@ class ColorFillRenderer(
     }
 
     private fun loadFixedWallpaper(): Bitmap {
-        val file = File(context.filesDir, "wallpaper.jpg")
-        if (file.exists()) {
-            val bitmap = BitmapFactory.decodeFile(file.absolutePath)
-            if (bitmap != null) return bitmap
-        }
-        val fallback = createBitmap(1080, 1920)
-        fallback.eraseColor(Color.BLUE)
-        return fallback
+        // Loads the active wallpaper and fits it to the current surface using
+        // the user's display settings (handles foldables and fit modes).
+        return WallpaperFitHelper.loadDisplayBitmap(context, surfaceWidth, surfaceHeight)
     }
 }
