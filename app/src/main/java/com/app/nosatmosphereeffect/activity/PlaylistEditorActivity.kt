@@ -10,18 +10,18 @@ import android.graphics.Matrix
 import android.net.Uri
 import android.os.Bundle
 import android.view.WindowManager
-import android.widget.Button
-import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.appcompat.app.AppCompatActivity
+import androidx.activity.ComponentActivity
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshots.SnapshotStateList
+import androidx.compose.runtime.mutableStateListOf
 import androidx.core.view.WindowCompat
 import androidx.exifinterface.media.ExifInterface
-import androidx.recyclerview.widget.LinearLayoutManager
-import androidx.recyclerview.widget.PagerSnapHelper
-import androidx.recyclerview.widget.RecyclerView
-import com.app.nosatmosphereeffect.R
-import com.app.nosatmosphereeffect.helper.PlaylistAdapter
 import com.app.nosatmosphereeffect.helper.WallpaperFitHelper
 import com.app.nosatmosphereeffect.service.AtmosphereService
 import com.app.nosatmosphereeffect.service.BlurToSharpService
@@ -31,7 +31,11 @@ import com.app.nosatmosphereeffect.service.FrostedReverseService
 import com.app.nosatmosphereeffect.service.FrostedService
 import com.app.nosatmosphereeffect.service.HalftoneReverseService
 import com.app.nosatmosphereeffect.service.HalftoneService
-import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.app.nosatmosphereeffect.ui.screens.PlaylistEditorScreen
+import com.app.nosatmosphereeffect.ui.screens.PlaylistEntry
+import com.app.nosatmosphereeffect.ui.screens.ProcessingOverlay
+import com.app.nosatmosphereeffect.ui.screens.SimpleConfirmDialog
+import com.app.nosatmosphereeffect.ui.theme.AtmoEngineTheme
 import java.io.File
 import java.io.FileOutputStream
 import kotlin.math.max
@@ -39,12 +43,14 @@ import kotlin.math.min
 import org.json.JSONArray
 import org.json.JSONObject
 
-class PlaylistEditorActivity : AppCompatActivity() {
+class PlaylistEditorActivity : ComponentActivity() {
 
-    private lateinit var adapter: PlaylistAdapter
-    private val playlistItems = mutableListOf<PlaylistItem>()
+    private val playlistItems = mutableStateListOf<PlaylistItem>()
     private var effectId: String = "ORIGINAL"
     private var editingPosition = -1
+
+    private var showApplyConfirm by mutableStateOf(false)
+    private var isProcessing by mutableStateOf(false)
 
     data class PlaylistItem(
         val originalUri: Uri,
@@ -55,44 +61,41 @@ class PlaylistEditorActivity : AppCompatActivity() {
         var fillMode: String = WallpaperFitHelper.FILL_BLACK
     )
 
-    private lateinit var btnApplyAll: Button
-    private lateinit var tvCounter: TextView
-
-    private val pickMultipleImages = registerForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris: List<Uri> ->
-        if (uris.isNotEmpty()) {
-            val startPos = playlistItems.size
-            uris.forEach { playlistItems.add(PlaylistItem(it)) }
-            adapter.notifyItemRangeInserted(startPos, uris.size)
-            updateUIState()
-            Toast.makeText(this, "${uris.size} images added", Toast.LENGTH_SHORT).show()
-        }
-    }
-
-    private val editImageLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-        if (result.resultCode == RESULT_OK) {
-            val resultUriString = result.data?.getStringExtra("CROPPED_IMAGE_PATH")
-            val matrixState = result.data?.getFloatArrayExtra("MATRIX_STATE")
-            val fitMode = result.data?.getStringExtra("FIT_MODE")
-            val fillMode = result.data?.getStringExtra("FILL_MODE")
-
-            if (resultUriString != null && editingPosition != -1 && editingPosition < playlistItems.size) {
-                val item = playlistItems[editingPosition]
-                item.isEdited = true
-                item.editedFilePath = resultUriString
-                item.matrixState = matrixState
-                item.fitMode = fitMode ?: WallpaperFitHelper.MODE_FILL
-                item.fillMode = fillMode ?: WallpaperFitHelper.FILL_BLACK
-
-                adapter.notifyItemChanged(editingPosition)
+    private val pickMultipleImages =
+        registerForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris: List<Uri> ->
+            if (uris.isNotEmpty()) {
+                uris.forEach { playlistItems.add(PlaylistItem(it)) }
+                Toast.makeText(this, "${uris.size} images added", Toast.LENGTH_SHORT).show()
             }
         }
-    }
+
+    private val editImageLauncher =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            if (result.resultCode == RESULT_OK) {
+                val resultUriString = result.data?.getStringExtra("CROPPED_IMAGE_PATH")
+                val matrixState = result.data?.getFloatArrayExtra("MATRIX_STATE")
+                val fitMode = result.data?.getStringExtra("FIT_MODE")
+                val fillMode = result.data?.getStringExtra("FILL_MODE")
+
+                if (resultUriString != null && editingPosition != -1 && editingPosition < playlistItems.size) {
+                    // Replace with a copy so Compose observes the change and recomposes.
+                    playlistItems[editingPosition] = playlistItems[editingPosition].copy(
+                        isEdited = true,
+                        editedFilePath = resultUriString,
+                        matrixState = matrixState,
+                        fitMode = fitMode ?: WallpaperFitHelper.MODE_FILL,
+                        fillMode = fillMode ?: WallpaperFitHelper.FILL_BLACK
+                    )
+                }
+            }
+        }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
         WindowCompat.setDecorFitsSystemWindows(window, false)
-        window.attributes.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
-        setContentView(R.layout.activity_playlist_editor)
+        window.attributes.layoutInDisplayCutoutMode =
+            WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
 
         effectId = intent.getStringExtra("EFFECT_ID") ?: "ORIGINAL"
 
@@ -101,69 +104,56 @@ class PlaylistEditorActivity : AppCompatActivity() {
             loadExistingPlaylist()
         } else {
             val uris = intent.getParcelableArrayListExtra("IMAGE_URIS", Uri::class.java)
-            if (uris != null) {
-                uris.forEach { playlistItems.add(PlaylistItem(it)) }
-            }
-        }
-
-        btnApplyAll = findViewById(R.id.btnApplyAll)
-        tvCounter = findViewById(R.id.tvCounter)
-        val btnAddMore = findViewById<Button>(R.id.btnAddMore)
-        val recycler = findViewById<RecyclerView>(R.id.recyclerPlaylist)
-
-        setupCarouselRecyclerView(recycler)
-
-        adapter = PlaylistAdapter(this, playlistItems,
-            onItemClick = { pos ->
-                editingPosition = pos
-                launchEditActivity(playlistItems[pos])
-            },
-            onDeleteClick = { pos ->
-                playlistItems.removeAt(pos)
-                adapter.notifyItemRemoved(pos)
-                adapter.notifyItemRangeChanged(pos, playlistItems.size)
-                updateUIState()
-            }
-        )
-        recycler.adapter = adapter
-
-        btnAddMore.setOnClickListener { pickMultipleImages.launch("image/*") }
-
-        btnApplyAll.setOnClickListener {
-           showApplyDialog()
+            uris?.forEach { playlistItems.add(PlaylistItem(it)) }
         }
 
         if (savedInstanceState != null) {
             editingPosition = savedInstanceState.getInt("EDITING_POS", -1)
         }
-        updateUIState()
-    }
 
-    private fun setupCarouselRecyclerView(recycler: RecyclerView) {
-        recycler.layoutManager = LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false)
-        val snapHelper = PagerSnapHelper()
-        snapHelper.attachToRecyclerView(recycler)
+        setContent {
+            AtmoEngineTheme {
+                PlaylistEditorScreen(
+                    entries = playlistItems.map { item ->
+                        val displayUri = if (item.isEdited && item.editedFilePath != null) {
+                            Uri.parse("file://${item.editedFilePath}")
+                        } else {
+                            item.originalUri
+                        }
+                        PlaylistEntry(displayUri = displayUri, isEdited = item.isEdited)
+                    },
+                    onEditItem = { pos ->
+                        editingPosition = pos
+                        launchEditActivity(playlistItems[pos])
+                    },
+                    onDeleteItem = { pos ->
+                        if (pos in playlistItems.indices) playlistItems.removeAt(pos)
+                    },
+                    onAddMore = { pickMultipleImages.launch("image/*") },
+                    onApply = { showApplyDialog() },
+                    onBack = { finish() }
+                )
 
-        recycler.post {
-            val screenWidth = windowManager.currentWindowMetrics.bounds.width()
-            val cardWidthPx = (300 * resources.displayMetrics.density).toInt()
-            val cardMarginPx = (16 * resources.displayMetrics.density).toInt()
-            val totalItemWidth = cardWidthPx + cardMarginPx
-            val padding = (screenWidth - totalItemWidth) / 2
-            recycler.setPadding(padding, 0, padding, 0)
-            recycler.scrollToPosition(0)
-        }
-    }
+                if (showApplyConfirm) {
+                    SimpleConfirmDialog(
+                        title = "Apply Wallpaper",
+                        message = "On the next screen, please select:\n\n" +
+                            "Set Wallpaper › Home Screen and Lock Screen.\n\n" +
+                            "(This ensures the lock-screen effect works correctly.)",
+                        confirmLabel = "Set Wallpaper",
+                        dismissLabel = "Cancel",
+                        onConfirm = {
+                            showApplyConfirm = false
+                            applyFromDialog()
+                        },
+                        onDismiss = { showApplyConfirm = false }
+                    )
+                }
 
-    private fun updateUIState() {
-        val count = playlistItems.size
-        tvCounter.text = "$count Images Selected"
-        if (count > 0) {
-            btnApplyAll.isEnabled = true
-            btnApplyAll.alpha = 1.0f
-        } else {
-            btnApplyAll.isEnabled = false
-            btnApplyAll.alpha = 0.5f
+                if (isProcessing) {
+                    ProcessingOverlay(message = "Processing playlist…")
+                }
+            }
         }
     }
 
@@ -185,33 +175,10 @@ class PlaylistEditorActivity : AppCompatActivity() {
     }
 
     private fun applyPlaylist() {
-        val loadingView = android.widget.LinearLayout(this).apply {
-            orientation = android.widget.LinearLayout.HORIZONTAL
-            setPadding(50, 50, 50, 50)
-            gravity = android.view.Gravity.CENTER_VERTICAL
-
-            addView(android.widget.ProgressBar(this@PlaylistEditorActivity).apply {
-                isIndeterminate = true
-            })
-
-            addView(android.widget.TextView(this@PlaylistEditorActivity).apply {
-                text = "Processing playlist..."
-                textSize = 16f
-                setPadding(40, 0, 0, 0)
-                setTextColor(android.graphics.Color.WHITE) // Adjust based on your theme
-            })
-        }
-
-        val progressDialog = com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
-            .setView(loadingView)
-            .setCancelable(false)
-            .create()
-
-        progressDialog.show()
+        isProcessing = true
 
         Thread {
             try {
-
                 // 1. USE A TEMPORARY FOLDER INSTEAD OF DELETING THE ACTIVE ONE YET
                 val tempDir = File(filesDir, "playlist_temp")
                 if (tempDir.exists()) tempDir.deleteRecursively()
@@ -232,7 +199,6 @@ class PlaylistEditorActivity : AppCompatActivity() {
                 playlistItems.forEachIndexed { index, item ->
                     val destFile = File(tempDir, "wallpaper_$index.jpg")
                     val origFile = File(tempOriginalsDir, "original_$index.jpg")
-
 
                     try {
                         contentResolver.openInputStream(item.originalUri)?.use { input ->
@@ -269,8 +235,6 @@ class PlaylistEditorActivity : AppCompatActivity() {
                         metaObj.put("matrix", matrixJson)
                     }
                     metaArray.put(metaObj)
-
-
                 }
 
                 File(tempDir, "metadata.json").writeText(metaArray.toString())
@@ -306,7 +270,7 @@ class PlaylistEditorActivity : AppCompatActivity() {
                 wallpaperPrefs.edit().clear().apply()
                 getSharedPreferences("app_prefs", Context.MODE_PRIVATE).edit().clear().apply()
 
-                if(playlistItems.size > 1){
+                if (playlistItems.size > 1) {
                     val nextFile = File(filesDir, "next_wallpaper.jpg")
                     val secondFile = File(playlistDir, "wallpaper_1.jpg")
                     if (secondFile.exists()) {
@@ -341,7 +305,7 @@ class PlaylistEditorActivity : AppCompatActivity() {
                 wallpaperPrefs.edit().putInt("active_theme_state", if (isNightMode) 1 else 0).apply()
 
                 runOnUiThread {
-                    progressDialog.dismiss()
+                    isProcessing = false
                     Toast.makeText(this, "Setup complete! Now lock and unlock the screen to activate.", Toast.LENGTH_LONG).show()
                     val intent = Intent("com.app.nosatmosphereeffect.RELOAD_WALLPAPER")
                     intent.setPackage(packageName)
@@ -351,7 +315,7 @@ class PlaylistEditorActivity : AppCompatActivity() {
                 }
             } catch (e: Exception) {
                 runOnUiThread {
-                    progressDialog.dismiss()
+                    isProcessing = false
                     Toast.makeText(this, "Error: ${e.message}", Toast.LENGTH_LONG).show()
                 }
             }
@@ -413,7 +377,9 @@ class PlaylistEditorActivity : AppCompatActivity() {
             if (rotation == 0f) return bitmap
             val matrix = Matrix().apply { postRotate(rotation) }
             return Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
-        } catch(e: Exception) { return bitmap }
+        } catch (e: Exception) {
+            return bitmap
+        }
     }
 
     private fun calculateInSampleSize(options: BitmapFactory.Options, reqWidth: Int, reqHeight: Int): Int {
@@ -431,7 +397,7 @@ class PlaylistEditorActivity : AppCompatActivity() {
 
     private fun activateService() {
         try {
-            val serviceClass = when(effectId) {
+            val serviceClass = when (effectId) {
                 "ORIGINAL" -> AtmosphereService::class.java
                 "REVERSE" -> BlurToSharpService::class.java
                 "FROSTED" -> FrostedService::class.java
@@ -453,14 +419,7 @@ class PlaylistEditorActivity : AppCompatActivity() {
     }
 
     private fun showApplyDialog() {
-        MaterialAlertDialogBuilder(this)
-            .setTitle("Apply Wallpaper")
-            .setMessage("In the next screen, please select:\n\nSet Wallpaper > Home Screen and Lock Screen.\n\n(This ensures the lock screen effect works correctly).")
-            .setPositiveButton("Set Wallpaper") { _, _ ->
-                applyFromDialog()
-            }
-            .setNegativeButton("Cancel", null)
-            .show()
+        showApplyConfirm = true
     }
 
     private fun loadExistingPlaylist() {
@@ -516,7 +475,7 @@ class PlaylistEditorActivity : AppCompatActivity() {
         }
     }
 
-    private fun applyFromDialog(){
+    private fun applyFromDialog() {
         if (playlistItems.isEmpty()) {
             Toast.makeText(this, "Playlist is empty", Toast.LENGTH_SHORT).show()
         } else {

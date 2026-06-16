@@ -8,64 +8,89 @@ import android.graphics.Matrix
 import android.net.Uri
 import android.os.Bundle
 import android.view.WindowManager
-import android.widget.Button
 import android.widget.Toast
-import androidx.appcompat.app.AppCompatActivity
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.exifinterface.media.ExifInterface
-import com.app.nosatmosphereeffect.R
-import com.app.nosatmosphereeffect.helper.FitChooser
-import com.app.nosatmosphereeffect.helper.TouchImageView
 import com.app.nosatmosphereeffect.helper.WallpaperFitHelper
+import com.app.nosatmosphereeffect.ui.screens.CropController
+import com.app.nosatmosphereeffect.ui.screens.CropScreen
+import com.app.nosatmosphereeffect.ui.theme.AtmoEngineTheme
 import java.io.File
 import java.io.FileOutputStream
 import java.io.InputStream
 
-class MultiImageCropActivity : AppCompatActivity() {
+/**
+ * Per-image crop screen used by the Playlist Editor. Unlike [CropActivity] this
+ * one does not apply a wallpaper or activate a service: it crops a single image,
+ * captures the zoom/pan matrix and the chosen fit/fill, then returns them so the
+ * playlist can store the edit per-image.
+ */
+class MultiImageCropActivity : ComponentActivity() {
 
-    private lateinit var cropView: TouchImageView
+    private val controller = CropController()
     private var sourceUri: Uri? = null
-    private var fitSelection: FitChooser.Selection? = null
+
+    // Tracked live so the result can record this image's chosen fit/fill. Seeded
+    // from the incoming extras and updated whenever the user changes the chooser.
+    private var currentFit: String = WallpaperFitHelper.MODE_FILL
+    private var currentFill: String = WallpaperFitHelper.FILL_BLACK
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Make it full screen like CropActivity
+        // Full-screen immersive surface, mirroring CropActivity.
         WindowCompat.setDecorFitsSystemWindows(window, false)
-        window.attributes.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+        window.attributes.layoutInDisplayCutoutMode =
+            WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+
         val windowController = WindowCompat.getInsetsController(window, window.decorView)
+        windowController.isAppearanceLightStatusBars = false
+        windowController.isAppearanceLightNavigationBars = false
         windowController.hide(WindowInsetsCompat.Type.systemBars())
-        windowController.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-
-        setContentView(R.layout.activity_crop_multi)
-
-        cropView = findViewById(R.id.cropImageView)
-        val btnDone = findViewById<Button>(R.id.btnSaveCrop) // Ensure ID matches layout
+        windowController.systemBarsBehavior =
+            WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
 
         sourceUri = intent.data
-        val savedMatrix = intent.getFloatArrayExtra("MATRIX_STATE") // Receive State
+        val savedMatrix = intent.getFloatArrayExtra("MATRIX_STATE")
 
         // Restore this image's previously chosen fit mode (per-image, not global).
         val initialFit = intent.getStringExtra("INITIAL_FIT_MODE") ?: WallpaperFitHelper.MODE_FILL
         val initialFill = intent.getStringExtra("INITIAL_FILL_MODE") ?: WallpaperFitHelper.FILL_BLACK
-        // The chooser drives a live WYSIWYG preview in the crop view.
-        fitSelection = FitChooser.attach(this, initialFit, initialFill,
-            onChange = { f, fl -> cropView.setFitMode(f, fl) })
+        currentFit = initialFit
+        currentFill = initialFill
 
-        if (sourceUri != null) {
-            loadImage(sourceUri!!, savedMatrix)
-        } else {
+        val uri = sourceUri ?: run {
             Toast.makeText(this, "No Image Data Found", Toast.LENGTH_SHORT).show()
             finish()
+            return
         }
 
-        btnDone.setOnClickListener {
-            val croppedBitmap = cropView.getCroppedBitmap()
-                // Get the current zoom state to save it
-                val currentMatrix = cropView.getCurrentMatrixValues()
-                saveAndReturnResult(croppedBitmap, currentMatrix)
+        setContent {
+            AtmoEngineTheme {
+                CropScreen(
+                    controller = controller,
+                    buttonLabel = "Done",
+                    initialFit = initialFit,
+                    initialFill = initialFill,
+                    onViewCreated = { loadImage(uri, savedMatrix) },
+                    onFitChanged = { f, fl ->
+                        currentFit = f
+                        currentFill = fl
+                        controller.setFitMode(f, fl)
+                    },
+                    onConfirm = {
+                        val cropped = controller.getCroppedBitmap()
+                        val matrix = controller.getCurrentMatrixValues()
+                        if (cropped != null && matrix != null) {
+                            saveAndReturnResult(cropped, matrix)
+                        }
+                    }
+                )
+            }
         }
     }
 
@@ -76,9 +101,8 @@ class MultiImageCropActivity : AppCompatActivity() {
             val rotatedBitmap = decodeSampledBitmapFromUri(this, uri, 4096, 4096)
             runOnUiThread {
                 if (rotatedBitmap != null) {
-                    // KEY FIX: Use setInitialImage instead of setImageBitmap
-                    // This initializes bounds and restores zoom state if provided
-                    cropView.setInitialImage(rotatedBitmap, savedMatrix)
+                    // setInitialImage initializes bounds and restores zoom state if provided.
+                    controller.setInitialImage(rotatedBitmap, savedMatrix)
                 } else {
                     Toast.makeText(this, "Failed to load image", Toast.LENGTH_SHORT).show()
                     finish()
@@ -140,11 +164,11 @@ class MultiImageCropActivity : AppCompatActivity() {
 
             val resultIntent = Intent()
             resultIntent.putExtra("CROPPED_IMAGE_PATH", destFile.absolutePath)
-            // Return the Matrix State so we can zoom out later
+            // Return the Matrix State so we can restore zoom/pan later.
             resultIntent.putExtra("MATRIX_STATE", matrixValues)
             // Return this image's chosen fit mode so the playlist can store it per-image.
-            resultIntent.putExtra("FIT_MODE", fitSelection?.fitMode ?: WallpaperFitHelper.MODE_FILL)
-            resultIntent.putExtra("FILL_MODE", fitSelection?.fillMode ?: WallpaperFitHelper.FILL_BLACK)
+            resultIntent.putExtra("FIT_MODE", currentFit)
+            resultIntent.putExtra("FILL_MODE", currentFill)
 
             setResult(RESULT_OK, resultIntent)
             finish()
