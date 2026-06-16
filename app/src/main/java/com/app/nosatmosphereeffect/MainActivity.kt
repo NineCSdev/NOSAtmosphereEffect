@@ -80,7 +80,7 @@ class MainActivity : ComponentActivity() {
                     onBlurChange = { blur = it },
                     onApplyBlur = { applyBlurUpdate() },
                     syncColors = syncColors,
-                    onSyncColorsChange = { setSyncColors(it) },
+                    onSyncColorsChange = { updateSyncColors(it) },
                     onSetupWallpaper = {
                         startActivity(Intent(this, EffectSelectionActivity::class.java))
                     },
@@ -159,7 +159,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun setSyncColors(enabled: Boolean) {
+    private fun updateSyncColors(enabled: Boolean) {
         syncColors = enabled
         getSharedPreferences("app_prefs", MODE_PRIVATE).edit {
             putBoolean("notify_system_colors", enabled)
