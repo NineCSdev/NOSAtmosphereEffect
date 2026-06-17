@@ -52,6 +52,17 @@ object WallpaperFitHelper {
     const val KEY_NEXT_FIT = "next_fit_mode"
     const val KEY_NEXT_FILL = "next_fill_mode"
 
+    // Horizontal wallpaper scrolling (home-screen page parallax). Lives in
+    // display_prefs alongside the fit modes so it survives the app_prefs /
+    // wallpaper_prefs wipe that happens on every new wallpaper. Global (not
+    // per-slot): it is a device/launcher behaviour, not an image property.
+    const val KEY_SCROLL_ENABLED = "wallpaper_scroll_enabled"
+
+    // Cap the scrollable wallpaper width at this multiple of the screen width.
+    // Keeps texture memory bounded (a 4:3 photo on a tall phone would otherwise
+    // be ~3x screen width) while still giving a generous, stock-like pan range.
+    private const val MAX_SCROLL_WIDTH_FACTOR = 2.0f
+
     // Fit modes
     const val MODE_FILL = "FILL"             // Center-crop, fills the screen (default, original behavior)
     const val MODE_FIT = "FIT"               // Whole image visible, bars filled per fill mode
@@ -133,6 +144,120 @@ object WallpaperFitHelper {
 
     /** Modes other than plain screen-fill want the un-cropped source image. */
     fun needsSourceImage(mode: String): Boolean = mode != MODE_FILL
+
+    // ------------------------------------------------------------------
+    // Wallpaper scrolling (home-screen parallax)
+    // ------------------------------------------------------------------
+
+    fun isScrollEnabled(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_SCROLL_ENABLED, false)
+
+    fun setScrollEnabled(context: Context, enabled: Boolean) {
+        prefs(context).edit().putBoolean(KEY_SCROLL_ENABLED, enabled).apply()
+    }
+
+    /**
+     * A bitmap prepared for the GL renderers together with the fraction of its
+     * width that is visible on screen at any one time ([windowX], in (0, 1]).
+     *
+     * When scrolling is off, or the image is not wider than the screen, the
+     * whole width is visible and [windowX] is 1.0 (the renderer then draws
+     * exactly as it always did). When scrolling is on and the image overflows
+     * horizontally, [windowX] < 1.0 and the renderer pans a screen-width window
+     * across the texture in response to launcher offsets.
+     */
+    class RenderImage(val bitmap: Bitmap, val windowX: Float)
+
+    /**
+     * Loads the active wallpaper for rendering. Identical to [loadDisplayBitmap]
+     * when scrolling is disabled. When enabled, returns a "fill-height, keep
+     * width" bitmap (capped to [MAX_SCROLL_WIDTH_FACTOR]x the screen width) so
+     * there is horizontal content to pan across.
+     */
+    fun loadForRender(context: Context, surfaceW: Int, surfaceH: Int): RenderImage {
+        if (!isScrollEnabled(context) || surfaceW <= 0 || surfaceH <= 0) {
+            return RenderImage(loadDisplayBitmap(context, surfaceW, surfaceH), 1.0f)
+        }
+
+        // Scrolling wants the full, un-cropped image so the parts the crop would
+        // have trimmed are available to pan to. Fall back to the cropped image
+        // (old installs / no source) — it simply will not have any pan slack.
+        val filesDir = context.filesDir
+        var source: Bitmap? = null
+        val srcFile = File(filesDir, ACTIVE_SOURCE_FILE)
+        if (srcFile.exists()) source = decodeFileSampled(srcFile, MAX_DECODE_DIM)
+        if (source == null) {
+            val file = File(filesDir, ACTIVE_WALLPAPER_FILE)
+            if (file.exists()) source = BitmapFactory.decodeFile(file.absolutePath)
+        }
+        if (source == null) {
+            val placeholder = Bitmap.createBitmap(surfaceW, surfaceH, Bitmap.Config.ARGB_8888)
+            placeholder.eraseColor(Color.BLUE)
+            return RenderImage(placeholder, 1.0f)
+        }
+        return makeScrollBitmap(source, surfaceW, surfaceH)
+    }
+
+    /**
+     * Scroll-aware variant of [fitToSurface] for queued playlist transitions.
+     * Mirrors [loadForRender]: wide image kept wide when scrolling is on,
+     * otherwise the legacy screen-fit.
+     */
+    fun fitForRender(context: Context, source: Bitmap, surfaceW: Int, surfaceH: Int): RenderImage {
+        if (!isScrollEnabled(context) || surfaceW <= 0 || surfaceH <= 0) {
+            return RenderImage(fitToSurface(context, source, surfaceW, surfaceH), 1.0f)
+        }
+        return makeScrollBitmap(source, surfaceW, surfaceH)
+    }
+
+    /**
+     * Produces a bitmap scaled to exactly fill the surface HEIGHT, preserving
+     * the source aspect ratio, then horizontally centre-cropped to at most
+     * [MAX_SCROLL_WIDTH_FACTOR]x the surface width. Returns it with the visible
+     * width fraction. Consumes [source] (recycled if a new bitmap is made).
+     *
+     * If the height-filled image is not actually wider than the screen (a tall
+     * / narrow image), there is nothing to scroll, so it falls back to a normal
+     * screen-fill and reports windowX = 1.0.
+     */
+    private fun makeScrollBitmap(source: Bitmap, surfaceW: Int, surfaceH: Int): RenderImage {
+        val sw = source.width.toFloat()
+        val sh = source.height.toFloat()
+        if (sw <= 0f || sh <= 0f) {
+            return RenderImage(fitBitmap(source, surfaceW, surfaceH, MODE_FILL, FILL_BLACK), 1.0f)
+        }
+
+        // Scale so the image exactly fills the screen height.
+        val scale = surfaceH / sh
+        val scaledW = sw * scale
+
+        // Not wider than the screen -> no horizontal slack; behave like Fill.
+        if (scaledW <= surfaceW + 0.5f) {
+            return RenderImage(fitBitmap(source, surfaceW, surfaceH, MODE_FILL, FILL_BLACK), 1.0f)
+        }
+
+        // Clamp the canvas width to keep texture memory bounded.
+        val maxW = surfaceW * MAX_SCROLL_WIDTH_FACTOR
+        val canvasW = min(scaledW, maxW)
+        val outW = canvasW.toInt().coerceAtLeast(surfaceW)
+        val outH = surfaceH
+
+        val output = Bitmap.createBitmap(outW, outH, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(output)
+        canvas.drawColor(Color.BLACK)
+        val paint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
+
+        // Centre the (possibly clamped) image horizontally; top-aligned vertically
+        // since it already fills the height exactly.
+        val matrix = Matrix()
+        matrix.setScale(scale, scale)
+        matrix.postTranslate((outW - scaledW) / 2f, 0f)
+        canvas.drawBitmap(source, matrix, paint)
+        source.recycle()
+
+        val windowX = (surfaceW.toFloat() / outW.toFloat()).coerceIn(0.05f, 1.0f)
+        return RenderImage(output, windowX)
+    }
 
     // ------------------------------------------------------------------
     // Loading + fitting (used by the renderers)
@@ -360,7 +485,8 @@ object WallpaperFitHelper {
      */
     fun decodeNextForDisplay(context: Context): Bitmap? {
         val filesDir = context.filesDir
-        if (needsSourceImage(getNextFitMode(context))) {
+        // Scrolling needs the full-width source so the queued image has pan slack.
+        if (isScrollEnabled(context) || needsSourceImage(getNextFitMode(context))) {
             val srcFile = File(filesDir, NEXT_SOURCE_FILE)
             if (srcFile.exists()) {
                 val bitmap = decodeFileSampled(srcFile, MAX_DECODE_DIM)

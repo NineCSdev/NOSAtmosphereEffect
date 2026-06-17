@@ -7,6 +7,7 @@ import android.opengl.GLES30
 import android.opengl.GLSurfaceView
 import android.opengl.GLUtils
 import com.app.nosatmosphereeffect.helper.WallpaperFitHelper
+import com.app.nosatmosphereeffect.helper.WallpaperScrollRenderer
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.FloatBuffer
@@ -16,7 +17,17 @@ import javax.microedition.khronos.opengles.GL10
 class HalftoneRenderer(
     private val context: Context,
     private val isReverse: Boolean = false
-) : GLSurfaceView.Renderer {
+) : GLSurfaceView.Renderer, WallpaperScrollRenderer {
+
+    // --- Wallpaper scrolling (home-screen parallax) ---
+    @Volatile private var scrollOffsetX: Float = 0f
+    private var currentWindowX: Float = 1f   // visible width fraction of current texture
+    private var nextWindowX: Float = 1f      // ...of the queued (transition) texture
+
+    override fun setWallpaperOffset(xOffset: Float) {
+        scrollOffsetX = xOffset.coerceIn(0f, 1f)
+    }
+    // ---------------------------------------------------
 
     // --- RAM Optimized Ring Buffer Logic ---
     private class TextureSet {
@@ -93,7 +104,9 @@ class HalftoneRenderer(
         }
         fittedForWidth = surfaceWidth
         fittedForHeight = surfaceHeight
-        val sharpBitmap = loadFixedWallpaper()
+        val render = WallpaperFitHelper.loadForRender(context, surfaceWidth, surfaceHeight)
+        val sharpBitmap = render.bitmap
+        currentWindowX = render.windowX
 
         currentSet.width = sharpBitmap.width
         currentSet.height = sharpBitmap.height
@@ -104,8 +117,10 @@ class HalftoneRenderer(
 
     private fun processPlaylistTransition() {
         val raw = pendingPlaylistBitmap ?: return
-        // Fit the incoming image to the current surface (display settings + foldables)
-        val bitmap = WallpaperFitHelper.fitToSurface(context, raw, surfaceWidth, surfaceHeight)
+        // Fit the incoming image to the current surface (display settings + foldables + scroll)
+        val render = WallpaperFitHelper.fitForRender(context, raw, surfaceWidth, surfaceHeight)
+        val bitmap = render.bitmap
+        nextWindowX = render.windowX
         fittedForWidth = surfaceWidth
         fittedForHeight = surfaceHeight
 
@@ -121,6 +136,9 @@ class HalftoneRenderer(
         val temp = currentSet
         currentSet = nextSet
         nextSet = temp
+        val tmpWin = currentWindowX
+        currentWindowX = nextWindowX
+        nextWindowX = tmpWin
         pendingPlaylistBitmap = null
     }
 
@@ -157,6 +175,10 @@ class HalftoneRenderer(
         GLES30.glUniform1f(GLES30.glGetUniformLocation(programId, "uDotSize"), dotSize)
         GLES30.glUniform1f(GLES30.glGetUniformLocation(programId, "uGrayscale"), if (grayscale) 1.0f else 0.0f)
         GLES30.glUniform1f(GLES30.glGetUniformLocation(programId, "uDimLevel"), dimLevel)
+
+        // Horizontal scroll window (identity 0f/1f = no scroll, draws as before).
+        GLES30.glUniform1f(GLES30.glGetUniformLocation(programId, "uScrollOffsetX"), scrollOffsetX)
+        GLES30.glUniform1f(GLES30.glGetUniformLocation(programId, "uScrollWindowX"), currentWindowX)
 
         GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
         GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, currentSet.sharpId)
@@ -214,9 +236,5 @@ class HalftoneRenderer(
 
     private fun loadShaderFromAssets(path: String): String {
         return context.assets.open(path).bufferedReader().use { it.readText() }
-    }
-
-    private fun loadFixedWallpaper(): Bitmap {
-        return WallpaperFitHelper.loadDisplayBitmap(context, surfaceWidth, surfaceHeight)
     }
 }
