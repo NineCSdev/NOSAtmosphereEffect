@@ -23,7 +23,7 @@ class ColorFillRenderer(
 ) : GLSurfaceView.Renderer, WallpaperScrollRenderer {
 
     // --- Wallpaper scrolling (home-screen parallax) ---
-    @Volatile private var scrollOffsetX: Float = 0f
+    @Volatile private var scrollOffsetX: Float = 0.5f
     private var currentWindowX: Float = 1f
     private var nextWindowX: Float = 1f
 
