@@ -25,7 +25,7 @@ import kotlin.math.pow
 class BlurToSharpRenderer(private val context: Context) : GLSurfaceView.Renderer, WallpaperScrollRenderer {
 
     // --- Wallpaper scrolling (home-screen parallax) ---
-    @Volatile private var scrollOffsetX: Float = 0f
+    @Volatile private var scrollOffsetX: Float = 0.5f
     private var currentWindowX: Float = 1f
     private var nextWindowX: Float = 1f
 
@@ -188,9 +188,6 @@ class BlurToSharpRenderer(private val context: Context) : GLSurfaceView.Renderer
         val render = WallpaperFitHelper.loadForRender(context, surfaceWidth, surfaceHeight)
         val sharpBitmap = render.bitmap
         currentWindowX = render.windowX
-
-        currentSet.width = sharpBitmap.width
-        currentSet.height = sharpBitmap.height
 
         currentSet.width = sharpBitmap.width
         currentSet.height = sharpBitmap.height

@@ -20,7 +20,7 @@ class HalftoneRenderer(
 ) : GLSurfaceView.Renderer, WallpaperScrollRenderer {
 
     // --- Wallpaper scrolling (home-screen parallax) ---
-    @Volatile private var scrollOffsetX: Float = 0f
+    @Volatile private var scrollOffsetX: Float = 0.5f
     private var currentWindowX: Float = 1f   // visible width fraction of current texture
     private var nextWindowX: Float = 1f      // ...of the queued (transition) texture
 
