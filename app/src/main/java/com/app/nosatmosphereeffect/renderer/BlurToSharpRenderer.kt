@@ -192,6 +192,9 @@ class BlurToSharpRenderer(private val context: Context) : GLSurfaceView.Renderer
         currentSet.width = sharpBitmap.width
         currentSet.height = sharpBitmap.height
 
+        currentSet.width = sharpBitmap.width
+        currentSet.height = sharpBitmap.height
+
         // Populate Current Set
         currentSet.sharpId = uploadTexture(sharpBitmap)
 
