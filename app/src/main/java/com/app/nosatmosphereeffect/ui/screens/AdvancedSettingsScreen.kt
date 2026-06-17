@@ -57,7 +57,8 @@ data class AdvancedConfig(
     val originX: Float,
     val originY: Float,
     val saturation: Float,
-    val contrast: Float
+    val contrast: Float,
+    val scrollEnabled: Boolean
 )
 
 /** The field values the activity persists when the user taps Apply. */
@@ -74,7 +75,8 @@ data class AdvancedResult(
     val originY: Float,
     val saturation: Float,
     val contrast: Float,
-    val rotationIndex: Int
+    val rotationIndex: Int,
+    val scrollEnabled: Boolean
 )
 
 @Composable
@@ -102,6 +104,8 @@ fun AdvancedSettingsScreen(
     var noiseEnabled by remember { mutableStateOf(config.enableNoise) }
     var noiseScale by remember { mutableStateOf(config.noiseScale) }
     var noiseStrength by remember { mutableStateOf(config.noiseStrength) }
+
+    var scrollEnabled by remember { mutableStateOf(config.scrollEnabled) }
 
     var infoDialog by remember { mutableStateOf<InfoDialog?>(null) }
 
@@ -153,6 +157,25 @@ fun AdvancedSettingsScreen(
                     value = duration,
                     onValueChange = { duration = it.filterDigits() },
                     helper = "Original: 2500 · Reverse: 1500 · Others: 500"
+                )
+            }
+
+            // ---- Home screen / scrolling ---------------------------------
+            AtmoCard {
+                SectionHeader("Home Screen")
+                Spacer(Modifier.height(12.dp))
+                SettingSwitchRow(
+                    title = "Wallpaper Scrolling",
+                    checked = scrollEnabled,
+                    onCheckedChange = { scrollEnabled = it }
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "Pans wide wallpapers (e.g. 4:3) sideways as you swipe between " +
+                        "home-screen pages, like the stock launcher. Uses the full, " +
+                        "un-cropped image. No effect on images that already fit the screen.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall
                 )
             }
 
@@ -288,7 +311,8 @@ fun AdvancedSettingsScreen(
                             originY = originY,
                             saturation = saturation,
                             contrast = contrast,
-                            rotationIndex = rotationIndex
+                            rotationIndex = rotationIndex,
+                            scrollEnabled = scrollEnabled
                         )
                     )
                 },

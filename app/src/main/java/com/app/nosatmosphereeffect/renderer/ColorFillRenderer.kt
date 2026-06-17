@@ -9,6 +9,7 @@ import android.opengl.GLSurfaceView
 import android.opengl.GLUtils
 import androidx.core.graphics.createBitmap
 import com.app.nosatmosphereeffect.helper.WallpaperFitHelper
+import com.app.nosatmosphereeffect.helper.WallpaperScrollRenderer
 import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -19,7 +20,17 @@ import javax.microedition.khronos.opengles.GL10
 class ColorFillRenderer(
     private val context: Context,
     private val isReverse: Boolean = false
-) : GLSurfaceView.Renderer {
+) : GLSurfaceView.Renderer, WallpaperScrollRenderer {
+
+    // --- Wallpaper scrolling (home-screen parallax) ---
+    @Volatile private var scrollOffsetX: Float = 0f
+    private var currentWindowX: Float = 1f
+    private var nextWindowX: Float = 1f
+
+    override fun setWallpaperOffset(xOffset: Float) {
+        scrollOffsetX = xOffset.coerceIn(0f, 1f)
+    }
+    // ---------------------------------------------------
 
     // --- RAM Optimized Ring Buffer Logic ---
     private class TextureSet {
@@ -99,7 +110,9 @@ class ColorFillRenderer(
         }
         fittedForWidth = surfaceWidth
         fittedForHeight = surfaceHeight
-        val sharpBitmap = loadFixedWallpaper()
+        val render = WallpaperFitHelper.loadForRender(context, surfaceWidth, surfaceHeight)
+        val sharpBitmap = render.bitmap
+        currentWindowX = render.windowX
 
         currentSet.width = sharpBitmap.width
         currentSet.height = sharpBitmap.height
@@ -110,8 +123,10 @@ class ColorFillRenderer(
 
     private fun processPlaylistTransition() {
         val raw = pendingPlaylistBitmap ?: return
-        // Fit the incoming image to the current surface (display settings + foldables)
-        val bitmap = WallpaperFitHelper.fitToSurface(context, raw, surfaceWidth, surfaceHeight)
+        // Fit the incoming image to the current surface (display settings + foldables + scroll)
+        val render = WallpaperFitHelper.fitForRender(context, raw, surfaceWidth, surfaceHeight)
+        val bitmap = render.bitmap
+        nextWindowX = render.windowX
         fittedForWidth = surfaceWidth
         fittedForHeight = surfaceHeight
 
@@ -127,6 +142,9 @@ class ColorFillRenderer(
         val temp = currentSet
         currentSet = nextSet
         nextSet = temp
+        val tmpWin = currentWindowX
+        currentWindowX = nextWindowX
+        nextWindowX = tmpWin
         pendingPlaylistBitmap = null
     }
 
@@ -163,6 +181,10 @@ class ColorFillRenderer(
         GLES30.glUniform1f(GLES30.glGetUniformLocation(programId, "uBlurStrength"), blurStrength)
         GLES30.glUniform1f(GLES30.glGetUniformLocation(programId, "uDimLevel"), dimLevel)
         GLES30.glUniform2f(GLES30.glGetUniformLocation(programId, "uOrigin"), originX, originY)
+
+        // Horizontal scroll window (identity 0f/1f = no scroll, draws as before).
+        GLES30.glUniform1f(GLES30.glGetUniformLocation(programId, "uScrollOffsetX"), scrollOffsetX)
+        GLES30.glUniform1f(GLES30.glGetUniformLocation(programId, "uScrollWindowX"), currentWindowX)
 
         // Bind Texture
         GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
@@ -222,11 +244,5 @@ class ColorFillRenderer(
 
     private fun loadShaderFromAssets(path: String): String {
         return context.assets.open(path).bufferedReader().use { it.readText() }
-    }
-
-    private fun loadFixedWallpaper(): Bitmap {
-        // Loads the active wallpaper and fits it to the current surface using
-        // the user's display settings (handles foldables and fit modes).
-        return WallpaperFitHelper.loadDisplayBitmap(context, surfaceWidth, surfaceHeight)
     }
 }

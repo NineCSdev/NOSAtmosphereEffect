@@ -353,11 +353,12 @@ class PlaylistEditorActivity : ComponentActivity() {
         matrix.setScale(scale, scale)
         val scaledBitmap = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
 
-        if (scaledBitmap != bitmap) {
-            bitmap.recycle() // Free memory
-        }
-        // Return the full-bleed scaled image. The GPU will handle the cropping!
-        return scaledBitmap
+        val x = max(0, (scaledBitmap.width - reqW) / 2)
+        val y = max(0, (scaledBitmap.height - reqH) / 2)
+        val finalW = min(reqW, scaledBitmap.width - x)
+        val finalH = min(reqH, scaledBitmap.height - y)
+
+        return Bitmap.createBitmap(scaledBitmap, x, y, finalW, finalH)
     }
 
     private fun handleExifRotation(context: Context, uri: Uri, bitmap: Bitmap): Bitmap {

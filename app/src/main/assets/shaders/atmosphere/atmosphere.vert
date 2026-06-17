@@ -3,38 +3,16 @@ in vec4 aPosition;
 in vec2 aTexCoord;
 out vec2 vTexCoord;
 
-// New uniforms for Smart Cropping & Scrolling
-uniform float uOffset;
-uniform float uEnableParallax;
-uniform float uImageAspect;
-uniform float uScreenAspect;
+// Horizontal wallpaper scrolling (home-screen parallax). The defaults are
+// identity (full-width window, zero offset), so any draw that does NOT set
+// these uniforms - e.g. the off-screen separable-blur passes - samples the
+// texture exactly as before. Only the final on-screen draw sets real values.
+uniform float uScrollOffsetX;   // launcher page offset, 0.0 (left) .. 1.0 (right)
+uniform float uScrollWindowX;   // visible fraction of texture width, (0.0, 1.0]
 
 void main() {
     gl_Position = aPosition;
-    vec2 tex = aTexCoord;
-
-    if (uImageAspect > uScreenAspect) {
-        // IMAGE IS WIDER THAN SCREEN (Horizontal Bleed available)
-        // Calculate how much of the texture fits on screen
-        float visibleWidthRatio = uScreenAspect / uImageAspect;
-
-        // Base center crop offset (if parallax is off)
-        float baseOffset = (1.0 - visibleWidthRatio) * 0.5;
-
-        // Parallax offset (maps launcher 0.0-1.0 swipe to the hidden edges)
-        float scrollOffset = (1.0 - visibleWidthRatio) * uOffset;
-
-        float finalXOffset = (uEnableParallax > 0.5) ? scrollOffset : baseOffset;
-
-        // Squeeze the UVs to fit the visible ratio, then shift by offset
-        tex.x = (tex.x * visibleWidthRatio) + finalXOffset;
-
-    } else {
-        // IMAGE IS TALLER THAN SCREEN (No horizontal bleed, lock X, center Y)
-        float visibleHeightRatio = uImageAspect / uScreenAspect;
-        float offsetY = (1.0 - visibleHeightRatio) * 0.5;
-        tex.y = (tex.y * visibleHeightRatio) + offsetY;
-    }
-
-    vTexCoord = tex;
+    float win = uScrollWindowX <= 0.0 ? 1.0 : uScrollWindowX;
+    float u = uScrollOffsetX * (1.0 - win) + aTexCoord.x * win;
+    vTexCoord = vec2(u, aTexCoord.y);
 }

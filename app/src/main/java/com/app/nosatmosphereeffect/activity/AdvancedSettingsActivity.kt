@@ -8,6 +8,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.core.content.edit
+import com.app.nosatmosphereeffect.helper.WallpaperFitHelper
 import com.app.nosatmosphereeffect.ui.screens.AdvancedConfig
 import com.app.nosatmosphereeffect.ui.screens.AdvancedResult
 import com.app.nosatmosphereeffect.ui.screens.AdvancedSettingsScreen
@@ -72,7 +73,8 @@ class AdvancedSettingsActivity : ComponentActivity() {
             originX = prefs.getFloat("origin_x", 0.5f),
             originY = prefs.getFloat("origin_y", 0.8f),
             saturation = prefs.getFloat("blob_saturation", 1.0f),
-            contrast = prefs.getFloat("blob_contrast", 1.0f)
+            contrast = prefs.getFloat("blob_contrast", 1.0f),
+            scrollEnabled = WallpaperFitHelper.isScrollEnabled(this)
         )
 
         setContent {
@@ -120,6 +122,17 @@ class AdvancedSettingsActivity : ComponentActivity() {
             putFloat("blob_contrast", result.contrast)
             putFloat("origin_x", result.originX)
             putFloat("origin_y", result.originY)
+        }
+
+        // Wallpaper scrolling lives in display_prefs (survives wallpaper changes).
+        // Changing it alters the texture geometry, so the renderer must rebuild
+        // its wallpaper texture — trigger the existing reload path.
+        val scrollChanged = WallpaperFitHelper.isScrollEnabled(this) != result.scrollEnabled
+        WallpaperFitHelper.setScrollEnabled(this, result.scrollEnabled)
+        if (scrollChanged) {
+            val reload = Intent("com.app.nosatmosphereeffect.RELOAD_WALLPAPER")
+            reload.setPackage(packageName)
+            sendBroadcast(reload)
         }
         sendUpdateBroadcast()
     }
