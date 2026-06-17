@@ -165,7 +165,7 @@ fun AdvancedSettingsScreen(
                 SectionHeader("Home Screen")
                 Spacer(Modifier.height(12.dp))
                 SettingSwitchRow(
-                    title = "Wallpaper Scrolling",
+                    title = "Wallpaper Scrolling (Experimental)",
                     checked = scrollEnabled,
                     onCheckedChange = { scrollEnabled = it }
                 )
