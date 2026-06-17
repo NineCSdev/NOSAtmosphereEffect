@@ -9,6 +9,7 @@ import android.graphics.Color
 import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Shader
+import android.util.Log
 import androidx.exifinterface.media.ExifInterface
 import java.io.File
 import java.io.FileOutputStream
@@ -233,6 +234,8 @@ object WallpaperFitHelper {
 
         // Not wider than the screen -> no horizontal slack; behave like Fill.
         if (scaledW <= surfaceW + 0.5f) {
+            Log.d("AtmoScroll", "makeScrollBitmap: src ${source.width}x${source.height} " +
+                "scaledW=${scaledW.toInt()} <= surfaceW=$surfaceW -> NOT wide (windowX=1, no scroll)")
             return RenderImage(fitBitmap(source, surfaceW, surfaceH, MODE_FILL, FILL_BLACK), 1.0f)
         }
 
@@ -256,6 +259,8 @@ object WallpaperFitHelper {
         source.recycle()
 
         val windowX = (surfaceW.toFloat() / outW.toFloat()).coerceIn(0.05f, 1.0f)
+        Log.d("AtmoScroll", "makeScrollBitmap: src ${sw.toInt()}x${sh.toInt()} -> " +
+            "wide tex ${outW}x${outH}, windowX=$windowX (scroll active)")
         return RenderImage(output, windowX)
     }
 

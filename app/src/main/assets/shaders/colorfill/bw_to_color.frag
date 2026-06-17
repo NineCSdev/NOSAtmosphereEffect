@@ -9,36 +9,122 @@ uniform vec2 uOrigin;        // Fingerprint location (X, Y)
 uniform float uAspectRatio;
 uniform float uDimLevel;
 
+// ----------------------------------------------------------------------------
+// Spilled-paint reveal.
+// Colour floods out from the fingerprint like paint poured on the floor: the
+// edge is built from fractal noise so it bulges into lobes and breaks into
+// viscous fingers, a couple of droplets fling out ahead and get swallowed, and
+// a faint wet sheen rides the advancing rim.
+// ----------------------------------------------------------------------------
+
+float hash(vec2 p) {
+    p = fract(p * vec2(123.34, 345.45));
+    p += dot(p, p + 34.345);
+    return fract(p.x * p.y);
+}
+
+float vnoise(vec2 p) {
+    vec2 i = floor(p);
+    vec2 f = fract(p);
+    f = f * f * (3.0 - 2.0 * f);
+    float a = hash(i);
+    float b = hash(i + vec2(1.0, 0.0));
+    float c = hash(i + vec2(0.0, 1.0));
+    float d = hash(i + vec2(1.0, 1.0));
+    return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+}
+
+float fbm(vec2 p) {
+    float v = 0.0;
+    float amp = 0.5;
+    for (int i = 0; i < 5; i++) {
+        v += amp * vnoise(p);
+        p = p * 2.03 + 7.1;
+        amp *= 0.5;
+    }
+    return v;
+}
+
+// Splatter droplets: direction (roughly unit), distance fraction, size fraction.
+const vec2  DROP_DIR[5]  = vec2[5](
+    vec2( 0.80,  0.60), vec2(-0.55,  0.84), vec2( 0.28, -0.96),
+    vec2(-0.90, -0.30), vec2( 0.97,  0.05)
+);
+const float DROP_F[5]    = float[5](0.52, 0.66, 0.60, 0.74, 0.83);
+const float DROP_SIZE[5] = float[5](0.11, 0.08, 0.13, 0.07, 0.06);
+
+float paintCoverage(vec2 uv, vec2 origin, float aspect, float progress, out float rim) {
+    rim = 0.0;
+    if (progress <= 0.002) return 0.0;
+    if (progress >= 0.998) return 1.0;
+
+    // Farthest screen corner from the origin, so the pool fills the screen right
+    // as the animation ends, wherever the fingerprint sits.
+    float reach = 0.0;
+    reach = max(reach, distance(origin, vec2(0.0,    0.0)));
+    reach = max(reach, distance(origin, vec2(aspect, 0.0)));
+    reach = max(reach, distance(origin, vec2(0.0,    1.0)));
+    reach = max(reach, distance(origin, vec2(aspect, 1.0)));
+
+    vec2 d = uv - origin;
+    float dist = length(d);
+    float ang = atan(d.y, d.x);
+    vec2 circ = vec2(cos(ang), sin(ang));
+
+    // Growing radius (slight overshoot so it settles just before the end).
+    float R = progress * reach * 1.42;
+
+    // Big lobes: radius wobbles with direction (seamless around the circle) and
+    // churns slowly as the pool grows.
+    float lobe = fbm(circ * 2.1 + vec2(9.0, progress * 1.2));
+    // Fine viscous fingering on the rim.
+    float fingers = fbm(uv * 7.5 + circ * 1.7);
+
+    float front = R * (0.74 + 0.34 * lobe) + (fingers - 0.5) * 0.13 * reach;
+
+    float aa = mix(0.06, 0.012, progress) * (reach + 0.25);
+    float cover = 1.0 - smoothstep(front - aa, front + aa, dist);
+
+    // Droplets emerge just ahead of the front, then the pool absorbs them.
+    for (int i = 0; i < 5; i++) {
+        float f = DROP_F[i];
+        vec2 c = origin + DROP_DIR[i] * (f * reach);
+        float appear = smoothstep(f - 0.20, f - 0.02, progress);
+        float r = DROP_SIZE[i] * reach * appear;
+        if (r > 0.0001) {
+            float dd = length(uv - c);
+            // wobble the droplet edge a little too
+            float dn = (fbm(uv * 11.0 + float(i) * 3.7) - 0.5) * 0.25;
+            cover = max(cover, 1.0 - smoothstep(r * (0.6 + dn), r, dd));
+        }
+    }
+
+    // Wet sheen: thin bright band hugging the advancing edge, fading as it settles.
+    rim = (1.0 - smoothstep(0.0, aa * 3.5, abs(dist - front))) * cover * (1.0 - progress);
+
+    return clamp(cover, 0.0, 1.0);
+}
+
 void main() {
-    // 1. Get original color and calculate Grayscale
     vec4 color = texture(uTextureSharp, vTexCoord);
     float gray = dot(color.rgb, vec3(0.299, 0.587, 0.114));
     vec3 bwColor = vec3(gray);
 
-    // 2. Adjust coordinates for aspect ratio to make a perfect circle
     vec2 uv = vTexCoord;
     uv.x *= uAspectRatio;
     vec2 origin = uOrigin;
     origin.x *= uAspectRatio;
 
-    float dist = distance(uv, origin);
+    // 0.0 (all B&W) -> 1.0 (fully colour)
+    float progress = 1.0 - uBlurStrength;
 
-    // 3. Create the "Water Flow" ripple distortion on the edge
-    float time = uBlurStrength * 10.0;
-    float distortion = sin(uv.x * 20.0 + time) * cos(uv.y * 20.0 - time) * 0.03;
-    distortion += sin(uv.x * 40.0 - time) * cos(uv.y * 40.0 + time) * 0.015;
+    float rim;
+    float cover = paintCoverage(uv, origin, uAspectRatio, progress, rim);
 
-    dist += distortion; // Apply water ripple to the distance
+    vec3 finalColor = mix(bwColor, color.rgb, cover);
+    finalColor += rim * 0.10; // glossy wet edge
 
-    // 4. Calculate expansion radius
-    float maxDist = 1.5; // Enough to cover corners of the screen
-    float currentRadius = (1.0 - uBlurStrength) * maxDist;
-
-    // 5. Smoothly transition between B&W and Color at the water edge
-    float edge = smoothstep(currentRadius - 0.05, currentRadius + 0.05, dist);
-    vec3 finalColor = mix(color.rgb, bwColor, edge);
-
-    // 6. Apply standard lock-screen dimming
+    // Standard lock-screen dimming.
     finalColor *= mix(1.0, 1.0 - uDimLevel, uBlurStrength);
 
     fragColor = vec4(finalColor, color.a);

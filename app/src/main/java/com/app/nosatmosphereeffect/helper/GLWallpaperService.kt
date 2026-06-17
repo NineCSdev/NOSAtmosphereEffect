@@ -7,6 +7,7 @@ import android.view.SurfaceHolder
 import android.graphics.PixelFormat
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 
 /**
  * Implemented by renderers that can pan their wallpaper horizontally in response
@@ -34,6 +35,7 @@ abstract class GLWallpaperService : WallpaperService() {
             // Ask the launcher to deliver horizontal offset callbacks (used for
             // wallpaper scrolling). Harmless when the launcher does not scroll.
             setOffsetNotificationsEnabled(true)
+            Log.d("AtmoScroll", "GLEngine.onCreate: offset notifications enabled")
         }
 
         fun setRenderer(renderer: GLSurfaceView.Renderer) {
@@ -55,6 +57,8 @@ abstract class GLWallpaperService : WallpaperService() {
             yPixelOffset: Int
         ) {
             super.onOffsetsChanged(xOffset, yOffset, xOffsetStep, yOffsetStep, xPixelOffset, yPixelOffset)
+            Log.d("AtmoScroll", "onOffsetsChanged xOffset=$xOffset step=$xOffsetStep " +
+                "renderer=${activeRenderer?.javaClass?.simpleName} scrollable=${activeRenderer is WallpaperScrollRenderer}")
             val r = activeRenderer
             if (r is WallpaperScrollRenderer) {
                 r.setWallpaperOffset(xOffset)
@@ -66,6 +70,9 @@ abstract class GLWallpaperService : WallpaperService() {
         override fun onVisibilityChanged(visible: Boolean) {
             super.onVisibilityChanged(visible)
             if (visible) {
+                // Re-assert: a few launchers only honour this once the wallpaper
+                // is actually shown, so requesting it again on every show is safest.
+                setOffsetNotificationsEnabled(true)
                 pauseHandler.removeCallbacks(pauseRunnable)
                 glSurfaceView?.onResume()
             } else {
