@@ -2,7 +2,6 @@ package com.app.nosatmosphereeffect.ui.screens
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -19,11 +18,11 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import com.app.nosatmosphereeffect.R
@@ -57,7 +56,8 @@ data class AdvancedConfig(
     val originX: Float,
     val originY: Float,
     val saturation: Float,
-    val contrast: Float
+    val contrast: Float,
+    val scrollEnabled: Boolean
 )
 
 /** The field values the activity persists when the user taps Apply. */
@@ -74,7 +74,8 @@ data class AdvancedResult(
     val originY: Float,
     val saturation: Float,
     val contrast: Float,
-    val rotationIndex: Int
+    val rotationIndex: Int,
+    val scrollEnabled: Boolean
 )
 
 @Composable
@@ -88,7 +89,7 @@ fun AdvancedSettingsScreen(
     var poll by remember { mutableStateOf(config.poll) }
     var delay by remember { mutableStateOf(config.delay) }
     var duration by remember { mutableStateOf(config.duration) }
-    var rotationIndex by remember { mutableStateOf(config.initialRotationIndex) }
+    var rotationIndex by remember { mutableIntStateOf(config.initialRotationIndex) }
 
     var dotSize by remember { mutableFloatStateOf(config.dotSize) }
     var grayscale by remember { mutableStateOf(config.grayscale) }
@@ -102,6 +103,8 @@ fun AdvancedSettingsScreen(
     var noiseEnabled by remember { mutableStateOf(config.enableNoise) }
     var noiseScale by remember { mutableStateOf(config.noiseScale) }
     var noiseStrength by remember { mutableStateOf(config.noiseStrength) }
+
+    var scrollEnabled by remember { mutableStateOf(config.scrollEnabled) }
 
     var infoDialog by remember { mutableStateOf<InfoDialog?>(null) }
 
@@ -153,6 +156,25 @@ fun AdvancedSettingsScreen(
                     value = duration,
                     onValueChange = { duration = it.filterDigits() },
                     helper = "Original: 2500 · Reverse: 1500 · Others: 500"
+                )
+            }
+
+            // ---- Home screen / scrolling ---------------------------------
+            AtmoCard {
+                SectionHeader("Home Screen")
+                Spacer(Modifier.height(12.dp))
+                SettingSwitchRow(
+                    title = "Wallpaper Scrolling (Experimental)",
+                    checked = scrollEnabled,
+                    onCheckedChange = { scrollEnabled = it }
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "Pans wide wallpapers (e.g. 4:3) sideways as you swipe between " +
+                        "home-screen pages, like the stock launcher. Uses the full, " +
+                        "un-cropped image. No effect on images that already fit the screen.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall
                 )
             }
 
@@ -288,7 +310,8 @@ fun AdvancedSettingsScreen(
                             originY = originY,
                             saturation = saturation,
                             contrast = contrast,
-                            rotationIndex = rotationIndex
+                            rotationIndex = rotationIndex,
+                            scrollEnabled = scrollEnabled
                         )
                     )
                 },
