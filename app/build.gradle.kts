@@ -9,8 +9,8 @@ android {
 
     defaultConfig {
         applicationId = "com.saad_khan_rind.atmosphere_effect"
-        versionName = "6.0.1"
-        versionCode = 200601
+        versionName = "6.0.5"
+        versionCode = 200605
     }
 
     flavorDimensions += "apiLevel"
@@ -21,14 +21,22 @@ android {
             dimension = "apiLevel"
             minSdk = 36
             targetSdk = 36
-            versionCode = 200601
+            versionCode = 200605
+        }
+
+        // Android 15+ (API 35) — this is the build published on Google Play.
+        create("v35") {
+            dimension = "apiLevel"
+            minSdk = 35
+            targetSdk = 35
+            versionCode = 300605
         }
 
         create("v33") {
             dimension = "apiLevel"
             minSdk = 33
             targetSdk = 33
-            versionCode = 100601
+            versionCode = 100605
         }
 
     }
@@ -84,6 +92,13 @@ dependencies {
     "v36Implementation"("androidx.lifecycle:lifecycle-service:2.10.0")
     "v36Implementation"("androidx.appcompat:appcompat:1.7.1")
     "v36Implementation"("com.google.android.material:material:1.13.0")
+
+    // --- Dependencies for v35 (API 35 / Google Play) ---
+    // These only apply when building the v35 flavor
+    "v35Implementation"("androidx.core:core-ktx:1.15.0")
+    "v35Implementation"("androidx.lifecycle:lifecycle-service:2.8.7")
+    "v35Implementation"("androidx.appcompat:appcompat:1.7.0")
+    "v35Implementation"("com.google.android.material:material:1.12.0")
 
     // --- Dependencies for v33 (API 33) ---
     // These only apply when building the v33 flavor

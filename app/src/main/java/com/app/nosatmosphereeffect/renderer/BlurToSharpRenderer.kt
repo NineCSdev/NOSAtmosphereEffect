@@ -10,6 +10,7 @@ import android.opengl.GLUtils
 import androidx.core.graphics.createBitmap
 import com.app.nosatmosphereeffect.helper.WallpaperFitHelper
 import com.app.nosatmosphereeffect.helper.WallpaperScrollRenderer
+import com.app.nosatmosphereeffect.helper.WallpaperZoomRenderer
 import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -22,7 +23,7 @@ import kotlin.math.hypot
 import kotlin.math.min
 import kotlin.math.pow
 
-class BlurToSharpRenderer(private val context: Context) : GLSurfaceView.Renderer, WallpaperScrollRenderer {
+class BlurToSharpRenderer(private val context: Context) : GLSurfaceView.Renderer, WallpaperScrollRenderer, WallpaperZoomRenderer {
 
     // --- Wallpaper scrolling (home-screen parallax) ---
     @Volatile private var scrollOffsetX: Float = 0.5f
@@ -33,6 +34,18 @@ class BlurToSharpRenderer(private val context: Context) : GLSurfaceView.Renderer
         scrollOffsetX = xOffset.coerceIn(0f, 1f)
     }
     // ---------------------------------------------------
+
+    // --- Drawer / recents self-blur (launcher zoom-out) ---
+    // Home resting state of this effect is sharp, so when the launcher zooms the
+    // wallpaper out for the app drawer we blend toward the pre-computed blurred
+    // texture. This is applied on TOP of the unlock transition and does NOT touch
+    // blurStrength, so it never disturbs the ambient blob animation or its re-roll.
+    @Volatile private var zoomBlur: Float = 0f
+
+    override fun setWallpaperZoom(zoom: Float) {
+        zoomBlur = zoom.coerceIn(0f, 1f)
+    }
+    // ------------------------------------------------------
 
     // --- RING BUFFER LOGIC ---
     private class TextureSet {
@@ -405,6 +418,9 @@ class BlurToSharpRenderer(private val context: Context) : GLSurfaceView.Renderer
         GLES30.glUniform1f(GLES30.glGetUniformLocation(programId, "uNoiseStrength"), noiseStrength)
         GLES30.glUniform1f(GLES30.glGetUniformLocation(programId, "uSaturation"), blobSaturation)
         GLES30.glUniform1f(GLES30.glGetUniformLocation(programId, "uContrast"), blobContrast)
+
+        // Drawer/recents blur amount (0 = home, sharp; 1 = fully zoomed out, blurred).
+        GLES30.glUniform1f(GLES30.glGetUniformLocation(programId, "uZoomBlur"), zoomBlur)
 
         // Horizontal scroll window (identity 0f/1f = no scroll, draws as before).
         GLES30.glUniform1f(GLES30.glGetUniformLocation(programId, "uScrollOffsetX"), scrollOffsetX)

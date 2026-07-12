@@ -49,6 +49,23 @@ jobs:
         run: |
           mv "${{ steps.sign_app_36.outputs.signedFile }}" ./app-release-beta-android-16+.apk
 
+      - name: Bundle SDK 35 (Play Store)
+        run: ./gradlew bundleV35Release
+
+      - name: Sign SDK 35 AAB
+        uses: ilharp/sign-android-release@v2
+        id: sign_app_35
+        with:
+          releaseDir: app/build/outputs/bundle/v35Release
+          signingKey: ${{ secrets.SIGNING_KEY }}
+          keyAlias: ${{ secrets.ALIAS }}
+          keyStorePassword: ${{ secrets.KEY_STORE_PASSWORD }}
+          keyPassword: ${{ secrets.KEY_PASSWORD }}
+
+      - name: Rename SDK 35 AAB
+        run: |
+          mv "${{ steps.sign_app_35.outputs.signedFile }}" ./app-release-beta-playstore-android-15+.aab
+
       - name: Build SDK 33 (Legacy)
         run: ./gradlew assembleV33Release
 
@@ -76,4 +93,5 @@ jobs:
           prerelease: true
           files: |
             app-release-beta-android-16+.apk
+            app-release-beta-playstore-android-15+.aab
             app-release-beta-android-13+.apk

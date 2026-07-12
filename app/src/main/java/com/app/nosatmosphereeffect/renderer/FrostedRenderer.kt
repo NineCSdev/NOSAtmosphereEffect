@@ -7,13 +7,14 @@ import android.opengl.GLSurfaceView
 import android.opengl.GLUtils
 import com.app.nosatmosphereeffect.helper.WallpaperFitHelper
 import com.app.nosatmosphereeffect.helper.WallpaperScrollRenderer
+import com.app.nosatmosphereeffect.helper.WallpaperZoomRenderer
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.FloatBuffer
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
 
-class FrostedRenderer(private val context: Context) : GLSurfaceView.Renderer, WallpaperScrollRenderer {
+class FrostedRenderer(private val context: Context) : GLSurfaceView.Renderer, WallpaperScrollRenderer, WallpaperZoomRenderer {
 
     // --- Wallpaper scrolling (home-screen parallax) ---
     @Volatile private var scrollOffsetX: Float = 0.5f
@@ -24,6 +25,17 @@ class FrostedRenderer(private val context: Context) : GLSurfaceView.Renderer, Wa
         scrollOffsetX = xOffset.coerceIn(0f, 1f)
     }
     // ---------------------------------------------------
+
+    // --- Drawer / recents self-blur (launcher zoom-out) ---
+    // Blends toward the frosted texture as the launcher zooms out. For the reverse
+    // variant (home = sharp) this restores a strong drawer blur; for the forward
+    // variant (home already frosted) it is a no-op, so it is safe for both.
+    @Volatile private var zoomBlur: Float = 0f
+
+    override fun setWallpaperZoom(zoom: Float) {
+        zoomBlur = zoom.coerceIn(0f, 1f)
+    }
+    // ------------------------------------------------------
 
     // --- RING BUFFER LOGIC ---
     private class TextureSet {
@@ -251,6 +263,9 @@ class FrostedRenderer(private val context: Context) : GLSurfaceView.Renderer, Wa
         GLES30.glUniform1f(GLES30.glGetUniformLocation(programId, "uEnableNoise"), if (enableNoise) 1.0f else 0.0f)
         GLES30.glUniform1f(GLES30.glGetUniformLocation(programId, "uNoiseScale"), noiseScale)
         GLES30.glUniform1f(GLES30.glGetUniformLocation(programId, "uNoiseStrength"), noiseStrength)
+
+        // Drawer/recents blur amount (0 = home, 1 = fully zoomed out).
+        GLES30.glUniform1f(GLES30.glGetUniformLocation(programId, "uZoomBlur"), zoomBlur)
 
         // Horizontal scroll window (identity 0f/1f = no scroll, draws as before).
         // The off-screen blur passes never set these, so they default to identity.
