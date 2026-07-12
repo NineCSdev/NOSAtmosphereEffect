@@ -15,6 +15,9 @@ uniform float uEnableNoise;
 uniform float uNoiseScale;
 uniform float uNoiseStrength;
 
+// Launcher zoom-out blur (app drawer / recents). 0 = home, 1 = fully zoomed out.
+uniform float uZoomBlur;
+
 float random(vec2 co) {
     return fract(sin(dot(co.xy, vec2(12.9898, 78.233))) * 43758.5453);
 }
@@ -38,6 +41,10 @@ void main() {
         float noiseVisibility = smoothstep(0.4, 1.0, t);
         finalColor += vec3(noise * uNoiseStrength * noiseVisibility);
     }
+
+    // App-drawer / recents: blend toward the frosted image as the launcher zooms
+    // out. Restores a strong drawer blur for the reverse variant; no-op at home.
+    finalColor = mix(finalColor, frosted, clamp(uZoomBlur, 0.0, 1.0));
 
     fragColor = vec4(finalColor, 1.0);
 }
