@@ -40,6 +40,10 @@ class EffectSelectionActivity : ComponentActivity() {
 
     private var selectedEffectId: String = "ORIGINAL"
 
+    // Image(s) handed to us by another app via the system Share sheet (null for the
+    // normal in-app flow, where the user picks images after choosing an effect).
+    private var sharedUris: ArrayList<Uri>? = null
+
     private val effectsList = listOf(
         EffectItem("ORIGINAL", "Original Atmosphere", "Sharp → Blur",
             "Signature style. Drifting ambient atmospheric clouds."),
@@ -75,16 +79,33 @@ class EffectSelectionActivity : ComponentActivity() {
 
         val isUpdateOnly = intent.getBooleanExtra("UPDATE_EFFECT_ONLY", false)
 
+        // Launched from another app's Share sheet? Capture the image(s) up front.
+        // A share never carries UPDATE_EFFECT_ONLY, so the share and picker paths
+        // below are mutually exclusive.
+        sharedUris = extractSharedUris()
+        val isShare = sharedUris != null
+
         setContent {
             AtmoEngineTheme {
                 var pendingMode by remember { mutableStateOf(false) }
 
                 EffectSelectionScreen(
-                    title = if (isUpdateOnly) "Change Effect" else "Choose Effect",
+                    title = if (isUpdateOnly && !isShare) "Change Effect" else "Choose Effect",
                     effects = effectsList,
                     onEffectClick = { item ->
                         selectedEffectId = item.id
-                        if (isUpdateOnly) applyEffectDirectly(item.id) else pendingMode = true
+                        when {
+                            // Shared image(s): straight to crop/playlist. The number of
+                            // images shared decides single vs. playlist, so there is no
+                            // mode dialog and no picker step.
+                            isShare -> {
+                                val uris = sharedUris!!
+                                if (uris.size == 1) launchCropActivity(uris[0])
+                                else launchMultiCropActivity(uris)
+                            }
+                            isUpdateOnly -> applyEffectDirectly(item.id)
+                            else -> pendingMode = true
+                        }
                     },
                     onBack = { finish() }
                 )
@@ -97,6 +118,28 @@ class EffectSelectionActivity : ComponentActivity() {
                     )
                 }
             }
+        }
+    }
+
+    /**
+     * Returns the image URI(s) if this activity was opened from the system Share
+     * sheet (ACTION_SEND / ACTION_SEND_MULTIPLE with an image MIME), otherwise null.
+     * The read grant that came with the share intent is re-granted to the crop /
+     * playlist activity via FLAG_GRANT_READ_URI_PERMISSION when we forward it.
+     */
+    private fun extractSharedUris(): ArrayList<Uri>? {
+        val type = intent.type
+        if (type == null || !type.startsWith("image/")) return null
+        return when (intent.action) {
+            Intent.ACTION_SEND -> {
+                val uri = intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+                if (uri != null) arrayListOf(uri) else null
+            }
+            Intent.ACTION_SEND_MULTIPLE -> {
+                val uris = intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM, Uri::class.java)
+                if (!uris.isNullOrEmpty()) ArrayList(uris) else null
+            }
+            else -> null
         }
     }
 

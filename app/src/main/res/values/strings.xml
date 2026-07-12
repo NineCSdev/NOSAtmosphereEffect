@@ -1,5 +1,6 @@
 <resources>
     <string name="app_name">Atmo Engine</string>
+    <string name="share_target_label">Set with Atmo Engine</string>
 
     <string name="app_title">Atmo Engine</string>
     <string name="app_logo_desc">App Logo</string>

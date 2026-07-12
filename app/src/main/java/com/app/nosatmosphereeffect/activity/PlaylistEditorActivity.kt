@@ -49,6 +49,11 @@ class PlaylistEditorActivity : ComponentActivity() {
     private var effectId: String = "ORIGINAL"
     private var editingPosition = -1
 
+    // True when we entered via "Edit Playlist" on an already-applied playlist.
+    // In that case applying keeps the user's advanced settings (see applyPlaylist);
+    // a brand-new playlist starts fresh.
+    private var isEditExisting = false
+
     private var showApplyConfirm by mutableStateOf(false)
     private var isProcessing by mutableStateOf(false)
 
@@ -99,7 +104,7 @@ class PlaylistEditorActivity : ComponentActivity() {
 
         effectId = intent.getStringExtra("EFFECT_ID") ?: "ORIGINAL"
 
-        val isEditExisting = intent.getBooleanExtra("EDIT_EXISTING", false)
+        isEditExisting = intent.getBooleanExtra("EDIT_EXISTING", false)
         if (isEditExisting) {
             loadExistingPlaylist()
         } else {
@@ -265,10 +270,29 @@ class PlaylistEditorActivity : ComponentActivity() {
                     )
                 }
 
-                // 6. RESET ALL PREFERENCES TO ENSURE FRESH START
+                // 6. RESET PREFERENCES FOR A FRESH START.
+                //
+                // Editing an EXISTING playlist only tweaks the images — the effect and
+                // mode are unchanged — so we KEEP the user's advanced settings (dim/
+                // brightness, blur, colour sync, all fine-tuning in app_prefs) and their
+                // rotation interval. Every other entry point (new playlist, changing
+                // effect, single <-> playlist) still wipes everything, because those
+                // genuinely begin a new configuration.
+                //
+                // The runtime rotation pointers (last_playlist_image, active_theme_state,
+                // last_rotation_timestamp) are always re-seeded below regardless, since
+                // the underlying wallpaper_N.jpg files have just been rewritten.
                 val wallpaperPrefs = getSharedPreferences("wallpaper_prefs", Context.MODE_PRIVATE)
+                val preservedRotation =
+                    if (isEditExisting) wallpaperPrefs.getLong("rotation_interval_minutes", 0L) else null
+
                 wallpaperPrefs.edit().clear().apply()
-                getSharedPreferences("app_prefs", Context.MODE_PRIVATE).edit().clear().apply()
+                if (!isEditExisting) {
+                    getSharedPreferences("app_prefs", Context.MODE_PRIVATE).edit().clear().apply()
+                }
+                if (preservedRotation != null) {
+                    wallpaperPrefs.edit().putLong("rotation_interval_minutes", preservedRotation).apply()
+                }
 
                 if (playlistItems.size > 1) {
                     val nextFile = File(filesDir, "next_wallpaper.jpg")
