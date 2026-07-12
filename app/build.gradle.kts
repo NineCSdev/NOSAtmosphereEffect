@@ -24,6 +24,14 @@ android {
             versionCode = 200605
         }
 
+        // Android 15+ (API 35) — this is the build published on Google Play.
+        create("v35") {
+            dimension = "apiLevel"
+            minSdk = 35
+            targetSdk = 35
+            versionCode = 300605
+        }
+
         create("v33") {
             dimension = "apiLevel"
             minSdk = 33
@@ -84,6 +92,13 @@ dependencies {
     "v36Implementation"("androidx.lifecycle:lifecycle-service:2.10.0")
     "v36Implementation"("androidx.appcompat:appcompat:1.7.1")
     "v36Implementation"("com.google.android.material:material:1.13.0")
+
+    // --- Dependencies for v35 (API 35 / Google Play) ---
+    // These only apply when building the v35 flavor
+    "v35Implementation"("androidx.core:core-ktx:1.15.0")
+    "v35Implementation"("androidx.lifecycle:lifecycle-service:2.8.7")
+    "v35Implementation"("androidx.appcompat:appcompat:1.7.0")
+    "v35Implementation"("com.google.android.material:material:1.12.0")
 
     // --- Dependencies for v33 (API 33) ---
     // These only apply when building the v33 flavor

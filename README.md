@@ -24,6 +24,15 @@ While it may work on other Android devices running Android 13+ (API 33+), behavi
 
 Follow these steps to set up the effect properly on your device.
 
+### ⚡ Quick Setup: Share an Image
+
+The fastest way to apply a wallpaper. Instead of opening the app and browsing for a file, you can send an image straight to Atmo Engine from anywhere:
+
+1. Find an image in your **Gallery**, or in any **wallpaper app**.
+2. Tap **Share** and choose **Atmo Engine** ("Set with Atmo Engine") from the share sheet.
+3. Pick the effect you want — the app takes you straight to the crop screen and applies it.
+   You can share a **single image** for a normal wallpaper, or **select multiple images** before sharing to build a rotating playlist. This skips the extra steps of saving the image, opening the app, and digging through your files to find it again. The regular in-app flow below still works exactly the same.
+
 ### 1\. Select Your Effect
 
 Open the app and choose your desired atmosphere style from the selection screen:
