@@ -15,8 +15,8 @@ uniform float uEnableNoise;
 uniform float uNoiseScale;
 uniform float uNoiseStrength;
 
-// Launcher zoom-out blur (app drawer / recents). 0 = home, 1 = fully zoomed out.
-uniform float uZoomBlur;
+// App-drawer / recents blur, driven by wallpaper visibility. 0 = in view, 1 = hidden.
+uniform float uDrawerBlur;
 
 float random(vec2 co) {
     return fract(sin(dot(co.xy, vec2(12.9898, 78.233))) * 43758.5453);
@@ -42,9 +42,9 @@ void main() {
         finalColor += vec3(noise * uNoiseStrength * noiseVisibility);
     }
 
-    // App-drawer / recents: blend toward the frosted image as the launcher zooms
-    // out. Restores a strong drawer blur for the reverse variant; no-op at home.
-    finalColor = mix(finalColor, frosted, clamp(uZoomBlur, 0.0, 1.0));
+    // App-drawer / recents: reverse Frosted sets this to 1 when out of view, blending
+    // toward the frosted image so the drawer shows a blur. In view -> 0 -> sharp.
+    finalColor = mix(finalColor, frosted, clamp(uDrawerBlur, 0.0, 1.0));
 
     fragColor = vec4(finalColor, 1.0);
 }

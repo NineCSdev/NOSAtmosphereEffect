@@ -10,7 +10,6 @@ import android.opengl.GLUtils
 import androidx.core.graphics.createBitmap
 import com.app.nosatmosphereeffect.helper.WallpaperFitHelper
 import com.app.nosatmosphereeffect.helper.WallpaperScrollRenderer
-import com.app.nosatmosphereeffect.helper.WallpaperZoomRenderer
 import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -23,7 +22,7 @@ import kotlin.math.hypot
 import kotlin.math.min
 import kotlin.math.pow
 
-class BlurToSharpRenderer(private val context: Context) : GLSurfaceView.Renderer, WallpaperScrollRenderer, WallpaperZoomRenderer {
+class BlurToSharpRenderer(private val context: Context) : GLSurfaceView.Renderer, WallpaperScrollRenderer {
 
     // --- Wallpaper scrolling (home-screen parallax) ---
     @Volatile private var scrollOffsetX: Float = 0.5f
@@ -35,17 +34,19 @@ class BlurToSharpRenderer(private val context: Context) : GLSurfaceView.Renderer
     }
     // ---------------------------------------------------
 
-    // --- Drawer / recents self-blur (launcher zoom-out) ---
-    // Home resting state of this effect is sharp, so when the launcher zooms the
-    // wallpaper out for the app drawer we blend toward the pre-computed blurred
-    // texture. This is applied on TOP of the unlock transition and does NOT touch
-    // blurStrength, so it never disturbs the ambient blob animation or its re-roll.
-    @Volatile private var zoomBlur: Float = 0f
+    // --- App-drawer / recents blur (driven by wallpaper visibility, not zoom) ---
+    // The home resting state of this effect is sharp. When the wallpaper leaves view
+    // while the screen is still on (app drawer, recents, another app on top), the
+    // engine flips this on and we blend the whole frame toward the pre-computed
+    // frosted texture, so a translucent drawer that keeps the wallpaper composited
+    // shows a clean blur instead of the sharp home image. Back in view -> sharp.
+    // Kept separate from blurStrength so it never disturbs the ambient blob animation.
+    @Volatile private var drawerBlur: Float = 0f
 
-    override fun setWallpaperZoom(zoom: Float) {
-        zoomBlur = zoom.coerceIn(0f, 1f)
+    fun setDrawerBlurred(blurred: Boolean) {
+        drawerBlur = if (blurred) 1f else 0f
     }
-    // ------------------------------------------------------
+    // ----------------------------------------------------------------------------
 
     // --- RING BUFFER LOGIC ---
     private class TextureSet {
@@ -419,8 +420,8 @@ class BlurToSharpRenderer(private val context: Context) : GLSurfaceView.Renderer
         GLES30.glUniform1f(GLES30.glGetUniformLocation(programId, "uSaturation"), blobSaturation)
         GLES30.glUniform1f(GLES30.glGetUniformLocation(programId, "uContrast"), blobContrast)
 
-        // Drawer/recents blur amount (0 = home, sharp; 1 = fully zoomed out, blurred).
-        GLES30.glUniform1f(GLES30.glGetUniformLocation(programId, "uZoomBlur"), zoomBlur)
+        // Drawer/recents blur (0 = in view, sharp; 1 = out of view, blurred).
+        GLES30.glUniform1f(GLES30.glGetUniformLocation(programId, "uDrawerBlur"), drawerBlur)
 
         // Horizontal scroll window (identity 0f/1f = no scroll, draws as before).
         GLES30.glUniform1f(GLES30.glGetUniformLocation(programId, "uScrollOffsetX"), scrollOffsetX)

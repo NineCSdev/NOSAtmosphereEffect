@@ -24,8 +24,8 @@ uniform float uNoiseStrength;
 uniform float uSaturation;
 uniform float uContrast;
 
-// Launcher zoom-out blur (app drawer / recents). 0 = home, 1 = fully zoomed out.
-uniform float uZoomBlur;
+// App-drawer / recents blur, driven by wallpaper visibility. 0 = in view, 1 = hidden.
+uniform float uDrawerBlur;
 
 vec3 adjustColor(vec3 color) {
     // Apply Contrast
@@ -127,10 +127,10 @@ void main() {
         finalColor += vec3(noise * uNoiseStrength * noiseVisibility);
     }
 
-    // App-drawer / recents: blend toward the clean blurred image as the launcher
-    // zooms out, so a live wallpaper resting on a sharp frame still shows a strong
-    // blur behind the drawer (matching a static wallpaper). No-op at home (zoom 0).
-    finalColor = mix(finalColor, frosted, clamp(uZoomBlur, 0.0, 1.0));
+    // App-drawer / recents: when the wallpaper is out of view (screen still on) the
+    // engine sets this to 1, blending toward the clean blurred image so a translucent
+    // drawer shows a strong blur. In view -> 0 -> sharp.
+    finalColor = mix(finalColor, frosted, clamp(uDrawerBlur, 0.0, 1.0));
 
     fragColor = vec4(finalColor, 1.0);
 }

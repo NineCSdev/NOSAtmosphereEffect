@@ -307,11 +307,18 @@ class FrostedReverseService : GLWallpaperService() {
             if (!visible) {
                 val pm = getSystemService(POWER_SERVICE) as PowerManager
                 if (!pm.isInteractive) {
+                    // Screen off (device sleeping): prep for the next unlock.
                     myRenderer?.blurStrength = 0.0f
+                } else {
+                    // Screen still on but wallpaper left view -> app drawer / recents /
+                    // another app on top. Flip on the frosted drawer blur.
+                    myRenderer?.setDrawerBlurred(true)
                 }
             }
             super.onVisibilityChanged(visible)
             if (visible) {
+                // Back in view -> clear the drawer blur before drawing home/lock state.
+                myRenderer?.setDrawerBlurred(false)
                 val km = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
                 if (!km.isKeyguardLocked) isLocked = false
 

@@ -323,11 +323,20 @@ class BlurToSharpService : GLWallpaperService() {
             if (!visible) {
                 val pm = getSystemService(POWER_SERVICE) as PowerManager
                 if (!pm.isInteractive) {
+                    // Screen off (device sleeping): prep for the next unlock.
                     myRenderer?.blurStrength = 0.0f
+                } else {
+                    // Screen still on but wallpaper left view -> app drawer / recents /
+                    // another app on top. Flip on the frosted drawer blur so a launcher
+                    // that keeps the wallpaper composited behind a translucent drawer
+                    // shows a blurred backdrop instead of the sharp home image.
+                    myRenderer?.setDrawerBlurred(true)
                 }
             }
             super.onVisibilityChanged(visible)
             if (visible) {
+                // Back in view -> clear the drawer blur before drawing home/lock state.
+                myRenderer?.setDrawerBlurred(false)
                 val keyguardManager = getSystemService(KEYGUARD_SERVICE) as KeyguardManager
                 if (keyguardManager.isKeyguardLocked) {
                     isLocked = true
