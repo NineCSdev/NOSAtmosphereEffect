@@ -7,14 +7,13 @@ import android.opengl.GLSurfaceView
 import android.opengl.GLUtils
 import com.app.nosatmosphereeffect.helper.WallpaperFitHelper
 import com.app.nosatmosphereeffect.helper.WallpaperScrollRenderer
-import com.app.nosatmosphereeffect.helper.WallpaperZoomRenderer
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.FloatBuffer
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
 
-class FrostedRenderer(private val context: Context) : GLSurfaceView.Renderer, WallpaperScrollRenderer, WallpaperZoomRenderer {
+class FrostedRenderer(private val context: Context) : GLSurfaceView.Renderer, WallpaperScrollRenderer {
 
     // --- Wallpaper scrolling (home-screen parallax) ---
     @Volatile private var scrollOffsetX: Float = 0.5f
@@ -26,16 +25,17 @@ class FrostedRenderer(private val context: Context) : GLSurfaceView.Renderer, Wa
     }
     // ---------------------------------------------------
 
-    // --- Drawer / recents self-blur (launcher zoom-out) ---
-    // Blends toward the frosted texture as the launcher zooms out. For the reverse
-    // variant (home = sharp) this restores a strong drawer blur; for the forward
-    // variant (home already frosted) it is a no-op, so it is safe for both.
-    @Volatile private var zoomBlur: Float = 0f
+    // --- App-drawer / recents blur (driven by wallpaper visibility, not zoom) ---
+    // Only the reverse Frosted engine flips this on (when the wallpaper leaves view
+    // while the screen is still on), blending toward the frosted texture so the drawer
+    // shows a blur instead of the sharp home image. Forward Frosted never sets it, and
+    // it is already frosted at rest, so this stays a no-op there.
+    @Volatile private var drawerBlur: Float = 0f
 
-    override fun setWallpaperZoom(zoom: Float) {
-        zoomBlur = zoom.coerceIn(0f, 1f)
+    fun setDrawerBlurred(blurred: Boolean) {
+        drawerBlur = if (blurred) 1f else 0f
     }
-    // ------------------------------------------------------
+    // ----------------------------------------------------------------------------
 
     // --- RING BUFFER LOGIC ---
     private class TextureSet {
@@ -264,8 +264,8 @@ class FrostedRenderer(private val context: Context) : GLSurfaceView.Renderer, Wa
         GLES30.glUniform1f(GLES30.glGetUniformLocation(programId, "uNoiseScale"), noiseScale)
         GLES30.glUniform1f(GLES30.glGetUniformLocation(programId, "uNoiseStrength"), noiseStrength)
 
-        // Drawer/recents blur amount (0 = home, 1 = fully zoomed out).
-        GLES30.glUniform1f(GLES30.glGetUniformLocation(programId, "uZoomBlur"), zoomBlur)
+        // Drawer/recents blur (0 = in view, sharp; 1 = out of view, blurred).
+        GLES30.glUniform1f(GLES30.glGetUniformLocation(programId, "uDrawerBlur"), drawerBlur)
 
         // Horizontal scroll window (identity 0f/1f = no scroll, draws as before).
         // The off-screen blur passes never set these, so they default to identity.

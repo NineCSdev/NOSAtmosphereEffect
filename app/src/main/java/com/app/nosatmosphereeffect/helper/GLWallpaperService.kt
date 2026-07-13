@@ -19,20 +19,6 @@ interface WallpaperScrollRenderer {
     fun setWallpaperOffset(xOffset: Float)
 }
 
-/**
- * Implemented by renderers that react to the launcher "zooming out" the wallpaper
- * (app drawer, recents, notification shade). The base [GLWallpaperService.GLEngine]
- * forwards [WallpaperService.Engine.onZoomChanged] to the active renderer when it
- * implements this. Effects whose resting home state is sharp (the "reverse" variants)
- * use it to blur themselves while zoomed out, so the drawer background matches the
- * strong blur the system applies to a static wallpaper. Purely launcher-driven:
- * launchers that never call setWallpaperZoomOut simply leave zoom at 0 (no change).
- */
-interface WallpaperZoomRenderer {
-    /** @param zoom launcher zoom-out amount, 0.0 (home, no zoom) .. 1.0 (fully zoomed out). */
-    fun setWallpaperZoom(zoom: Float)
-}
-
 abstract class GLWallpaperService : WallpaperService() {
 
     open inner class GLEngine : Engine() {
@@ -73,16 +59,6 @@ abstract class GLWallpaperService : WallpaperService() {
             if (r is WallpaperScrollRenderer) {
                 r.setWallpaperOffset(xOffset)
                 // Dirty-mode renderer: nudge it to redraw at the new offset.
-                glSurfaceView?.requestRender()
-            }
-        }
-
-        override fun onZoomChanged(zoom: Float) {
-            super.onZoomChanged(zoom)
-            val r = activeRenderer
-            if (r is WallpaperZoomRenderer) {
-                r.setWallpaperZoom(zoom)
-                // Dirty-mode renderer: nudge it to redraw at the new zoom level.
                 glSurfaceView?.requestRender()
             }
         }
