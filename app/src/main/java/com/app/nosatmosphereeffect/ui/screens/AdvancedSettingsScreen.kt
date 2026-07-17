@@ -129,10 +129,12 @@ fun AdvancedSettingsScreen(
     val downloadPainter = painterResource(R.drawable.ic_download)
 
     val subjectModelReady = subjectModelState.phase == SubjectModelPhase.READY
-    val subjectModelWorking = subjectModelState.phase == SubjectModelPhase.DOWNLOADING ||
+    val subjectModelWorking = subjectModelState.phase == SubjectModelPhase.CHECKING ||
+        subjectModelState.phase == SubjectModelPhase.DOWNLOADING ||
         subjectModelState.phase == SubjectModelPhase.INSTALLING ||
         subjectModelState.phase == SubjectModelPhase.PAUSED
     val subjectModelButtonText = when (subjectModelState.phase) {
+        SubjectModelPhase.CHECKING -> "Checking Subject Model"
         SubjectModelPhase.NOT_DOWNLOADED -> "Download Subject Model"
         SubjectModelPhase.DOWNLOADING -> subjectModelState.progressPercent?.let { "Downloading $it%" }
             ?: "Downloading Subject Model"
@@ -142,6 +144,8 @@ fun AdvancedSettingsScreen(
         SubjectModelPhase.FAILED -> "Retry Subject Model Download"
     }
     val subjectModelStatusText = when (subjectModelState.phase) {
+        SubjectModelPhase.CHECKING ->
+            "Checking Google Play services for an existing model."
         SubjectModelPhase.NOT_DOWNLOADED ->
             "Optional. Nothing is downloaded until you tap the button."
         SubjectModelPhase.DOWNLOADING ->

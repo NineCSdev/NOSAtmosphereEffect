@@ -314,8 +314,7 @@ class NeonReverseService : GLWallpaperService() {
             myRenderer?.lineWidth = prefs.getFloat("neon_line_width", 1.5f)
             myRenderer?.sensitivity = prefs.getFloat("neon_sensitivity", 0.5f)
             myRenderer?.configureSubjectSegmentation(
-                prefs.getBoolean(CanvasSubjectSettings.ENABLED_KEY, false) &&
-                    prefs.getBoolean(CanvasSubjectSettings.MODEL_READY_KEY, false)
+                prefs.getBoolean(CanvasSubjectSettings.ENABLED_KEY, false)
             )
             // Line sensitivity changes which contours make it into the sketch,
             // so it has to be re-baked when settings are applied.

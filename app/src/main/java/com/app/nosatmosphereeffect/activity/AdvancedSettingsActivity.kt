@@ -7,6 +7,7 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -91,36 +92,50 @@ class AdvancedSettingsActivity : ComponentActivity() {
             contrast = prefs.getFloat("blob_contrast", 1.0f),
             neonSensitivity = prefs.getFloat("neon_sensitivity", 0.5f),
             neonLineWidth = prefs.getFloat("neon_line_width", 1.5f),
-            subjectSegmentationEnabled = subjectModelReady &&
+            subjectSegmentationEnabled =
                 prefs.getBoolean(CanvasSubjectSettings.ENABLED_KEY, false),
             scrollEnabled = WallpaperFitHelper.isScrollEnabled(this)
         )
 
         val initialSubjectModelState = SubjectModelState(
-            if (subjectModelReady) SubjectModelPhase.READY else SubjectModelPhase.NOT_DOWNLOADED,
+            if (subjectModelReady) SubjectModelPhase.READY else SubjectModelPhase.CHECKING,
             if (subjectModelReady) 100 else null
         )
+        if (isNeon) {
+            subjectModelManager = SubjectModelManager(applicationContext)
+        }
 
         setContent {
             AtmoEngineTheme {
                 var subjectModelState by remember { mutableStateOf(initialSubjectModelState) }
+                val updateSubjectModelState: (SubjectModelState) -> Unit = remember {
+                    { state ->
+                        runOnUiThread {
+                            subjectModelState = state
+                            when (state.phase) {
+                                SubjectModelPhase.READY -> prefs.edit {
+                                    putBoolean(CanvasSubjectSettings.MODEL_READY_KEY, true)
+                                }
+                                SubjectModelPhase.NOT_DOWNLOADED -> prefs.edit {
+                                    putBoolean(CanvasSubjectSettings.MODEL_READY_KEY, false)
+                                }
+                                else -> Unit
+                            }
+                        }
+                    }
+                }
+                LaunchedEffect(Unit) {
+                    subjectModelManager?.checkAvailability(updateSubjectModelState)
+                }
                 AdvancedSettingsScreen(
                     config = config,
                     subjectModelState = subjectModelState,
                     onDownloadSubjectModel = {
-                        subjectModelManager?.close()
-                        subjectModelManager = SubjectModelManager(applicationContext).also { manager ->
-                            manager.download { state ->
-                                runOnUiThread {
-                                    subjectModelState = state
-                                    if (state.phase == SubjectModelPhase.READY) {
-                                        prefs.edit {
-                                            putBoolean(CanvasSubjectSettings.MODEL_READY_KEY, true)
-                                        }
-                                    }
-                                }
+                        val manager = subjectModelManager
+                            ?: SubjectModelManager(applicationContext).also {
+                                subjectModelManager = it
                             }
-                        }
+                        manager.download(updateSubjectModelState)
                     },
                     onApply = { result ->
                         applySettings(result, prefs, wpPrefs, defaultPoll, defaultDelay, defaultDuration)

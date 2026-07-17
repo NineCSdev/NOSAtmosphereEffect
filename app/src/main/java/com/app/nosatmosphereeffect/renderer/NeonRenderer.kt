@@ -5,7 +5,6 @@ import android.graphics.Bitmap
 import android.opengl.GLES30
 import android.opengl.GLSurfaceView
 import android.opengl.GLUtils
-import com.app.nosatmosphereeffect.helper.CanvasSubjectSettings
 import com.app.nosatmosphereeffect.helper.SubjectMaskExtractor
 import com.app.nosatmosphereeffect.helper.WallpaperFitHelper
 import com.app.nosatmosphereeffect.helper.WallpaperScrollRenderer
@@ -30,7 +29,7 @@ class NeonRenderer(
         const val LINE_MAX_DIST = 6.0f
         const val EDGE_SAMPLE_RADIUS = 2.0f
         const val MAX_SKETCH_SIDE = 1600
-        const val HYST_PASSES = 2
+        const val HYST_PASSES = 3
         const val WEAK_RATIO = 0.58f
     }
 
@@ -246,10 +245,8 @@ class NeonRenderer(
     }
 
     private fun onSubjectModelUnavailable() {
-        context.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
-            .edit()
-            .putBoolean(CanvasSubjectSettings.MODEL_READY_KEY, false)
-            .apply()
+        // Availability can be transient while Play services is loading the
+        // module. Fall back for this renderer without corrupting saved status.
         subjectSegmentationEnabled = false
         subjectMaskExtractor?.close()
         subjectMaskExtractor = null
@@ -297,8 +294,8 @@ class NeonRenderer(
 
     /**
      * Bakes a short distance map from a simplified contour image. Subject masks
-     * contribute a guaranteed silhouette; color edges are accepted only when
-     * they remain meaningful across two coarse image scales.
+     * contribute a smoothed silhouette; color-edge positions and directions
+     * are averaged along each contour before short gaps are reconnected.
      */
     private fun buildSketch(set: TextureSet) {
         if (set.sharpId == 0 || set.width <= 0 || set.height <= 0) return

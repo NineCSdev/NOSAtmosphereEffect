@@ -15,6 +15,7 @@ object CanvasSubjectSettings {
 }
 
 enum class SubjectModelPhase {
+    CHECKING,
     NOT_DOWNLOADED,
     DOWNLOADING,
     INSTALLING,
@@ -38,6 +39,25 @@ class SubjectModelManager(context: Context) : Closeable {
 
     private var listener: InstallStatusListener? = null
     @Volatile private var closed = false
+
+    /** Reads the installed state without requesting or downloading anything. */
+    fun checkAvailability(onState: (SubjectModelState) -> Unit) {
+        if (closed) return
+        moduleClient.areModulesAvailable(segmenter)
+            .addOnSuccessListener { availability ->
+                if (closed) return@addOnSuccessListener
+                onState(
+                    if (availability.areModulesAvailable()) {
+                        SubjectModelState(SubjectModelPhase.READY, 100)
+                    } else {
+                        SubjectModelState(SubjectModelPhase.NOT_DOWNLOADED)
+                    }
+                )
+            }
+            .addOnFailureListener {
+                if (!closed) onState(SubjectModelState(SubjectModelPhase.FAILED))
+            }
+    }
 
     fun download(onState: (SubjectModelState) -> Unit) {
         if (closed) return
