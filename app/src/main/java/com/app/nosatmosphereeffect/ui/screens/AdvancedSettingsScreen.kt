@@ -40,6 +40,7 @@ import com.app.nosatmosphereeffect.ui.components.SettingSwitchRow
 data class AdvancedConfig(
     val showHalftone: Boolean,
     val showColorFill: Boolean,
+    val showNeon: Boolean,
     val showNoiseSwitch: Boolean,
     val showBlob: Boolean,
     val isPlaylistMode: Boolean,
@@ -57,6 +58,9 @@ data class AdvancedConfig(
     val originY: Float,
     val saturation: Float,
     val contrast: Float,
+    val neonSensitivity: Float,
+    val neonLineWidth: Float,
+    val neonGlow: Float,
     val scrollEnabled: Boolean
 )
 
@@ -74,6 +78,9 @@ data class AdvancedResult(
     val originY: Float,
     val saturation: Float,
     val contrast: Float,
+    val neonSensitivity: Float,
+    val neonLineWidth: Float,
+    val neonGlow: Float,
     val rotationIndex: Int,
     val scrollEnabled: Boolean
 )
@@ -99,6 +106,10 @@ fun AdvancedSettingsScreen(
 
     var saturation by remember { mutableFloatStateOf(config.saturation) }
     var contrast by remember { mutableFloatStateOf(config.contrast) }
+
+    var neonSensitivity by remember { mutableFloatStateOf(config.neonSensitivity) }
+    var neonLineWidth by remember { mutableFloatStateOf(config.neonLineWidth) }
+    var neonGlow by remember { mutableFloatStateOf(config.neonGlow) }
 
     var noiseEnabled by remember { mutableStateOf(config.enableNoise) }
     var noiseScale by remember { mutableStateOf(config.noiseScale) }
@@ -155,7 +166,7 @@ fun AdvancedSettingsScreen(
                     label = "Animation Duration (ms)",
                     value = duration,
                     onValueChange = { duration = it.filterDigits() },
-                    helper = "Original: 2500 · Reverse: 1500 · Others: 500"
+                    helper = "Original: 2500 · Reverse, Color Fill & Neon: 1500 · Others: 500"
                 )
             }
 
@@ -237,6 +248,47 @@ fun AdvancedSettingsScreen(
                 }
             }
 
+            // ---- Neon blueprint ------------------------------------------
+            if (config.showNeon) {
+                AtmoCard {
+                    SectionHeader("Neon Blueprint")
+                    Spacer(Modifier.height(16.dp))
+                    LabeledSlider(
+                        label = "Line Sensitivity",
+                        value = neonSensitivity,
+                        onValueChange = { neonSensitivity = it },
+                        valueRange = 0f..1f,
+                        step = 0.05f
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    LabeledSlider(
+                        label = "Line Thickness",
+                        value = neonLineWidth,
+                        onValueChange = { neonLineWidth = it },
+                        valueRange = 0.5f..4f,
+                        step = 0.5f
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    LabeledSlider(
+                        label = "Glow Radius",
+                        value = neonGlow,
+                        onValueChange = { neonGlow = it },
+                        valueRange = 0f..80f,
+                        step = 2f
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "Sensitivity decides how much of the picture gets traced: low " +
+                            "keeps only the hard outlines, high finds texture too. Busy " +
+                            "photos look best kept low. The outlines are white and the " +
+                            "colour is your wallpaper's own, arriving as it fills in. " +
+                            "Everything the lines do not touch stays true black.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            }
+
             // ---- Atmosphere colour (blob) --------------------------------
             if (config.showBlob) {
                 AtmoCard {
@@ -310,6 +362,9 @@ fun AdvancedSettingsScreen(
                             originY = originY,
                             saturation = saturation,
                             contrast = contrast,
+                            neonSensitivity = neonSensitivity,
+                            neonLineWidth = neonLineWidth,
+                            neonGlow = neonGlow,
                             rotationIndex = rotationIndex,
                             scrollEnabled = scrollEnabled
                         )

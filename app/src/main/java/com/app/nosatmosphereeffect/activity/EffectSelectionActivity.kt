@@ -31,6 +31,8 @@ import com.app.nosatmosphereeffect.service.FrostedReverseService
 import com.app.nosatmosphereeffect.service.FrostedService
 import com.app.nosatmosphereeffect.service.HalftoneReverseService
 import com.app.nosatmosphereeffect.service.HalftoneService
+import com.app.nosatmosphereeffect.service.NeonReverseService
+import com.app.nosatmosphereeffect.service.NeonService
 import com.app.nosatmosphereeffect.ui.components.AtmoDialogRow
 import com.app.nosatmosphereeffect.ui.screens.EffectItem
 import com.app.nosatmosphereeffect.ui.screens.EffectSelectionScreen
@@ -60,7 +62,11 @@ class EffectSelectionActivity : ComponentActivity() {
         EffectItem("COLORFILL", "Color Fill", "B&W → Color",
             "Liquid awakening. Colors flow outward from your fingerprint."),
         EffectItem("COLORFILL_REVERSE", "Color Fill (Reverse)", "Color → B&W",
-            "Fluid drain. Colors wash away into grayscale.")
+            "Fluid drain. Colors wash away into grayscale."),
+        EffectItem("NEON", "Neon Blueprint", "Neon → Sharp",
+            "Edge-detection wake. Glowing outlines on OLED black bleed their colors back in."),
+        EffectItem("NEON_REVERSE", "Neon Blueprint (Reverse)", "Sharp → Neon",
+            "Blueprint collapse. The picture drains away, leaving only its neon outlines.")
     )
 
     private val pickSingleImage =
@@ -179,6 +185,8 @@ class EffectSelectionActivity : ComponentActivity() {
             "HALFTONE_REVERSE" -> HalftoneReverseService::class.java
             "COLORFILL" -> ColorFillService::class.java
             "COLORFILL_REVERSE" -> ColorFillReverseService::class.java
+            "NEON" -> NeonService::class.java
+            "NEON_REVERSE" -> NeonReverseService::class.java
             else -> AtmosphereService::class.java
         }
         val intent = Intent(WallpaperManager.ACTION_CHANGE_LIVE_WALLPAPER)

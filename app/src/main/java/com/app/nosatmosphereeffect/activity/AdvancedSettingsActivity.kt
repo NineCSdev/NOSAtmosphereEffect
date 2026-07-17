@@ -32,11 +32,14 @@ class AdvancedSettingsActivity : ComponentActivity() {
 
         val isHalftone = activeEffect.contains("HALFTONE")
         val isColorFill = activeEffect.contains("COLORFILL")
-        val showNoiseSwitch = !isHalftone && !isColorFill
+        val isNeon = activeEffect.contains("NEON")
+        val showNoiseSwitch = !isHalftone && !isColorFill && !isNeon
         val showBlob = activeEffect == "ORIGINAL" || activeEffect == "REVERSE"
 
+        // Neon's bleed has to cross the whole screen from the outlines outward;
+        // at 500ms it reads as a flash rather than a wake.
         val defaultDuration =
-            if (activeEffect == "REVERSE" || isColorFill) 1500L
+            if (activeEffect == "REVERSE" || isColorFill || isNeon) 1500L
             else if (activeEffect == "ORIGINAL") 2500L
             else 500L
         val defaultPoll = if (isSamsung) 30000L else 50L
@@ -57,6 +60,7 @@ class AdvancedSettingsActivity : ComponentActivity() {
         val config = AdvancedConfig(
             showHalftone = isHalftone,
             showColorFill = isColorFill,
+            showNeon = isNeon,
             showNoiseSwitch = showNoiseSwitch,
             showBlob = showBlob,
             isPlaylistMode = isPlaylistMode,
@@ -74,6 +78,9 @@ class AdvancedSettingsActivity : ComponentActivity() {
             originY = prefs.getFloat("origin_y", 0.8f),
             saturation = prefs.getFloat("blob_saturation", 1.0f),
             contrast = prefs.getFloat("blob_contrast", 1.0f),
+            neonSensitivity = prefs.getFloat("neon_sensitivity", 0.5f),
+            neonLineWidth = prefs.getFloat("neon_line_width", 1.5f),
+            neonGlow = prefs.getFloat("neon_glow_radius", 26.0f),
             scrollEnabled = WallpaperFitHelper.isScrollEnabled(this)
         )
 
@@ -122,6 +129,9 @@ class AdvancedSettingsActivity : ComponentActivity() {
             putFloat("blob_contrast", result.contrast)
             putFloat("origin_x", result.originX)
             putFloat("origin_y", result.originY)
+            putFloat("neon_sensitivity", result.neonSensitivity)
+            putFloat("neon_line_width", result.neonLineWidth)
+            putFloat("neon_glow_radius", result.neonGlow)
         }
 
         // Wallpaper scrolling lives in display_prefs (survives wallpaper changes).
@@ -151,6 +161,9 @@ class AdvancedSettingsActivity : ComponentActivity() {
             remove("blob_contrast")
             remove("origin_x")
             remove("origin_y")
+            remove("neon_sensitivity")
+            remove("neon_line_width")
+            remove("neon_glow_radius")
         }
         sendUpdateBroadcast()
     }

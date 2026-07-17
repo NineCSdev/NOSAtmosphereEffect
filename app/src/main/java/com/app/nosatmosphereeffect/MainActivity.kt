@@ -29,6 +29,8 @@ import com.app.nosatmosphereeffect.service.FrostedReverseService
 import com.app.nosatmosphereeffect.service.FrostedService
 import com.app.nosatmosphereeffect.service.HalftoneReverseService
 import com.app.nosatmosphereeffect.service.HalftoneService
+import com.app.nosatmosphereeffect.service.NeonReverseService
+import com.app.nosatmosphereeffect.service.NeonService
 import com.app.nosatmosphereeffect.ui.screens.MainScreen
 import com.app.nosatmosphereeffect.ui.theme.AtmoEngineTheme
 import java.io.File
@@ -174,7 +176,8 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun defaultDimnessFor(effect: String?): Float =
-        if (!effect.isNullOrEmpty() && effect.contains("HALFTONE")) 0.0f else 0.2f
+        if (!effect.isNullOrEmpty() && (effect.contains("HALFTONE") || effect.contains("NEON"))) 0.0f
+        else 0.2f
 
     private fun loadCurrentDimness() {
         val prefs = getSharedPreferences("app_prefs", MODE_PRIVATE)
@@ -226,6 +229,8 @@ class MainActivity : ComponentActivity() {
                 HalftoneReverseService::class.java.name -> "HALFTONE_REVERSE"
                 ColorFillService::class.java.name -> "COLORFILL"
                 ColorFillReverseService::class.java.name -> "COLORFILL_REVERSE"
+                NeonService::class.java.name -> "NEON"
+                NeonReverseService::class.java.name -> "NEON_REVERSE"
                 else -> null
             }
         }

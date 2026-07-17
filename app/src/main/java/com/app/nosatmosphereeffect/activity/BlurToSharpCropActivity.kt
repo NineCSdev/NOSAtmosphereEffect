@@ -28,6 +28,7 @@ import com.app.nosatmosphereeffect.service.BlurToSharpService
 import com.app.nosatmosphereeffect.service.ColorFillReverseService
 import com.app.nosatmosphereeffect.service.FrostedReverseService
 import com.app.nosatmosphereeffect.service.HalftoneReverseService
+import com.app.nosatmosphereeffect.service.NeonReverseService
 import com.app.nosatmosphereeffect.ui.screens.CropController
 import com.app.nosatmosphereeffect.ui.screens.CropScreen
 import com.app.nosatmosphereeffect.ui.screens.SimpleConfirmDialog
@@ -261,6 +262,8 @@ class BlurToSharpCropActivity : ComponentActivity() {
                 HalftoneReverseService::class.java
             } else if (effectId == "COLORFILL_REVERSE") {
                 ColorFillReverseService::class.java
+            } else if (effectId == "NEON_REVERSE") {
+                NeonReverseService::class.java
             } else {
                 BlurToSharpService::class.java
             }
