@@ -5,7 +5,7 @@ in vec2 vTexCoord;
 out vec4 fragColor;
 
 // ----------------------------------------------------------------------------
-// Neon Blueprint - bake pass 2, run a few times (once per wallpaper load).
+// Canvas sketch - outline cleanup pass.
 //
 // Decides what the "maybe" crests from neon_edges.frag really are.
 //
@@ -19,7 +19,7 @@ out vec4 fragColor;
 
 uniform sampler2D uTexture;   // R: 1.0 = outline, 0.5 = maybe, 0.0 = no
 uniform vec2  uStep;
-uniform float uFinal;         // 1.0 on the last pass: emit neon_edt.frag's seed encoding
+uniform float uFinal;         // 1.0 on the last pass: emit distance-pass seed encoding
 
 void main() {
     float c = textureLod(uTexture, vTexCoord, 0.0).r;

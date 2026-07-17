@@ -274,9 +274,8 @@ class NeonReverseService : GLWallpaperService() {
             }
         }
 
-        // blurStrength is 0.0 for whatever the lock screen shows and 1.0 for whatever
-        // the home screen shows; the shader's uReverse decides which of those two is
-        // the blueprint. Both engines therefore drive the animation identically.
+        // blurStrength is 0.0 for whatever the lock screen shows and 1.0 for
+        // whatever the home screen shows; uReverse decides which one is sketch.
         private fun playUnlockAnimation() {
             val targetRenderer = myRenderer ?: return
             blurAnimator?.cancel()
@@ -310,11 +309,9 @@ class NeonReverseService : GLWallpaperService() {
             myRenderer?.dimLevel = prefs.getFloat("dim_level", 0.0f)
             myRenderer?.lineWidth = prefs.getFloat("neon_line_width", 1.5f)
             myRenderer?.sensitivity = prefs.getFloat("neon_sensitivity", 0.5f)
-            myRenderer?.glowRadius = prefs.getFloat("neon_glow_radius", 26.0f)
-            // Line sensitivity also seeds the baked distance field the bleed runs
-            // on, so it has to be re-baked. Costs a few ms on a 1/8 scale target
-            // and only happens when settings are applied.
-            myRenderer?.rebuildField()
+            // Line sensitivity changes which contours make it into the sketch,
+            // so it has to be re-baked when settings are applied.
+            myRenderer?.rebuildSketch()
             enableSystemColorUpdate = prefs.getBoolean("notify_system_colors", false)
 
             val isSamsung = Build.MANUFACTURER.equals("samsung", ignoreCase = true)

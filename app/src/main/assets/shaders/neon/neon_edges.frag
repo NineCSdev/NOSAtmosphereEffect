@@ -5,7 +5,7 @@ in vec2 vTexCoord;
 out vec4 fragColor;
 
 // ----------------------------------------------------------------------------
-// Neon Blueprint - bake pass 1 (runs once per wallpaper load, not per frame).
+// Canvas sketch - outline bake pass 1 (runs once per wallpaper load, not per frame).
 //
 // Finds the outlines. Runs at full wallpaper resolution and writes a crest map:
 //   1.0 = definitely an outline      0.5 = maybe    0.0 = no

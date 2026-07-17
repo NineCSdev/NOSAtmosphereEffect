@@ -142,7 +142,7 @@
             android:name=".service.NeonService"
             android:enabled="true"
             android:exported="true"
-            android:label="Neon Blueprint Effect"
+            android:label="Canvas AOD Effect"
             android:permission="android.permission.BIND_WALLPAPER">
             <intent-filter>
                 <action android:name="android.service.wallpaper.WallpaperService" />
@@ -156,8 +156,8 @@
             android:name=".service.NeonReverseService"
             android:enabled="true"
             android:exported="true"
-            android:label="Neon Blueprint (Reverse) Effect"
-            android:permission="android.permission.BIND_WALLPAPER">
+            android:label="Canvas AOD (Reverse) Effect"
+            android:permission="android.permiss§ion.BIND_WALLPAPER">
             <intent-filter>
                 <action android:name="android.service.wallpaper.WallpaperService" />
             </intent-filter>

@@ -63,10 +63,10 @@ class EffectSelectionActivity : ComponentActivity() {
             "Liquid awakening. Colors flow outward from your fingerprint."),
         EffectItem("COLORFILL_REVERSE", "Color Fill (Reverse)", "Color → B&W",
             "Fluid drain. Colors wash away into grayscale."),
-        EffectItem("NEON", "Neon Blueprint", "Neon → Sharp",
-            "Edge-detection wake. Glowing outlines on OLED black bleed their colors back in."),
-        EffectItem("NEON_REVERSE", "Neon Blueprint (Reverse)", "Sharp → Neon",
-            "Blueprint collapse. The picture drains away, leaving only its neon outlines.")
+        EffectItem("NEON", "Canvas AOD", "Sketch → Image",
+            "Canvas-style lockscreen. Thin line art fades smoothly into your wallpaper."),
+        EffectItem("NEON_REVERSE", "Canvas AOD (Reverse)", "Image → Sketch",
+            "Reverse Canvas transition. The wallpaper settles back into clean line art.")
     )
 
     private val pickSingleImage =

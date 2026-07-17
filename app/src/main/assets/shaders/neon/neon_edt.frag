@@ -5,13 +5,11 @@ in vec2 vTexCoord;
 out vec4 fragColor;
 
 // ----------------------------------------------------------------------------
-// Neon Blueprint - off-screen pass B (runs once per wallpaper load, not per frame).
+// Canvas sketch - off-screen distance pass.
 //
-// Turns the seed map from neon_edges.frag into a distance field: how far this
-// pixel sits from the nearest outline. neon.frag then drives the whole effect
-// off that one number - the glow falls off with it, and the unlock "bleed" is a
-// threshold sweeping across it, so colour crawls outward from the lines at a
-// constant speed instead of cross-fading in place.
+// Turns the resolved outline map from neon_hyst.frag into a short distance map:
+// how far this pixel sits from the nearest outline. The final shader uses that
+// distance only to draw stable, antialiased ink strokes.
 //
 // Two separable sweeps give the EXACT Euclidean distance, not an approximation:
 //
@@ -22,8 +20,7 @@ out vec4 fragColor;
 // hypotenuse is the one minimising the horizontal leg - i.e. r(x, y+j) itself.
 //
 // Both sweeps are windowed to uRadius texels; anything further reads as uMaxDist
-// ("out of reach") and simply never wins the min. The field is 1/8 scale, so a
-// 128-texel window still reaches ~1024 screen pixels.
+// ("out of reach") and simply never wins the min.
 // ----------------------------------------------------------------------------
 
 uniform sampler2D uTexture;

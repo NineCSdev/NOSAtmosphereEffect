@@ -36,8 +36,8 @@ class AdvancedSettingsActivity : ComponentActivity() {
         val showNoiseSwitch = !isHalftone && !isColorFill && !isNeon
         val showBlob = activeEffect == "ORIGINAL" || activeEffect == "REVERSE"
 
-        // Neon's bleed has to cross the whole screen from the outlines outward;
-        // at 500ms it reads as a flash rather than a wake.
+        // Canvas needs a little time for the line sketch to read before the
+        // wallpaper settles in.
         val defaultDuration =
             if (activeEffect == "REVERSE" || isColorFill || isNeon) 1500L
             else if (activeEffect == "ORIGINAL") 2500L
@@ -80,7 +80,6 @@ class AdvancedSettingsActivity : ComponentActivity() {
             contrast = prefs.getFloat("blob_contrast", 1.0f),
             neonSensitivity = prefs.getFloat("neon_sensitivity", 0.5f),
             neonLineWidth = prefs.getFloat("neon_line_width", 1.5f),
-            neonGlow = prefs.getFloat("neon_glow_radius", 26.0f),
             scrollEnabled = WallpaperFitHelper.isScrollEnabled(this)
         )
 
@@ -131,7 +130,6 @@ class AdvancedSettingsActivity : ComponentActivity() {
             putFloat("origin_y", result.originY)
             putFloat("neon_sensitivity", result.neonSensitivity)
             putFloat("neon_line_width", result.neonLineWidth)
-            putFloat("neon_glow_radius", result.neonGlow)
         }
 
         // Wallpaper scrolling lives in display_prefs (survives wallpaper changes).
@@ -163,7 +161,6 @@ class AdvancedSettingsActivity : ComponentActivity() {
             remove("origin_y")
             remove("neon_sensitivity")
             remove("neon_line_width")
-            remove("neon_glow_radius")
         }
         sendUpdateBroadcast()
     }
