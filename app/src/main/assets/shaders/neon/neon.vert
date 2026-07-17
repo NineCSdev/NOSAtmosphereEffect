@@ -14,5 +14,5 @@ void main() {
     gl_Position = aPosition;
     float win = uScrollWindowX <= 0.0 ? 1.0 : uScrollWindowX;
     float u = uScrollOffsetX * (1.0 - win) + aTexCoord.x * win;
-    vTexCoord = vec2(u, aTexCoord.y);
+    vTexCoord = vec2(u, 1.0 - aTexCoord.y);
 }
