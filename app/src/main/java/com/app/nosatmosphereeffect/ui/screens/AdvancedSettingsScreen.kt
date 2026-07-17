@@ -26,6 +26,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import com.app.nosatmosphereeffect.R
+import com.app.nosatmosphereeffect.helper.SubjectModelPhase
+import com.app.nosatmosphereeffect.helper.SubjectModelState
 import com.app.nosatmosphereeffect.ui.components.AtmoCard
 import com.app.nosatmosphereeffect.ui.components.AtmoDropdownField
 import com.app.nosatmosphereeffect.ui.components.AtmoNumberField
@@ -60,6 +62,7 @@ data class AdvancedConfig(
     val contrast: Float,
     val neonSensitivity: Float,
     val neonLineWidth: Float,
+    val subjectSegmentationEnabled: Boolean,
     val scrollEnabled: Boolean
 )
 
@@ -79,6 +82,7 @@ data class AdvancedResult(
     val contrast: Float,
     val neonSensitivity: Float,
     val neonLineWidth: Float,
+    val subjectSegmentationEnabled: Boolean,
     val rotationIndex: Int,
     val scrollEnabled: Boolean
 )
@@ -86,6 +90,8 @@ data class AdvancedResult(
 @Composable
 fun AdvancedSettingsScreen(
     config: AdvancedConfig,
+    subjectModelState: SubjectModelState,
+    onDownloadSubjectModel: () -> Unit,
     onApply: (AdvancedResult) -> Unit,
     onReset: () -> Unit,
     onBack: () -> Unit
@@ -107,6 +113,9 @@ fun AdvancedSettingsScreen(
 
     var neonSensitivity by remember { mutableFloatStateOf(config.neonSensitivity) }
     var neonLineWidth by remember { mutableFloatStateOf(config.neonLineWidth) }
+    var subjectSegmentationEnabled by remember {
+        mutableStateOf(config.subjectSegmentationEnabled)
+    }
 
     var noiseEnabled by remember { mutableStateOf(config.enableNoise) }
     var noiseScale by remember { mutableStateOf(config.noiseScale) }
@@ -117,6 +126,35 @@ fun AdvancedSettingsScreen(
     var infoDialog by remember { mutableStateOf<InfoDialog?>(null) }
 
     val infoPainter = painterResource(R.drawable.ic_info)
+    val downloadPainter = painterResource(R.drawable.ic_download)
+
+    val subjectModelReady = subjectModelState.phase == SubjectModelPhase.READY
+    val subjectModelWorking = subjectModelState.phase == SubjectModelPhase.DOWNLOADING ||
+        subjectModelState.phase == SubjectModelPhase.INSTALLING ||
+        subjectModelState.phase == SubjectModelPhase.PAUSED
+    val subjectModelButtonText = when (subjectModelState.phase) {
+        SubjectModelPhase.NOT_DOWNLOADED -> "Download Subject Model"
+        SubjectModelPhase.DOWNLOADING -> subjectModelState.progressPercent?.let { "Downloading $it%" }
+            ?: "Downloading Subject Model"
+        SubjectModelPhase.INSTALLING -> "Installing Subject Model"
+        SubjectModelPhase.PAUSED -> "Download Paused"
+        SubjectModelPhase.READY -> "Subject Model Downloaded"
+        SubjectModelPhase.FAILED -> "Retry Subject Model Download"
+    }
+    val subjectModelStatusText = when (subjectModelState.phase) {
+        SubjectModelPhase.NOT_DOWNLOADED ->
+            "Optional. Nothing is downloaded until you tap the button."
+        SubjectModelPhase.DOWNLOADING ->
+            "Downloading once through Google Play services."
+        SubjectModelPhase.INSTALLING ->
+            "Finishing the on-device model installation."
+        SubjectModelPhase.PAUSED ->
+            "Download paused until the required connection is available."
+        SubjectModelPhase.READY ->
+            "Ready. Subject analysis runs on-device and works offline."
+        SubjectModelPhase.FAILED ->
+            "Download failed. Check the connection and try again."
+    }
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -163,7 +201,7 @@ fun AdvancedSettingsScreen(
                     label = "Animation Duration (ms)",
                     value = duration,
                     onValueChange = { duration = it.filterDigits() },
-                    helper = "Original: 2500 · Reverse, Color Fill & Canvas: 1500 · Others: 500"
+                    helper = "Original: 2500 · Reverse, Color Fill & Canvas Sketch: 1500 · Others: 500"
                 )
             }
 
@@ -248,10 +286,37 @@ fun AdvancedSettingsScreen(
             // ---- Canvas sketch -------------------------------------------
             if (config.showNeon) {
                 AtmoCard {
-                    SectionHeader("Canvas AOD")
+                    SectionHeader("Canvas Sketch")
+                    Spacer(Modifier.height(16.dp))
+                    SettingSwitchRow(
+                        title = "Subject Segmentation",
+                        checked = subjectSegmentationEnabled,
+                        onCheckedChange = { subjectSegmentationEnabled = it },
+                        enabled = subjectModelReady,
+                        subtitle = if (subjectModelReady) {
+                            "Isolates a prominent subject using the downloaded model."
+                        } else {
+                            "Download the optional model to enable subject isolation."
+                        }
+                    )
+                    Spacer(Modifier.height(16.dp))
+                    AtmoOutlinedButton(
+                        text = subjectModelButtonText,
+                        onClick = onDownloadSubjectModel,
+                        enabled = !subjectModelWorking && !subjectModelReady,
+                        accent = true,
+                        icon = if (!subjectModelWorking && !subjectModelReady) downloadPainter else null,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        subjectModelStatusText,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall
+                    )
                     Spacer(Modifier.height(16.dp))
                     LabeledSlider(
-                        label = "Line Sensitivity",
+                        label = "Sketch Detail",
                         value = neonSensitivity,
                         onValueChange = { neonSensitivity = it },
                         valueRange = 0f..1f,
@@ -267,10 +332,9 @@ fun AdvancedSettingsScreen(
                     )
                     Spacer(Modifier.height(8.dp))
                     Text(
-                        "Sensitivity decides how much of the picture gets traced: low " +
-                            "keeps only the hard outlines, high finds texture too. Busy " +
-                            "photos look best kept low. The lockscreen is black with " +
-                            "clean line art, and the home screen is the original image.",
+                        "With subject segmentation off, Canvas Sketch traces the whole " +
+                            "wallpaper. When enabled, it keeps the detected subject's " +
+                            "silhouette and broad internal contours.",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         style = MaterialTheme.typography.bodySmall
                     )
@@ -352,6 +416,7 @@ fun AdvancedSettingsScreen(
                             contrast = contrast,
                             neonSensitivity = neonSensitivity,
                             neonLineWidth = neonLineWidth,
+                            subjectSegmentationEnabled = subjectSegmentationEnabled,
                             rotationIndex = rotationIndex,
                             scrollEnabled = scrollEnabled
                         )

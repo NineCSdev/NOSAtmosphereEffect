@@ -75,6 +75,8 @@ kotlin {
 
 dependencies {
     implementation(libs.androidx.exifinterface)
+    implementation(libs.play.services.base)
+    implementation(libs.play.services.mlkit.subject.segmentation)
 
     // --- Jetpack Compose (common to all flavors) ---
     val composeBom = platform(libs.androidx.compose.bom)

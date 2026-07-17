@@ -5,6 +5,8 @@ import android.graphics.Bitmap
 import android.opengl.GLES30
 import android.opengl.GLSurfaceView
 import android.opengl.GLUtils
+import com.app.nosatmosphereeffect.helper.CanvasSubjectSettings
+import com.app.nosatmosphereeffect.helper.SubjectMaskExtractor
 import com.app.nosatmosphereeffect.helper.WallpaperFitHelper
 import com.app.nosatmosphereeffect.helper.WallpaperScrollRenderer
 import java.nio.ByteBuffer
@@ -14,13 +16,10 @@ import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
 
 /**
- * Canvas-style sketch transition. The stylised state is an OLED-black canvas
- * with thin line art extracted from the wallpaper; the image state is the fitted
- * wallpaper itself. [isReverse] swaps which state belongs to the lock screen.
- *
- * The expensive outline detection is baked once per wallpaper load. Frames then
- * only sample the wallpaper plus a single outline-distance texture, which keeps
- * the lockscreen-to-homescreen transition light enough for a live wallpaper.
+ * Canvas transition. A prominent subject is isolated when possible and reduced
+ * to its silhouette plus a few broad internal contours. When segmentation has
+ * no useful result, the same restrained contour treatment uses the full image.
+ * [isReverse] swaps which state belongs to the lock screen.
  */
 class NeonRenderer(
     private val context: Context,
@@ -28,75 +27,95 @@ class NeonRenderer(
 ) : GLSurfaceView.Renderer, WallpaperScrollRenderer {
 
     private companion object {
-        // Sweep window for the line distance, in wallpaper texels. The shader
-        // only needs enough range to draw/antialias the ink strokes.
         const val LINE_MAX_DIST = 6.0f
-
-        // How far certainty is allowed to walk along a contour. Three passes
-        // carry a strong crest across a 3-texel dropout, which covers most
-        // broken outlines without promoting isolated texture specks.
-        const val HYST_PASSES = 3
-
-        // Crests below uThreshold * this are discarded outright; between the two
-        // they have to prove themselves by joining a strong one.
-        const val WEAK_RATIO = 0.4f
+        const val EDGE_SAMPLE_RADIUS = 2.0f
+        const val MAX_SKETCH_SIDE = 1600
+        const val HYST_PASSES = 2
+        const val WEAK_RATIO = 0.58f
     }
 
-    // --- Wallpaper scrolling (home-screen parallax) ---
-    @Volatile private var scrollOffsetX: Float = 0.5f
-    private var currentWindowX: Float = 1f
-    private var nextWindowX: Float = 1f
+    @Volatile
+    var onSketchUpdated: (() -> Unit)? = null
+
+    @Volatile
+    private var scrollOffsetX = 0.5f
+    private var currentWindowX = 1f
+    private var nextWindowX = 1f
 
     override fun setWallpaperOffset(xOffset: Float) {
         scrollOffsetX = xOffset.coerceIn(0f, 1f)
     }
-    // ---------------------------------------------------
 
     private class TextureSet {
         var sharpId = 0
         var lineId = 0
+        var maskId = 0
         var width = 0
         var height = 0
+        var lineWidth = 0
+        var lineHeight = 0
+        var maskWidth = 0
+        var maskHeight = 0
+        var generation = 0L
+        var hasSubject = false
 
         fun isValid() = sharpId != 0 && lineId != 0
 
         fun reset() {
             sharpId = 0
             lineId = 0
+            maskId = 0
             width = 0
             height = 0
+            lineWidth = 0
+            lineHeight = 0
+            maskWidth = 0
+            maskHeight = 0
+            generation = 0L
+            hasSubject = false
         }
     }
 
+    private data class PendingSubjectMask(
+        val generation: Long,
+        val bitmap: Bitmap
+    )
+
     private var currentSet = TextureSet()
     private var nextSet = TextureSet()
+    private var generationCounter = 0L
+    @Volatile private var latestSubjectRequest = 0L
 
-    @Volatile private var pendingPlaylistBitmap: Bitmap? = null
+    @Volatile
+    private var pendingPlaylistBitmap: Bitmap? = null
 
-    var blurStrength: Float = 0.0f
-    @Volatile var dimLevel: Float = 0.0f
-    @Volatile private var needsReload: Boolean = false
-    @Volatile private var needsSketchRebuild: Boolean = false
+    private val subjectMaskLock = Any()
+    private var pendingSubjectMask: PendingSubjectMask? = null
+    private var subjectMaskExtractor: SubjectMaskExtractor? = null
+    @Volatile private var subjectSegmentationEnabled = false
 
-    // --- User settings (Fine Tuning) ---
-    @Volatile var lineWidth: Float = 1.5f
-    @Volatile var sensitivity: Float = 0.5f
+    var blurStrength = 0.0f
+    @Volatile var dimLevel = 0.0f
+    @Volatile private var needsReload = false
+    @Volatile private var needsSketchRebuild = false
 
-    private var programId: Int = 0
-    private var edgeProgramId: Int = 0
-    private var hystProgramId: Int = 0
-    private var edtProgramId: Int = 0
-    private var fboId: Int = 0
-    private var aspectRatio: Float = 1.0f
+    @Volatile var lineWidth = 1.5f
+    @Volatile var sensitivity = 0.5f
 
-    // Ping-pong for the full-resolution line passes. Freed once each bake ends.
-    private var edgeAId: Int = 0
-    private var edgeBId: Int = 0
+    private var programId = 0
+    private var edgeProgramId = 0
+    private var hystProgramId = 0
+    private var edtProgramId = 0
+    private var fboId = 0
+    private var aspectRatio = 1.0f
 
-    @Volatile private var surfaceWidth: Int = 0
-    @Volatile private var surfaceHeight: Int = 0
-    private var fittedForWidth: Int = -1
-    private var fittedForHeight: Int = -1
+    private var edgeAId = 0
+    private var edgeBId = 0
+
+    @Volatile private var surfaceWidth = 0
+    @Volatile private var surfaceHeight = 0
+    private var fittedForWidth = -1
+    private var fittedForHeight = -1
 
     private val vertices = floatArrayOf(
         -1f, -1f, 0f, 1f,
@@ -118,6 +137,29 @@ class NeonRenderer(
         needsSketchRebuild = true
     }
 
+    fun configureSubjectSegmentation(enabled: Boolean) {
+        val changed = subjectSegmentationEnabled != enabled
+        subjectSegmentationEnabled = enabled
+
+        if (!enabled) {
+            latestSubjectRequest = -1L
+            subjectMaskExtractor?.close()
+            subjectMaskExtractor = null
+            takePendingSubjectMask()?.bitmap?.recycle()
+        }
+
+        // Enabling must reload the source bitmap for extraction. Re-checking an
+        // already enabled setting also handles a model downloaded moments ago.
+        if (changed || enabled) needsReload = true
+    }
+
+    fun release() {
+        onSketchUpdated = null
+        subjectMaskExtractor?.close()
+        subjectMaskExtractor = null
+        takePendingSubjectMask()?.bitmap?.recycle()
+    }
+
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
         vertexBuffer = ByteBuffer.allocateDirect(vertices.size * 4)
             .order(ByteOrder.nativeOrder())
@@ -125,11 +167,12 @@ class NeonRenderer(
             .put(vertices)
         vertexBuffer.position(0)
 
-        val vertexCode = loadShaderFromAssets("shaders/neon/neon.vert")
-        programId = createProgram(vertexCode, loadShaderFromAssets("shaders/neon/neon.frag"))
-        edgeProgramId = createProgram(vertexCode, loadShaderFromAssets("shaders/neon/neon_edges.frag"))
-        hystProgramId = createProgram(vertexCode, loadShaderFromAssets("shaders/neon/neon_hyst.frag"))
-        edtProgramId = createProgram(vertexCode, loadShaderFromAssets("shaders/neon/neon_edt.frag"))
+        val screenVertexCode = loadShaderFromAssets("shaders/neon/neon.vert")
+        val bakeVertexCode = loadShaderFromAssets("shaders/neon/neon_bake.vert")
+        programId = createProgram(screenVertexCode, loadShaderFromAssets("shaders/neon/neon.frag"))
+        edgeProgramId = createProgram(bakeVertexCode, loadShaderFromAssets("shaders/neon/neon_edges.frag"))
+        hystProgramId = createProgram(bakeVertexCode, loadShaderFromAssets("shaders/neon/neon_hyst.frag"))
+        edtProgramId = createProgram(bakeVertexCode, loadShaderFromAssets("shaders/neon/neon_edt.frag"))
 
         val fbo = IntArray(1)
         GLES30.glGenFramebuffers(1, fbo, 0)
@@ -137,27 +180,29 @@ class NeonRenderer(
 
         currentSet.reset()
         nextSet.reset()
+        takePendingSubjectMask()?.bitmap?.recycle()
         needsReload = true
     }
 
     private fun loadAndApplyTextures() {
-        deleteTexture(currentSet.sharpId)
-        deleteTexture(currentSet.lineId)
-        currentSet.reset()
+        clearTextureSet(currentSet)
 
         fittedForWidth = surfaceWidth
         fittedForHeight = surfaceHeight
         val render = WallpaperFitHelper.loadForRender(context, surfaceWidth, surfaceHeight)
-        val sharpBitmap = render.bitmap
+        val bitmap = render.bitmap
         currentWindowX = render.windowX
 
-        currentSet.width = sharpBitmap.width
-        currentSet.height = sharpBitmap.height
-        currentSet.sharpId = uploadTexture(sharpBitmap)
-        sharpBitmap.recycle()
+        currentSet.width = bitmap.width
+        currentSet.height = bitmap.height
+        currentSet.generation = nextGeneration()
+        currentSet.hasSubject = false
+        currentSet.sharpId = uploadTexture(bitmap)
 
         buildSketch(currentSet)
         needsSketchRebuild = false
+        startSubjectExtraction(bitmap, currentSet.generation)
+        bitmap.recycle()
     }
 
     private fun processPlaylistTransition() {
@@ -171,7 +216,8 @@ class NeonRenderer(
         nextSet.sharpId = uploadTexture(bitmap, nextSet.sharpId)
         nextSet.width = bitmap.width
         nextSet.height = bitmap.height
-        bitmap.recycle()
+        nextSet.generation = nextGeneration()
+        nextSet.hasSubject = false
 
         buildSketch(nextSet)
 
@@ -179,47 +225,146 @@ class NeonRenderer(
         currentSet = nextSet
         nextSet = temp
 
-        val tmpWin = currentWindowX
+        val tmpWindow = currentWindowX
         currentWindowX = nextWindowX
-        nextWindowX = tmpWin
+        nextWindowX = tmpWindow
 
         pendingPlaylistBitmap = null
+        startSubjectExtraction(bitmap, currentSet.generation)
+        bitmap.recycle()
+    }
+
+    private fun startSubjectExtraction(bitmap: Bitmap, generation: Long) {
+        if (!subjectSegmentationEnabled) return
+        val extractor = subjectMaskExtractor ?: SubjectMaskExtractor(
+            context,
+            ::onSubjectMaskResult,
+            ::onSubjectModelUnavailable
+        ).also { subjectMaskExtractor = it }
+        latestSubjectRequest = generation
+        extractor.extract(bitmap, generation)
+    }
+
+    private fun onSubjectModelUnavailable() {
+        context.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean(CanvasSubjectSettings.MODEL_READY_KEY, false)
+            .apply()
+        subjectSegmentationEnabled = false
+        subjectMaskExtractor?.close()
+        subjectMaskExtractor = null
+    }
+
+    private fun onSubjectMaskResult(generation: Long, mask: Bitmap?) {
+        if (mask == null) return
+        if (!subjectSegmentationEnabled || generation != latestSubjectRequest) {
+            mask.recycle()
+            return
+        }
+        synchronized(subjectMaskLock) {
+            if (pendingSubjectMask?.generation?.let { it > generation } == true) {
+                mask.recycle()
+                return
+            }
+            pendingSubjectMask?.bitmap?.recycle()
+            pendingSubjectMask = PendingSubjectMask(generation, mask)
+        }
+        onSketchUpdated?.invoke()
+    }
+
+    private fun applyPendingSubjectMask() {
+        val pending = takePendingSubjectMask() ?: return
+        if (pending.generation != currentSet.generation) {
+            pending.bitmap.recycle()
+            return
+        }
+
+        currentSet.maskId = uploadMaskTexture(pending.bitmap, currentSet.maskId)
+        currentSet.maskWidth = pending.bitmap.width
+        currentSet.maskHeight = pending.bitmap.height
+        currentSet.hasSubject = true
+        pending.bitmap.recycle()
+
+        buildSketch(currentSet)
+        needsSketchRebuild = false
+    }
+
+    private fun takePendingSubjectMask(): PendingSubjectMask? = synchronized(subjectMaskLock) {
+        val pending = pendingSubjectMask
+        pendingSubjectMask = null
+        pending
     }
 
     /**
-     * Bakes a clean outline map for the Canvas sketch. The first pass finds ridge
-     * crests, the hysteresis passes keep connected lines and drop stray texture,
-     * then the two EDT passes turn those pixels into a short line-distance map.
+     * Bakes a short distance map from a simplified contour image. Subject masks
+     * contribute a guaranteed silhouette; color edges are accepted only when
+     * they remain meaningful across two coarse image scales.
      */
     private fun buildSketch(set: TextureSet) {
         if (set.sharpId == 0 || set.width <= 0 || set.height <= 0) return
 
-        val w = set.width
-        val h = set.height
-
-        edgeAId = createEmptyTexture(w, h, GLES30.GL_NEAREST, edgeAId, 0, 0, GLES30.GL_R8, GLES30.GL_RED)
-        edgeBId = createEmptyTexture(w, h, GLES30.GL_NEAREST, edgeBId, 0, 0, GLES30.GL_R8, GLES30.GL_RED)
-        set.lineId = createEmptyTexture(
-            w, h, GLES30.GL_LINEAR, set.lineId, set.width, set.height, GLES30.GL_R8, GLES30.GL_RED
+        val sourceWidth = set.width
+        val sourceHeight = set.height
+        val sketchScale = minOf(
+            1f,
+            MAX_SKETCH_SIDE.toFloat() / maxOf(sourceWidth, sourceHeight).toFloat()
         )
+        val width = (sourceWidth * sketchScale).toInt().coerceAtLeast(1)
+        val height = (sourceHeight * sketchScale).toInt().coerceAtLeast(1)
+
+        edgeAId = createEmptyTexture(
+            width, height, GLES30.GL_NEAREST, edgeAId, 0, 0, GLES30.GL_R8, GLES30.GL_RED
+        )
+        edgeBId = createEmptyTexture(
+            width, height, GLES30.GL_NEAREST, edgeBId, 0, 0, GLES30.GL_R8, GLES30.GL_RED
+        )
+        set.lineId = createEmptyTexture(
+            width,
+            height,
+            GLES30.GL_LINEAR,
+            set.lineId,
+            set.lineWidth,
+            set.lineHeight,
+            GLES30.GL_R8,
+            GLES30.GL_RED
+        )
+        set.lineWidth = width
+        set.lineHeight = height
 
         GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, fboId)
-        GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
+        GLES30.glViewport(0, 0, width, height)
 
-        GLES30.glViewport(0, 0, w, h)
         GLES30.glUseProgram(edgeProgramId)
         attach(edgeAId)
+
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
         GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, set.sharpId)
         GLES30.glUniform1i(GLES30.glGetUniformLocation(edgeProgramId, "uTextureSharp"), 0)
-        GLES30.glUniform2f(GLES30.glGetUniformLocation(edgeProgramId, "uStep"), 1f / w, 1f / h)
+
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE1)
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, if (set.hasSubject) set.maskId else 0)
+        GLES30.glUniform1i(GLES30.glGetUniformLocation(edgeProgramId, "uSubjectMask"), 1)
+
+        GLES30.glUniform2f(
+            GLES30.glGetUniformLocation(edgeProgramId, "uStep"),
+            EDGE_SAMPLE_RADIUS / width,
+            EDGE_SAMPLE_RADIUS / height
+        )
+        GLES30.glUniform2f(
+            GLES30.glGetUniformLocation(edgeProgramId, "uMaskStep"),
+            1f / set.maskWidth.coerceAtLeast(1),
+            1f / set.maskHeight.coerceAtLeast(1)
+        )
+        GLES30.glUniform1f(GLES30.glGetUniformLocation(edgeProgramId, "uHasSubject"), if (set.hasSubject) 1f else 0f)
         GLES30.glUniform1f(GLES30.glGetUniformLocation(edgeProgramId, "uLod"), edgeLod())
         GLES30.glUniform1f(GLES30.glGetUniformLocation(edgeProgramId, "uThreshold"), edgeThreshold())
         GLES30.glUniform1f(GLES30.glGetUniformLocation(edgeProgramId, "uWeakRatio"), WEAK_RATIO)
         drawQuad(edgeProgramId)
 
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
         GLES30.glUseProgram(hystProgramId)
         GLES30.glUniform1i(GLES30.glGetUniformLocation(hystProgramId, "uTexture"), 0)
-        GLES30.glUniform2f(GLES30.glGetUniformLocation(hystProgramId, "uStep"), 1f / w, 1f / h)
+        GLES30.glUniform2f(GLES30.glGetUniformLocation(hystProgramId, "uStep"), 1f / width, 1f / height)
 
         var src = edgeAId
         var dst = edgeBId
@@ -231,9 +376,9 @@ class NeonRenderer(
                 if (i == HYST_PASSES - 1) 1f else 0f
             )
             drawQuad(hystProgramId)
-            val t = src
+            val temp = src
             src = dst
-            dst = t
+            dst = temp
         }
 
         GLES30.glUseProgram(edtProgramId)
@@ -242,28 +387,31 @@ class NeonRenderer(
 
         attach(dst)
         GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, src)
-        GLES30.glUniform2f(GLES30.glGetUniformLocation(edtProgramId, "uStep"), 1f / w, 0f)
+        GLES30.glUniform2f(GLES30.glGetUniformLocation(edtProgramId, "uStep"), 1f / width, 0f)
         GLES30.glUniform1f(GLES30.glGetUniformLocation(edtProgramId, "uRadius"), LINE_MAX_DIST)
         GLES30.glUniform1f(GLES30.glGetUniformLocation(edtProgramId, "uPass"), 0f)
         drawQuad(edtProgramId)
 
         attach(set.lineId)
         GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, dst)
-        GLES30.glUniform2f(GLES30.glGetUniformLocation(edtProgramId, "uStep"), 0f, 1f / h)
+        GLES30.glUniform2f(GLES30.glGetUniformLocation(edtProgramId, "uStep"), 0f, 1f / height)
         GLES30.glUniform1f(GLES30.glGetUniformLocation(edtProgramId, "uRadius"), LINE_MAX_DIST)
         GLES30.glUniform1f(GLES30.glGetUniformLocation(edtProgramId, "uPass"), 1f)
         drawQuad(edtProgramId)
 
         GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0)
-
         GLES30.glDeleteTextures(2, intArrayOf(edgeAId, edgeBId), 0)
         edgeAId = 0
         edgeBId = 0
     }
 
-    private fun attach(texId: Int) {
+    private fun attach(textureId: Int) {
         GLES30.glFramebufferTexture2D(
-            GLES30.GL_FRAMEBUFFER, GLES30.GL_COLOR_ATTACHMENT0, GLES30.GL_TEXTURE_2D, texId, 0
+            GLES30.GL_FRAMEBUFFER,
+            GLES30.GL_COLOR_ATTACHMENT0,
+            GLES30.GL_TEXTURE_2D,
+            textureId,
+            0
         )
     }
 
@@ -283,6 +431,7 @@ class NeonRenderer(
             needsReload = false
             loadAndApplyTextures()
         }
+        applyPendingSubjectMask()
         if (needsSketchRebuild) {
             needsSketchRebuild = false
             buildSketch(currentSet)
@@ -304,10 +453,13 @@ class NeonRenderer(
         GLES30.glUniform1f(GLES30.glGetUniformLocation(programId, "uAspectRatio"), aspectRatio)
         GLES30.glUniform1f(GLES30.glGetUniformLocation(programId, "uBlurStrength"), blurStrength)
         GLES30.glUniform1f(GLES30.glGetUniformLocation(programId, "uDimLevel"), dimLevel)
-        GLES30.glUniform1f(GLES30.glGetUniformLocation(programId, "uReverse"), if (isReverse) 1.0f else 0.0f)
-        GLES30.glUniform1f(GLES30.glGetUniformLocation(programId, "uLineWidth"), lineWidth.coerceAtLeast(0.25f))
+        GLES30.glUniform1f(GLES30.glGetUniformLocation(programId, "uReverse"), if (isReverse) 1f else 0f)
+        val lineScale = currentSet.lineWidth.toFloat() / currentSet.width.coerceAtLeast(1)
+        GLES30.glUniform1f(
+            GLES30.glGetUniformLocation(programId, "uLineWidth"),
+            (lineWidth * lineScale).coerceAtLeast(0.25f)
+        )
         GLES30.glUniform1f(GLES30.glGetUniformLocation(programId, "uLineMax"), LINE_MAX_DIST)
-
         GLES30.glUniform1f(GLES30.glGetUniformLocation(programId, "uScrollOffsetX"), scrollOffsetX)
         GLES30.glUniform1f(GLES30.glGetUniformLocation(programId, "uScrollWindowX"), currentWindowX)
 
@@ -323,31 +475,43 @@ class NeonRenderer(
     }
 
     private fun edgeThreshold(): Float {
-        val s = sensitivity.coerceIn(0f, 1f)
-        return 0.30f + (0.03f - 0.30f) * s
+        val detail = sensitivity.coerceIn(0f, 1f)
+        return 0.30f + (0.11f - 0.30f) * detail
     }
 
     private fun edgeLod(): Float {
-        val s = sensitivity.coerceIn(0f, 1f)
-        return 1.0f - s
+        val detail = sensitivity.coerceIn(0f, 1f)
+        return 3.2f - 1.2f * detail
+    }
+
+    private fun nextGeneration(): Long {
+        generationCounter++
+        return generationCounter
+    }
+
+    private fun clearTextureSet(set: TextureSet) {
+        deleteTexture(set.sharpId)
+        deleteTexture(set.lineId)
+        deleteTexture(set.maskId)
+        set.reset()
     }
 
     private fun drawQuad(program: Int) {
-        val aPosLoc = GLES30.glGetAttribLocation(program, "aPosition")
-        val aTexLoc = GLES30.glGetAttribLocation(program, "aTexCoord")
+        val positionLocation = GLES30.glGetAttribLocation(program, "aPosition")
+        val textureLocation = GLES30.glGetAttribLocation(program, "aTexCoord")
 
         vertexBuffer.position(0)
-        GLES30.glVertexAttribPointer(aPosLoc, 2, GLES30.GL_FLOAT, false, 4 * 4, vertexBuffer)
-        GLES30.glEnableVertexAttribArray(aPosLoc)
+        GLES30.glVertexAttribPointer(positionLocation, 2, GLES30.GL_FLOAT, false, 4 * 4, vertexBuffer)
+        GLES30.glEnableVertexAttribArray(positionLocation)
 
         vertexBuffer.position(2)
-        GLES30.glVertexAttribPointer(aTexLoc, 2, GLES30.GL_FLOAT, false, 4 * 4, vertexBuffer)
-        GLES30.glEnableVertexAttribArray(aTexLoc)
+        GLES30.glVertexAttribPointer(textureLocation, 2, GLES30.GL_FLOAT, false, 4 * 4, vertexBuffer)
+        GLES30.glEnableVertexAttribArray(textureLocation)
 
         GLES30.glDrawArrays(GLES30.GL_TRIANGLE_STRIP, 0, 4)
 
-        GLES30.glDisableVertexAttribArray(aPosLoc)
-        GLES30.glDisableVertexAttribArray(aTexLoc)
+        GLES30.glDisableVertexAttribArray(positionLocation)
+        GLES30.glDisableVertexAttribArray(textureLocation)
     }
 
     private fun createEmptyTexture(
@@ -360,12 +524,13 @@ class NeonRenderer(
         internalFormat: Int = GLES30.GL_RGBA,
         format: Int = GLES30.GL_RGBA
     ): Int {
-        val t = if (existingTextureId != 0) intArrayOf(existingTextureId) else {
-            val arr = IntArray(1)
-            GLES30.glGenTextures(1, arr, 0)
-            arr
+        val texture = if (existingTextureId != 0) {
+            intArrayOf(existingTextureId)
+        } else {
+            IntArray(1).also { GLES30.glGenTextures(1, it, 0) }
         }
-        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, t[0])
+
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, texture[0])
         GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, filter)
         GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, filter)
         GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_S, GLES30.GL_CLAMP_TO_EDGE)
@@ -373,29 +538,51 @@ class NeonRenderer(
 
         if (existingTextureId == 0 || existingWidth != width || existingHeight != height) {
             GLES30.glTexImage2D(
-                GLES30.GL_TEXTURE_2D, 0, internalFormat, width, height, 0,
-                format, GLES30.GL_UNSIGNED_BYTE, null
+                GLES30.GL_TEXTURE_2D,
+                0,
+                internalFormat,
+                width,
+                height,
+                0,
+                format,
+                GLES30.GL_UNSIGNED_BYTE,
+                null
             )
         }
-        return t[0]
+        return texture[0]
     }
 
     private fun uploadTexture(bitmap: Bitmap, existingTextureId: Int = 0): Int {
-        val textureHandle = if (existingTextureId != 0) intArrayOf(existingTextureId) else {
-            val arr = IntArray(1)
-            GLES30.glGenTextures(1, arr, 0)
-            arr
+        val texture = if (existingTextureId != 0) {
+            intArrayOf(existingTextureId)
+        } else {
+            IntArray(1).also { GLES30.glGenTextures(1, it, 0) }
         }
-        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, textureHandle[0])
+
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, texture[0])
         GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, GLES30.GL_LINEAR_MIPMAP_LINEAR)
         GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, GLES30.GL_LINEAR)
         GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_S, GLES30.GL_CLAMP_TO_EDGE)
         GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_T, GLES30.GL_CLAMP_TO_EDGE)
-
         GLUtils.texImage2D(GLES30.GL_TEXTURE_2D, 0, bitmap, 0)
         GLES30.glGenerateMipmap(GLES30.GL_TEXTURE_2D)
+        return texture[0]
+    }
 
-        return textureHandle[0]
+    private fun uploadMaskTexture(bitmap: Bitmap, existingTextureId: Int = 0): Int {
+        val texture = if (existingTextureId != 0) {
+            intArrayOf(existingTextureId)
+        } else {
+            IntArray(1).also { GLES30.glGenTextures(1, it, 0) }
+        }
+
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, texture[0])
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, GLES30.GL_LINEAR)
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, GLES30.GL_LINEAR)
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_S, GLES30.GL_CLAMP_TO_EDGE)
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_T, GLES30.GL_CLAMP_TO_EDGE)
+        GLUtils.texImage2D(GLES30.GL_TEXTURE_2D, 0, bitmap, 0)
+        return texture[0]
     }
 
     private fun deleteTexture(textureId: Int) {

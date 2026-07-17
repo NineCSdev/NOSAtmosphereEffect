@@ -4,9 +4,8 @@ in vec2 aTexCoord;
 out vec2 vTexCoord;
 
 // Horizontal wallpaper scrolling (home-screen parallax). The defaults are
-// identity (full-width window, zero offset), so any draw that does NOT set
-// these uniforms - e.g. the off-screen edge / distance-field passes - samples
-// the texture exactly as before. Only the final on-screen draw sets real values.
+// identity (full-width window, zero offset). This shader is used only for the
+// final on-screen pass; off-screen contour work uses neon_bake.vert.
 uniform float uScrollOffsetX;   // launcher page offset, 0.0 (left) .. 1.0 (right)
 uniform float uScrollWindowX;   // visible fraction of texture width, (0.0, 1.0]
 

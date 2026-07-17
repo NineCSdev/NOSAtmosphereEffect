@@ -7,7 +7,15 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.core.content.edit
+import com.app.nosatmosphereeffect.helper.CanvasSubjectSettings
+import com.app.nosatmosphereeffect.helper.SubjectModelManager
+import com.app.nosatmosphereeffect.helper.SubjectModelPhase
+import com.app.nosatmosphereeffect.helper.SubjectModelState
 import com.app.nosatmosphereeffect.helper.WallpaperFitHelper
 import com.app.nosatmosphereeffect.ui.screens.AdvancedConfig
 import com.app.nosatmosphereeffect.ui.screens.AdvancedResult
@@ -15,6 +23,8 @@ import com.app.nosatmosphereeffect.ui.screens.AdvancedSettingsScreen
 import com.app.nosatmosphereeffect.ui.theme.AtmoEngineTheme
 
 class AdvancedSettingsActivity : ComponentActivity() {
+
+    private var subjectModelManager: SubjectModelManager? = null
 
     private val rotationOptions = listOf(
         "System Theme (Light/Dark)", "Every Lock (Instant)", "1 Minute", "15 Minutes",
@@ -56,6 +66,7 @@ class AdvancedSettingsActivity : ComponentActivity() {
         val savedDuration = prefs.getLong("anim_duration", -1L)
         val savedNoiseScale = prefs.getFloat("noise_scale", -1f)
         val savedNoiseStrength = prefs.getFloat("noise_strength", -1f)
+        val subjectModelReady = prefs.getBoolean(CanvasSubjectSettings.MODEL_READY_KEY, false)
 
         val config = AdvancedConfig(
             showHalftone = isHalftone,
@@ -80,13 +91,37 @@ class AdvancedSettingsActivity : ComponentActivity() {
             contrast = prefs.getFloat("blob_contrast", 1.0f),
             neonSensitivity = prefs.getFloat("neon_sensitivity", 0.5f),
             neonLineWidth = prefs.getFloat("neon_line_width", 1.5f),
+            subjectSegmentationEnabled = subjectModelReady &&
+                prefs.getBoolean(CanvasSubjectSettings.ENABLED_KEY, false),
             scrollEnabled = WallpaperFitHelper.isScrollEnabled(this)
+        )
+
+        val initialSubjectModelState = SubjectModelState(
+            if (subjectModelReady) SubjectModelPhase.READY else SubjectModelPhase.NOT_DOWNLOADED,
+            if (subjectModelReady) 100 else null
         )
 
         setContent {
             AtmoEngineTheme {
+                var subjectModelState by remember { mutableStateOf(initialSubjectModelState) }
                 AdvancedSettingsScreen(
                     config = config,
+                    subjectModelState = subjectModelState,
+                    onDownloadSubjectModel = {
+                        subjectModelManager?.close()
+                        subjectModelManager = SubjectModelManager(applicationContext).also { manager ->
+                            manager.download { state ->
+                                runOnUiThread {
+                                    subjectModelState = state
+                                    if (state.phase == SubjectModelPhase.READY) {
+                                        prefs.edit {
+                                            putBoolean(CanvasSubjectSettings.MODEL_READY_KEY, true)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
                     onApply = { result ->
                         applySettings(result, prefs, wpPrefs, defaultPoll, defaultDelay, defaultDuration)
                     },
@@ -130,6 +165,7 @@ class AdvancedSettingsActivity : ComponentActivity() {
             putFloat("origin_y", result.originY)
             putFloat("neon_sensitivity", result.neonSensitivity)
             putFloat("neon_line_width", result.neonLineWidth)
+            putBoolean(CanvasSubjectSettings.ENABLED_KEY, result.subjectSegmentationEnabled)
         }
 
         // Wallpaper scrolling lives in display_prefs (survives wallpaper changes).
@@ -161,8 +197,15 @@ class AdvancedSettingsActivity : ComponentActivity() {
             remove("origin_y")
             remove("neon_sensitivity")
             remove("neon_line_width")
+            remove(CanvasSubjectSettings.ENABLED_KEY)
         }
         sendUpdateBroadcast()
+    }
+
+    override fun onDestroy() {
+        subjectModelManager?.close()
+        subjectModelManager = null
+        super.onDestroy()
     }
 
     private fun sendUpdateBroadcast() {

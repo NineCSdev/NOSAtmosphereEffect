@@ -12,6 +12,7 @@ import android.opengl.GLSurfaceView
 import android.os.Build
 import android.view.animation.LinearInterpolator
 import com.app.nosatmosphereeffect.helper.GLWallpaperService
+import com.app.nosatmosphereeffect.helper.CanvasSubjectSettings
 import com.app.nosatmosphereeffect.helper.WallpaperFitHelper
 import com.app.nosatmosphereeffect.renderer.NeonRenderer
 import java.io.File
@@ -227,6 +228,7 @@ class NeonReverseService : GLWallpaperService() {
             val r = getRenderer()
             if (r is NeonRenderer) {
                 myRenderer = r
+                r.onSketchUpdated = { requestRender() }
                 updateRendererConfig()
                 setRenderer(myRenderer!!)
             }
@@ -250,6 +252,8 @@ class NeonReverseService : GLWallpaperService() {
         override fun onDestroy() {
             super.onDestroy()
             activeEngines.remove(this)
+            myRenderer?.release()
+            myRenderer = null
             try { unregisterReceiver(systemEventReceiver) } catch (e: Exception) { }
         }
 
@@ -309,6 +313,10 @@ class NeonReverseService : GLWallpaperService() {
             myRenderer?.dimLevel = prefs.getFloat("dim_level", 0.0f)
             myRenderer?.lineWidth = prefs.getFloat("neon_line_width", 1.5f)
             myRenderer?.sensitivity = prefs.getFloat("neon_sensitivity", 0.5f)
+            myRenderer?.configureSubjectSegmentation(
+                prefs.getBoolean(CanvasSubjectSettings.ENABLED_KEY, false) &&
+                    prefs.getBoolean(CanvasSubjectSettings.MODEL_READY_KEY, false)
+            )
             // Line sensitivity changes which contours make it into the sketch,
             // so it has to be re-baked when settings are applied.
             myRenderer?.rebuildSketch()
