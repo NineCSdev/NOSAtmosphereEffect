@@ -75,6 +75,7 @@ float fbm(vec2 p) {
 
 void main() {
     vec2 uv = vTexCoord;
+    vec2 flippedUv = vec2(uv.x, 1.0 - uv.y);
 
     // --- the tube -----------------------------------------------------------
     // Distance, not gradient strength: every tube is the width it was asked for,
@@ -93,9 +94,10 @@ void main() {
     float pulse = sin(clamp(t / 0.22, 0.0, 1.0) * 3.14159265);
 
     // --- blueprint composite ------------------------------------------------
-    float d = texture(uFieldTex, uv).r;
-    float glow = exp(-d * uGlowFalloff);
-    vec3 blueprint = vec3(line * (1.35 + 1.1 * pulse) + glow * (0.55 + 0.6 * pulse));
+    float d = texture(uFieldTex, flippedUv).r;
+//    float glow = exp(-d * uGlowFalloff);
+    vec3 blueprint = vec3(line * (1.35 + 1.1 * pulse));
+//    vec3 blueprint = vec3(line * (1.35 + 1.1 * pulse) + glow * (0.55 + 0.6 * pulse));
 
     // --- the bleed ----------------------------------------------------------
     // Sweep the front over each pixel's RANK, not its distance: uRankTex maps a

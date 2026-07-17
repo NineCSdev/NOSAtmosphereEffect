@@ -70,7 +70,7 @@ vec3 gradientAt(vec2 uv) {
 
     // 1/sqrt(3): a grey full-step edge lands on 1.0 exactly as it did under the
     // old luma Sobel, so the sensitivity slider keeps its calibration.
-    float mag = sqrt(max(lam, 0.0)) * 0.57735027;
+    float mag = sqrt(max(lam, 0.0)) * 0.57735027 * 1.8 ;
 
     // Principal axis of a symmetric 2x2. Sign is arbitrary, which is fine - the
     // crest test looks both ways.
