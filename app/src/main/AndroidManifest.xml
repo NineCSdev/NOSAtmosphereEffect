@@ -157,7 +157,7 @@
             android:enabled="true"
             android:exported="true"
             android:label="Canvas AOD (Reverse) Effect"
-            android:permission="android.permiss§ion.BIND_WALLPAPER">
+            android:permission="android.permission.BIND_WALLPAPER">
             <intent-filter>
                 <action android:name="android.service.wallpaper.WallpaperService" />
             </intent-filter>
