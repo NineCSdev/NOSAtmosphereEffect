@@ -121,6 +121,7 @@ class PlaylistEditorActivity : ComponentActivity() {
         setContent {
             AtmoEngineTheme {
                 PlaylistEditorScreen(
+                    effectId = effectId,
                     entries = playlistItems.map { item ->
                         val displayUri = if (item.isEdited && item.editedFilePath != null) {
                             Uri.parse("file://${item.editedFilePath}")

@@ -31,7 +31,7 @@ import com.app.nosatmosphereeffect.service.HalftoneService
 import com.app.nosatmosphereeffect.service.NeonService
 import com.app.nosatmosphereeffect.ui.screens.CropController
 import com.app.nosatmosphereeffect.ui.screens.CropScreen
-import com.app.nosatmosphereeffect.ui.screens.SimpleConfirmDialog
+import com.app.nosatmosphereeffect.ui.screens.WallpaperPreviewDialog
 import com.app.nosatmosphereeffect.ui.theme.AtmoEngineTheme
 import java.io.File
 import java.io.FileOutputStream
@@ -69,11 +69,12 @@ class CropActivity : ComponentActivity() {
             AtmoEngineTheme {
                 CropScreen(
                     controller = controller,
-                    buttonLabel = "Apply",
+                    buttonLabel = "Preview transition",
                     initialFit = WallpaperFitHelper.MODE_FILL,
                     initialFill = WallpaperFitHelper.FILL_BLACK,
                     onViewCreated = { loadImageInto(uri) },
                     onFitChanged = { f, fl -> controller.setFitMode(f, fl) },
+                    onBack = { finish() },
                     onConfirm = {
                         val cropped = controller.getCroppedBitmap()
                         if (cropped != null) {
@@ -84,19 +85,21 @@ class CropActivity : ComponentActivity() {
                 )
 
                 if (showApplyConfirm) {
-                    SimpleConfirmDialog(
-                        title = "Apply Wallpaper",
-                        message = "On the next screen, please select:\n\n" +
-                            "Set Wallpaper › Home Screen and Lock Screen.\n\n" +
-                            "(This ensures the lock-screen effect works correctly.)",
-                        confirmLabel = "Set Wallpaper",
-                        dismissLabel = "Cancel",
+                    pendingBitmap?.let { preview ->
+                        WallpaperPreviewDialog(
+                        bitmap = preview,
+                        effectId = effectId,
                         onConfirm = {
                             showApplyConfirm = false
                             pendingBitmap?.let { applyWallpaper(it) }
                         },
-                        onDismiss = { showApplyConfirm = false }
-                    )
+                        onDismiss = {
+                            showApplyConfirm = false
+                            pendingBitmap?.recycle()
+                            pendingBitmap = null
+                        }
+                        )
+                    }
                 }
             }
         }

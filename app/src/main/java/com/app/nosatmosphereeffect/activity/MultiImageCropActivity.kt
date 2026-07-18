@@ -82,6 +82,7 @@ class MultiImageCropActivity : ComponentActivity() {
                         currentFill = fl
                         controller.setFitMode(f, fl)
                     },
+                    onBack = { finish() },
                     onConfirm = {
                         val cropped = controller.getCroppedBitmap()
                         val matrix = controller.getCurrentMatrixValues()

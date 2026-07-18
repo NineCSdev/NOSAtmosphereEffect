@@ -2,6 +2,11 @@ package com.app.nosatmosphereeffect.ui.screens
 
 import android.graphics.Bitmap
 import android.view.ViewGroup
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -15,6 +20,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -25,11 +32,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Surface
 import com.app.nosatmosphereeffect.helper.TouchImageView
 import com.app.nosatmosphereeffect.helper.WallpaperFitHelper
 import com.app.nosatmosphereeffect.ui.components.AtmoDropdownField
@@ -83,6 +94,7 @@ fun CropScreen(
     initialFill: String,
     onViewCreated: (TouchImageView) -> Unit,
     onFitChanged: (fit: String, fill: String) -> Unit,
+    onBack: () -> Unit,
     onConfirm: () -> Unit
 ) {
     Box(
@@ -126,44 +138,57 @@ fun CropScreen(
                 .background(Color.White.copy(alpha = 0.22f))
         )
 
-        // --- Top scrim ---------------------------------------------------
-        Box(
-            Modifier
+        Surface(
+            modifier = Modifier
                 .align(Alignment.TopCenter)
-                .fillMaxWidth()
-                .height(120.dp)
-                .background(
-                    Brush.verticalGradient(
-                        listOf(Color.Black.copy(alpha = 0.55f), Color.Transparent)
+                .fillMaxWidth(),
+            color = Color.Black.copy(alpha = 0.64f)
+        ) {
+            androidx.compose.foundation.layout.Row(
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = onBack) {
+                    Icon(
+                        Icons.AutoMirrored.Rounded.ArrowBack,
+                        contentDescription = "Back",
+                        tint = Color.White
                     )
+                }
+                Spacer(Modifier.size(8.dp))
+                Text(
+                    "Frame wallpaper",
+                    style = MaterialTheme.typography.titleLarge,
+                    color = Color.White
                 )
-        )
+            }
+        }
 
-        // --- Bottom controls (with scrim for legibility over photos) -----
-        Column(
+        Surface(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .background(
-                    Brush.verticalGradient(
-                        listOf(Color.Transparent, Color.Black.copy(alpha = 0.75f))
-                    )
-                )
-                .windowInsetsPadding(WindowInsets.navigationBars)
-                .padding(horizontal = 24.dp, vertical = 24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+                .fillMaxWidth(),
+            shape = RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp),
+            color = Color.Black.copy(alpha = 0.82f)
         ) {
-            FitChooserSection(
-                initialFit = initialFit,
-                initialFill = initialFill,
-                onFitChanged = onFitChanged
-            )
-            AtmoPrimaryButton(
-                text = buttonLabel,
-                onClick = onConfirm,
-                modifier = Modifier.fillMaxWidth()
-            )
+            Column(
+                modifier = Modifier
+                    .windowInsetsPadding(WindowInsets.navigationBars)
+                    .padding(horizontal = 20.dp, vertical = 18.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                FitChooserSection(
+                    initialFit = initialFit,
+                    initialFill = initialFill,
+                    onFitChanged = onFitChanged
+                )
+                AtmoPrimaryButton(
+                    text = buttonLabel,
+                    onClick = onConfirm,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
         }
     }
 }
@@ -185,17 +210,6 @@ private fun FitChooserSection(
     val letterboxed = currentFit == WallpaperFitHelper.MODE_FIT ||
         currentFit == WallpaperFitHelper.MODE_ROTATE_FIT
 
-    val hint = when (currentFit) {
-        WallpaperFitHelper.MODE_FIT ->
-            "The whole image is shown. Zoom or drag to adjust; empty space uses your fill choice."
-        WallpaperFitHelper.MODE_STRETCH ->
-            "The image is stretched to fill the screen."
-        WallpaperFitHelper.MODE_ROTATE_FIT ->
-            "Landscape photos are rotated to fill the screen. Zoom or drag to adjust."
-        else ->
-            "Pinch to zoom and drag to frame your wallpaper."
-    }
-
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -209,28 +223,19 @@ private fun FitChooserSection(
                 onFitChanged(fitValues[idx], fillValues[fillIndex])
             }
         )
-        if (letterboxed) {
+        AnimatedVisibility(
+            visible = letterboxed,
+            enter = fadeIn() + expandVertically(),
+            exit = fadeOut() + shrinkVertically()
+        ) {
             AtmoDropdownField(
-                label = "Empty Space Fill",
+                label = "Empty space fill",
                 options = fillOptions,
                 selectedIndex = fillIndex,
                 onSelected = { idx ->
                     fillIndex = idx
                     onFitChanged(fitValues[fitIndex], fillValues[idx])
                 }
-            )
-        }
-        Box(
-            modifier = Modifier
-                .align(Alignment.CenterHorizontally)
-                .background(Color.Black.copy(alpha = 0.4f), RoundedCornerShape(10.dp))
-                .padding(horizontal = 12.dp, vertical = 6.dp)
-        ) {
-            Text(
-                hint,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurface,
-                textAlign = TextAlign.Center
             )
         }
     }

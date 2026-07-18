@@ -27,6 +27,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -51,7 +52,6 @@ import com.app.nosatmosphereeffect.ui.components.AtmoChip
 import com.app.nosatmosphereeffect.ui.components.AtmoOutlinedButton
 import com.app.nosatmosphereeffect.ui.components.AtmoPrimaryButton
 import com.app.nosatmosphereeffect.ui.components.AtmoTopBar
-import com.app.nosatmosphereeffect.ui.theme.AtmoPurple
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -64,12 +64,14 @@ data class PlaylistEntry(
 @Composable
 fun PlaylistEditorScreen(
     entries: List<PlaylistEntry>,
+    effectId: String,
     onEditItem: (Int) -> Unit,
     onDeleteItem: (Int) -> Unit,
     onAddMore: () -> Unit,
     onApply: () -> Unit,
     onBack: () -> Unit
 ) {
+    val pagerState = rememberPagerState(pageCount = { entries.size })
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
@@ -94,7 +96,6 @@ fun PlaylistEditorScreen(
                 if (entries.isEmpty()) {
                     EmptyPlaylist()
                 } else {
-                    val pagerState = rememberPagerState(pageCount = { entries.size })
                     HorizontalPager(
                         state = pagerState,
                         contentPadding = PaddingValues(horizontal = 48.dp),
@@ -105,6 +106,7 @@ fun PlaylistEditorScreen(
                         val entry = entries.getOrNull(page) ?: return@HorizontalPager
                         PlaylistCard(
                             entry = entry,
+                            effectId = effectId,
                             onClick = { onEditItem(page) },
                             onDelete = { onDeleteItem(page) }
                         )
@@ -112,24 +114,22 @@ fun PlaylistEditorScreen(
                 }
             }
 
-            Text(
-                text = "${entries.size} ${if (entries.size == 1) "Image" else "Images"} Selected",
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 8.dp),
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center
-            )
-            Text(
-                text = "Swipe to browse · Tap a card to crop",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 2.dp),
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center
-            )
+            if (entries.isNotEmpty()) {
+                PageIndicator(
+                    count = entries.size,
+                    current = pagerState.currentPage.coerceIn(entries.indices),
+                    modifier = Modifier.padding(top = 10.dp)
+                )
+                Text(
+                    text = "${pagerState.currentPage + 1} of ${entries.size}",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp),
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                )
+            }
 
             Column(
                 modifier = Modifier
@@ -138,19 +138,24 @@ fun PlaylistEditorScreen(
                     .padding(horizontal = 20.dp, vertical = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                AtmoOutlinedButton(
-                    text = "Add More",
-                    onClick = onAddMore,
-                    accent = true,
-                    icon = painterResource(R.drawable.ic_add),
-                    modifier = Modifier.fillMaxWidth()
-                )
-                AtmoPrimaryButton(
-                    text = "Apply Playlist",
-                    onClick = onApply,
-                    enabled = entries.isNotEmpty(),
-                    modifier = Modifier.fillMaxWidth()
-                )
+                androidx.compose.foundation.layout.Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    AtmoOutlinedButton(
+                        text = "Add",
+                        onClick = onAddMore,
+                        accent = true,
+                        icon = painterResource(R.drawable.ic_add),
+                        modifier = Modifier.weight(0.38f)
+                    )
+                    AtmoPrimaryButton(
+                        text = "Apply playlist",
+                        onClick = onApply,
+                        enabled = entries.isNotEmpty(),
+                        modifier = Modifier.weight(0.62f)
+                    )
+                }
             }
         }
     }
@@ -159,6 +164,7 @@ fun PlaylistEditorScreen(
 @Composable
 private fun PlaylistCard(
     entry: PlaylistEntry,
+    effectId: String,
     onClick: () -> Unit,
     onDelete: () -> Unit
 ) {
@@ -169,39 +175,28 @@ private fun PlaylistCard(
         modifier = Modifier
             .fillMaxWidth()
             .aspectRatio(0.62f)
-            .clip(RoundedCornerShape(24.dp))
+            .clip(RoundedCornerShape(8.dp))
             .background(MaterialTheme.colorScheme.surfaceContainerHighest)
             .clickable(onClick = onClick)
     ) {
         if (thumb != null) {
-            Image(
-                bitmap = thumb,
-                contentDescription = "Playlist image",
-                contentScale = ContentScale.Crop,
+            com.app.nosatmosphereeffect.ui.components.WallpaperTransitionPreview(
+                effectId = effectId,
+                wallpaper = thumb,
                 modifier = Modifier.fillMaxSize()
             )
         } else {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(color = AtmoPurple, strokeWidth = 2.dp)
+                CircularProgressIndicator(
+                    color = MaterialTheme.colorScheme.primary,
+                    strokeWidth = 2.dp
+                )
             }
         }
 
         if (entry.isEdited) {
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.25f))
-            )
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Icon(
-                    painterResource(R.drawable.ic_check),
-                    contentDescription = null,
-                    tint = AtmoPurple,
-                    modifier = Modifier.size(44.dp)
-                )
-            }
             AtmoChip(
-                text = "Cropped",
+                text = "Edited",
                 modifier = Modifier
                     .align(Alignment.BottomStart)
                     .padding(12.dp)
@@ -209,21 +204,48 @@ private fun PlaylistCard(
         }
 
         // Delete button (top-right)
-        Box(
+        androidx.compose.material3.Surface(
             modifier = Modifier
                 .align(Alignment.TopEnd)
                 .padding(12.dp)
-                .size(40.dp)
-                .clip(CircleShape)
-                .background(Color.Black.copy(alpha = 0.45f))
-                .clickable(onClick = onDelete),
-            contentAlignment = Alignment.Center
+                .size(40.dp),
+            shape = CircleShape,
+            color = Color.Black.copy(alpha = 0.52f)
         ) {
-            Icon(
-                painterResource(R.drawable.ic_delete),
-                contentDescription = "Remove image",
-                tint = MaterialTheme.colorScheme.error,
-                modifier = Modifier.size(22.dp)
+            IconButton(onClick = onDelete) {
+                Icon(
+                    painterResource(R.drawable.ic_delete),
+                    contentDescription = "Remove image",
+                    tint = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.size(21.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun PageIndicator(
+    count: Int,
+    current: Int,
+    modifier: Modifier = Modifier
+) {
+    androidx.compose.foundation.layout.Row(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        repeat(count.coerceAtMost(9)) { index ->
+            val selected = index == current.coerceAtMost(8)
+            Box(
+                Modifier
+                    .padding(horizontal = 3.dp)
+                    .size(if (selected) 18.dp else 6.dp, 6.dp)
+                    .clip(CircleShape)
+                    .background(
+                        if (selected) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.outline
+                    )
             )
         }
     }

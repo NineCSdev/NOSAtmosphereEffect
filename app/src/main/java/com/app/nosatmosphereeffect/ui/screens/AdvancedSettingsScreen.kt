@@ -1,18 +1,34 @@
 package com.app.nosatmosphereeffect.ui.screens
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -22,7 +38,9 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import com.app.nosatmosphereeffect.R
@@ -33,13 +51,15 @@ import com.app.nosatmosphereeffect.ui.components.AtmoDropdownField
 import com.app.nosatmosphereeffect.ui.components.AtmoNumberField
 import com.app.nosatmosphereeffect.ui.components.AtmoOutlinedButton
 import com.app.nosatmosphereeffect.ui.components.AtmoPrimaryButton
+import com.app.nosatmosphereeffect.ui.components.AtmoSegmentedControl
 import com.app.nosatmosphereeffect.ui.components.AtmoTopBar
 import com.app.nosatmosphereeffect.ui.components.LabeledSlider
 import com.app.nosatmosphereeffect.ui.components.SectionHeader
 import com.app.nosatmosphereeffect.ui.components.SettingSwitchRow
+import com.app.nosatmosphereeffect.ui.components.WallpaperTransitionPreview
 
-/** Everything the screen needs to seed its fields + decide which sections show. */
 data class AdvancedConfig(
+    val effectId: String,
     val showHalftone: Boolean,
     val showColorFill: Boolean,
     val showNeon: Boolean,
@@ -66,7 +86,6 @@ data class AdvancedConfig(
     val scrollEnabled: Boolean
 )
 
-/** The field values the activity persists when the user taps Apply. */
 data class AdvancedResult(
     val poll: String,
     val delay: String,
@@ -87,392 +106,528 @@ data class AdvancedResult(
     val scrollEnabled: Boolean
 )
 
+private enum class FineTuneTab(val label: String) {
+    Effect("Effect"),
+    Timing("Timing"),
+    Display("Display")
+}
+
 @Composable
 fun AdvancedSettingsScreen(
     config: AdvancedConfig,
+    previewBitmap: ImageBitmap?,
     subjectModelState: SubjectModelState,
     onDownloadSubjectModel: () -> Unit,
     onApply: (AdvancedResult) -> Unit,
     onReset: () -> Unit,
     onBack: () -> Unit
 ) {
-    // --- live field state, seeded from config -------------------------------
+    var selectedTab by remember { mutableStateOf(FineTuneTab.Effect) }
     var poll by remember { mutableStateOf(config.poll) }
     var delay by remember { mutableStateOf(config.delay) }
     var duration by remember { mutableStateOf(config.duration) }
     var rotationIndex by remember { mutableIntStateOf(config.initialRotationIndex) }
-
     var dotSize by remember { mutableFloatStateOf(config.dotSize) }
     var grayscale by remember { mutableStateOf(config.grayscale) }
-
     var originX by remember { mutableFloatStateOf(config.originX) }
     var originY by remember { mutableFloatStateOf(config.originY) }
-
     var saturation by remember { mutableFloatStateOf(config.saturation) }
     var contrast by remember { mutableFloatStateOf(config.contrast) }
-
     var neonSensitivity by remember { mutableFloatStateOf(config.neonSensitivity) }
     var neonLineWidth by remember { mutableFloatStateOf(config.neonLineWidth) }
     var subjectSegmentationEnabled by remember {
         mutableStateOf(config.subjectSegmentationEnabled)
     }
-
     var noiseEnabled by remember { mutableStateOf(config.enableNoise) }
     var noiseScale by remember { mutableStateOf(config.noiseScale) }
     var noiseStrength by remember { mutableStateOf(config.noiseStrength) }
-
     var scrollEnabled by remember { mutableStateOf(config.scrollEnabled) }
-
     var infoDialog by remember { mutableStateOf<InfoDialog?>(null) }
 
-    val infoPainter = painterResource(R.drawable.ic_info)
-    val downloadPainter = painterResource(R.drawable.ic_download)
-
     val subjectModelReady = subjectModelState.phase == SubjectModelPhase.READY
-    val subjectModelWorking = subjectModelState.phase == SubjectModelPhase.CHECKING ||
-        subjectModelState.phase == SubjectModelPhase.DOWNLOADING ||
-        subjectModelState.phase == SubjectModelPhase.INSTALLING ||
-        subjectModelState.phase == SubjectModelPhase.PAUSED
+    val subjectModelWorking = subjectModelState.phase in setOf(
+        SubjectModelPhase.CHECKING,
+        SubjectModelPhase.DOWNLOADING,
+        SubjectModelPhase.INSTALLING,
+        SubjectModelPhase.PAUSED
+    )
     val subjectModelButtonText = when (subjectModelState.phase) {
-        SubjectModelPhase.CHECKING -> "Checking Subject Model"
-        SubjectModelPhase.NOT_DOWNLOADED -> "Download Subject Model"
+        SubjectModelPhase.CHECKING -> "Checking model"
+        SubjectModelPhase.NOT_DOWNLOADED -> "Download subject model"
         SubjectModelPhase.DOWNLOADING -> subjectModelState.progressPercent?.let { "Downloading $it%" }
-            ?: "Downloading Subject Model"
-        SubjectModelPhase.INSTALLING -> "Installing Subject Model"
-        SubjectModelPhase.PAUSED -> "Download Paused"
-        SubjectModelPhase.READY -> "Subject Model Downloaded"
-        SubjectModelPhase.FAILED -> "Retry Subject Model Download"
+            ?: "Downloading model"
+        SubjectModelPhase.INSTALLING -> "Installing model"
+        SubjectModelPhase.PAUSED -> "Download paused"
+        SubjectModelPhase.READY -> "Subject model downloaded"
+        SubjectModelPhase.FAILED -> "Retry model download"
     }
     val subjectModelStatusText = when (subjectModelState.phase) {
-        SubjectModelPhase.CHECKING ->
-            "Checking Google Play services for an existing model."
-        SubjectModelPhase.NOT_DOWNLOADED ->
-            "Optional. Nothing is downloaded until you tap the button."
-        SubjectModelPhase.DOWNLOADING ->
-            "Downloading once through Google Play services."
-        SubjectModelPhase.INSTALLING ->
-            "Finishing the on-device model installation."
-        SubjectModelPhase.PAUSED ->
-            "Download paused until the required connection is available."
-        SubjectModelPhase.READY ->
-            "Ready. Subject analysis runs on-device and works offline."
-        SubjectModelPhase.FAILED ->
-            "Download failed. Check the connection and try again."
+        SubjectModelPhase.CHECKING -> "Checking Google Play services."
+        SubjectModelPhase.NOT_DOWNLOADED -> "Optional and downloaded only on request."
+        SubjectModelPhase.DOWNLOADING -> "Google Play services is downloading the model."
+        SubjectModelPhase.INSTALLING -> "Completing on-device installation."
+        SubjectModelPhase.PAUSED -> "Waiting for an available connection."
+        SubjectModelPhase.READY -> "Ready for offline, on-device segmentation."
+        SubjectModelPhase.FAILED -> "Download failed. Try again when connected."
     }
+
+    val result = AdvancedResult(
+        poll = poll,
+        delay = delay,
+        duration = duration,
+        enableNoise = noiseEnabled,
+        noiseScale = noiseScale,
+        noiseStrength = noiseStrength,
+        dotSize = dotSize,
+        grayscale = grayscale,
+        originX = originX,
+        originY = originY,
+        saturation = saturation,
+        contrast = contrast,
+        neonSensitivity = neonSensitivity,
+        neonLineWidth = neonLineWidth,
+        subjectSegmentationEnabled = subjectSegmentationEnabled,
+        rotationIndex = rotationIndex,
+        scrollEnabled = scrollEnabled
+    )
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             AtmoTopBar(
-                title = "Fine Tuning",
+                title = "Fine tuning",
                 backIcon = painterResource(R.drawable.ic_arrow_back),
                 onBack = onBack
             )
+        },
+        bottomBar = {
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceContainer,
+                tonalElevation = 3.dp
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .navigationBarsPadding()
+                        .padding(horizontal = 20.dp, vertical = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    AtmoOutlinedButton(
+                        text = "Reset",
+                        onClick = onReset,
+                        modifier = Modifier.weight(0.42f)
+                    )
+                    AtmoPrimaryButton(
+                        text = "Save",
+                        onClick = { onApply(result) },
+                        modifier = Modifier.weight(0.58f)
+                    )
+                }
+            }
         }
     ) { inner ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(inner)
-                .imePadding()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 20.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+                .imePadding(),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // ---- Timing ---------------------------------------------------
-            AtmoCard {
-                SectionHeader("Timing & Response")
-                Spacer(Modifier.height(16.dp))
-                AtmoNumberField(
-                    label = "Unlock Check Interval (ms)",
-                    value = poll,
-                    onValueChange = { poll = it.filterDigits() },
-                    helper = "Recommended — Others: 50ms · Samsung: 30000ms",
-                    infoIcon = infoPainter,
-                    onInfoClick = { infoDialog = InfoDialog.Poll }
-                )
-                Spacer(Modifier.height(16.dp))
-                AtmoNumberField(
-                    label = "Lock Delay (ms)",
-                    value = delay,
-                    onValueChange = { delay = it.filterDigits() },
-                    helper = "Recommended — Others: 800ms · Samsung: 0ms",
-                    infoIcon = infoPainter,
-                    onInfoClick = { infoDialog = InfoDialog.Delay }
-                )
-                Spacer(Modifier.height(16.dp))
-                AtmoNumberField(
-                    label = "Animation Duration (ms)",
-                    value = duration,
-                    onValueChange = { duration = it.filterDigits() },
-                    helper = "Canvas Sketch: 1000 · Original: 2500 · Reverse & Color Fill: 1500 · Others: 500"
-                )
-            }
+            AtmoSegmentedControl(
+                options = FineTuneTab.entries.map { it.label },
+                selectedIndex = selectedTab.ordinal,
+                onSelected = { selectedTab = FineTuneTab.entries[it] },
+                modifier = Modifier
+                    .widthIn(max = 720.dp)
+                    .padding(horizontal = 20.dp, vertical = 8.dp)
+            )
 
-            // ---- Home screen / scrolling ---------------------------------
-            AtmoCard {
-                SectionHeader("Home Screen")
-                Spacer(Modifier.height(12.dp))
-                SettingSwitchRow(
-                    title = "Wallpaper Scrolling (Experimental)",
-                    checked = scrollEnabled,
-                    onCheckedChange = { scrollEnabled = it }
-                )
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    "Pans wide wallpapers (e.g. 4:3) sideways as you swipe between " +
-                        "home-screen pages, like the stock launcher. Uses the full, " +
-                        "un-cropped image. No effect on images that already fit the screen.",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.bodySmall
-                )
-            }
-
-            // ---- Playlist rotation ---------------------------------------
-            if (config.isPlaylistMode) {
-                AtmoCard {
-                    SectionHeader("Playlist Rotation")
-                    Spacer(Modifier.height(16.dp))
-                    AtmoDropdownField(
-                        label = "Rotation Mode",
-                        options = config.rotationOptions,
-                        selectedIndex = rotationIndex,
-                        onSelected = { rotationIndex = it },
-                        helper = "Pick an interval, or sync Image 1 (Light) / Image 2 (Dark)."
-                    )
-                }
-            }
-
-            // ---- Halftone -------------------------------------------------
-            if (config.showHalftone) {
-                AtmoCard {
-                    SectionHeader("Halftone")
-                    Spacer(Modifier.height(16.dp))
-                    LabeledSlider(
-                        label = "Halftone Pixel Size",
-                        value = dotSize,
-                        onValueChange = { dotSize = it },
-                        valueRange = 0f..40f,
-                        step = 1f
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    SettingSwitchRow(
-                        title = "Black & White Effect",
-                        checked = grayscale,
-                        onCheckedChange = { grayscale = it }
-                    )
-                }
-            }
-
-            // ---- Color fill ----------------------------------------------
-            if (config.showColorFill) {
-                AtmoCard {
-                    SectionHeader("Color Fill Origin")
-                    Spacer(Modifier.height(16.dp))
-                    LabeledSlider(
-                        label = "Fingerprint Position (Horizontal)",
-                        value = originX,
-                        onValueChange = { originX = it },
-                        valueRange = 0f..1f,
-                        step = 0.01f
-                    )
-                    Spacer(Modifier.height(12.dp))
-                    LabeledSlider(
-                        label = "Fingerprint Position (Vertical)",
-                        value = originY,
-                        onValueChange = { originY = it },
-                        valueRange = 0f..1f,
-                        step = 0.01f
-                    )
-                }
-            }
-
-            // ---- Canvas sketch -------------------------------------------
-            if (config.showNeon) {
-                AtmoCard {
-                    SectionHeader("Canvas Sketch")
-                    Spacer(Modifier.height(16.dp))
-                    SettingSwitchRow(
-                        title = "Subject Segmentation",
-                        checked = subjectSegmentationEnabled,
-                        onCheckedChange = { subjectSegmentationEnabled = it },
-                        enabled = subjectModelReady,
-                        subtitle = if (subjectModelReady) {
-                            "Isolates a prominent subject using the downloaded model."
-                        } else {
-                            "Download the optional model to enable subject isolation."
-                        }
-                    )
-                    Spacer(Modifier.height(16.dp))
-                    AtmoOutlinedButton(
-                        text = subjectModelButtonText,
-                        onClick = onDownloadSubjectModel,
-                        enabled = !subjectModelWorking && !subjectModelReady,
-                        accent = true,
-                        icon = if (!subjectModelWorking && !subjectModelReady) downloadPainter else null,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    Text(
-                        subjectModelStatusText,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                    Spacer(Modifier.height(16.dp))
-                    LabeledSlider(
-                        label = "Sketch Detail",
-                        value = neonSensitivity,
-                        onValueChange = { neonSensitivity = it },
-                        valueRange = 0f..1f,
-                        step = 0.05f
-                    )
-                    Spacer(Modifier.height(12.dp))
-                    LabeledSlider(
-                        label = "Line Thickness",
-                        value = neonLineWidth,
-                        onValueChange = { neonLineWidth = it },
-                        valueRange = 0.5f..4f,
-                        step = 0.5f
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    Text(
-                        "With subject segmentation off, Canvas Sketch traces the whole " +
-                            "wallpaper. When enabled, it keeps the detected subject's " +
-                            "silhouette and broad internal contours.",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                }
-            }
-
-            // ---- Atmosphere colour (blob) --------------------------------
-            if (config.showBlob) {
-                AtmoCard {
-                    SectionHeader("Atmosphere Color")
-                    Spacer(Modifier.height(16.dp))
-                    LabeledSlider(
-                        label = "Blob Saturation",
-                        value = saturation,
-                        onValueChange = { saturation = it },
-                        valueRange = 0f..3f,
-                        step = 0.1f
-                    )
-                    Spacer(Modifier.height(12.dp))
-                    LabeledSlider(
-                        label = "Blob Contrast",
-                        value = contrast,
-                        onValueChange = { contrast = it },
-                        valueRange = 0f..3f,
-                        step = 0.1f
-                    )
-                }
-            }
-
-            // ---- Film grain (noise) --------------------------------------
-            if (config.showNoiseSwitch) {
-                AtmoCard {
-                    SectionHeader("Film Grain")
-                    Spacer(Modifier.height(12.dp))
-                    SettingSwitchRow(
-                        title = "Enable Blur Noise (Film Grain)",
-                        checked = noiseEnabled,
-                        onCheckedChange = { noiseEnabled = it }
-                    )
-                    if (noiseEnabled) {
-                        Spacer(Modifier.height(16.dp))
-                        AtmoNumberField(
-                            label = "Noise Scale (Grain Size)",
-                            value = noiseScale,
-                            onValueChange = { noiseScale = it.filterDecimal() },
-                            helper = "Lower = larger grains. Recommended: 2000",
-                            decimal = true
-                        )
-                        Spacer(Modifier.height(16.dp))
-                        AtmoNumberField(
-                            label = "Noise Strength (Intensity)",
-                            value = noiseStrength,
-                            onValueChange = { noiseStrength = it.filterDecimal() },
-                            helper = "0.0 to 1.0. Recommended: 0.06",
-                            decimal = true
-                        )
-                    }
-                }
-            }
-
-            // ---- Actions --------------------------------------------------
-            Spacer(Modifier.height(4.dp))
-            AtmoPrimaryButton(
-                text = "Save & Apply",
-                onClick = {
-                    onApply(
-                        AdvancedResult(
-                            poll = poll,
-                            delay = delay,
-                            duration = duration,
-                            enableNoise = noiseEnabled,
-                            noiseScale = noiseScale,
-                            noiseStrength = noiseStrength,
-                            dotSize = dotSize,
-                            grayscale = grayscale,
-                            originX = originX,
-                            originY = originY,
-                            saturation = saturation,
-                            contrast = contrast,
-                            neonSensitivity = neonSensitivity,
-                            neonLineWidth = neonLineWidth,
-                            subjectSegmentationEnabled = subjectSegmentationEnabled,
-                            rotationIndex = rotationIndex,
-                            scrollEnabled = scrollEnabled
-                        )
-                    )
+            AnimatedContent(
+                targetState = selectedTab,
+                transitionSpec = {
+                    val forward = targetState.ordinal > initialState.ordinal
+                    (fadeIn() + slideInHorizontally { if (forward) it / 6 else -it / 6 }) togetherWith
+                        (fadeOut() + slideOutHorizontally { if (forward) -it / 6 else it / 6 })
                 },
-                modifier = Modifier.fillMaxWidth()
-            )
-            AtmoOutlinedButton(
-                text = "Reset to Recommended",
-                onClick = onReset,
-                accent = true,
-                modifier = Modifier.fillMaxWidth()
-            )
-            Spacer(Modifier.height(8.dp))
+                modifier = Modifier.fillMaxSize(),
+                label = "fineTuneTab"
+            ) { tab ->
+                when (tab) {
+                    FineTuneTab.Effect -> EffectSettings(
+                        config = config,
+                        previewBitmap = previewBitmap,
+                        dotSize = dotSize,
+                        onDotSizeChange = { dotSize = it },
+                        grayscale = grayscale,
+                        onGrayscaleChange = { grayscale = it },
+                        originX = originX,
+                        onOriginXChange = { originX = it },
+                        originY = originY,
+                        onOriginYChange = { originY = it },
+                        saturation = saturation,
+                        onSaturationChange = { saturation = it },
+                        contrast = contrast,
+                        onContrastChange = { contrast = it },
+                        neonSensitivity = neonSensitivity,
+                        onNeonSensitivityChange = { neonSensitivity = it },
+                        neonLineWidth = neonLineWidth,
+                        onNeonLineWidthChange = { neonLineWidth = it },
+                        subjectSegmentationEnabled = subjectSegmentationEnabled,
+                        onSubjectSegmentationChange = { subjectSegmentationEnabled = it },
+                        subjectModelReady = subjectModelReady,
+                        subjectModelWorking = subjectModelWorking,
+                        subjectModelButtonText = subjectModelButtonText,
+                        subjectModelStatusText = subjectModelStatusText,
+                        subjectModelState = subjectModelState,
+                        onDownloadSubjectModel = onDownloadSubjectModel,
+                        noiseEnabled = noiseEnabled,
+                        onNoiseEnabledChange = { noiseEnabled = it },
+                        noiseScale = noiseScale,
+                        onNoiseScaleChange = { noiseScale = it },
+                        noiseStrength = noiseStrength,
+                        onNoiseStrengthChange = { noiseStrength = it }
+                    )
+                    FineTuneTab.Timing -> TimingSettings(
+                        poll = poll,
+                        onPollChange = { poll = it.filterDigits() },
+                        delay = delay,
+                        onDelayChange = { delay = it.filterDigits() },
+                        duration = duration,
+                        onDurationChange = { duration = it.filterDigits() },
+                        onPollInfo = { infoDialog = InfoDialog.Poll },
+                        onDelayInfo = { infoDialog = InfoDialog.Delay }
+                    )
+                    FineTuneTab.Display -> DisplaySettings(
+                        config = config,
+                        scrollEnabled = scrollEnabled,
+                        onScrollEnabledChange = { scrollEnabled = it },
+                        rotationIndex = rotationIndex,
+                        onRotationSelected = { rotationIndex = it }
+                    )
+                }
+            }
         }
     }
 
-    // ---- Info dialogs --------------------------------------------------------
     infoDialog?.let { dialog ->
         AlertDialog(
             onDismissRequest = { infoDialog = null },
             containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-            title = { Text(dialog.title, color = MaterialTheme.colorScheme.onSurface) },
+            title = { Text(dialog.title) },
             text = { Text(dialog.message, color = MaterialTheme.colorScheme.onSurfaceVariant) },
             confirmButton = {
-                TextButton(onClick = { infoDialog = null }) {
-                    Text("Got it", color = MaterialTheme.colorScheme.primary)
-                }
+                TextButton(onClick = { infoDialog = null }) { Text("Done") }
             }
         )
     }
 }
 
+@Composable
+private fun EffectSettings(
+    config: AdvancedConfig,
+    previewBitmap: ImageBitmap?,
+    dotSize: Float,
+    onDotSizeChange: (Float) -> Unit,
+    grayscale: Boolean,
+    onGrayscaleChange: (Boolean) -> Unit,
+    originX: Float,
+    onOriginXChange: (Float) -> Unit,
+    originY: Float,
+    onOriginYChange: (Float) -> Unit,
+    saturation: Float,
+    onSaturationChange: (Float) -> Unit,
+    contrast: Float,
+    onContrastChange: (Float) -> Unit,
+    neonSensitivity: Float,
+    onNeonSensitivityChange: (Float) -> Unit,
+    neonLineWidth: Float,
+    onNeonLineWidthChange: (Float) -> Unit,
+    subjectSegmentationEnabled: Boolean,
+    onSubjectSegmentationChange: (Boolean) -> Unit,
+    subjectModelReady: Boolean,
+    subjectModelWorking: Boolean,
+    subjectModelButtonText: String,
+    subjectModelStatusText: String,
+    subjectModelState: SubjectModelState,
+    onDownloadSubjectModel: () -> Unit,
+    noiseEnabled: Boolean,
+    onNoiseEnabledChange: (Boolean) -> Unit,
+    noiseScale: String,
+    onNoiseScaleChange: (String) -> Unit,
+    noiseStrength: String,
+    onNoiseStrengthChange: (String) -> Unit
+) {
+    SettingsScroll {
+        WallpaperTransitionPreview(
+            effectId = config.effectId,
+            wallpaper = previewBitmap,
+            modifier = Modifier.fillMaxWidth().aspectRatio(1.48f)
+        )
+
+        if (config.showHalftone) {
+            SettingsGroup("Halftone") {
+                LabeledSlider(
+                    label = "Dot size",
+                    value = dotSize,
+                    onValueChange = onDotSizeChange,
+                    valueRange = 0f..40f,
+                    step = 1f
+                )
+                Spacer(Modifier.height(8.dp))
+                SettingSwitchRow(
+                    title = "Black and white",
+                    checked = grayscale,
+                    onCheckedChange = onGrayscaleChange
+                )
+            }
+        }
+
+        if (config.showColorFill) {
+            SettingsGroup("Color origin") {
+                LabeledSlider(
+                    label = "Horizontal position",
+                    value = originX,
+                    onValueChange = onOriginXChange,
+                    valueRange = 0f..1f,
+                    step = 0.01f
+                )
+                Spacer(Modifier.height(12.dp))
+                LabeledSlider(
+                    label = "Vertical position",
+                    value = originY,
+                    onValueChange = onOriginYChange,
+                    valueRange = 0f..1f,
+                    step = 0.01f
+                )
+            }
+        }
+
+        if (config.showNeon) {
+            SettingsGroup("Canvas Sketch") {
+                SettingSwitchRow(
+                    title = "Subject segmentation",
+                    checked = subjectSegmentationEnabled,
+                    onCheckedChange = onSubjectSegmentationChange,
+                    enabled = subjectModelReady,
+                    subtitle = if (subjectModelReady) {
+                        "Use the installed model to isolate the foreground."
+                    } else {
+                        "The full wallpaper is sketched until the model is installed."
+                    }
+                )
+                Spacer(Modifier.height(10.dp))
+                AtmoOutlinedButton(
+                    text = subjectModelButtonText,
+                    onClick = onDownloadSubjectModel,
+                    enabled = !subjectModelWorking && !subjectModelReady,
+                    accent = true,
+                    icon = if (!subjectModelWorking && !subjectModelReady) {
+                        painterResource(R.drawable.ic_download)
+                    } else {
+                        null
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                if (subjectModelWorking) {
+                    Spacer(Modifier.height(10.dp))
+                    val percent = subjectModelState.progressPercent
+                    if (percent != null) {
+                        LinearProgressIndicator(
+                            progress = { percent / 100f },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    } else {
+                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    subjectModelStatusText,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(18.dp))
+                LabeledSlider(
+                    label = "Sketch detail",
+                    value = neonSensitivity,
+                    onValueChange = onNeonSensitivityChange,
+                    valueRange = 0f..1f,
+                    step = 0.05f
+                )
+                Spacer(Modifier.height(12.dp))
+                LabeledSlider(
+                    label = "Line thickness",
+                    value = neonLineWidth,
+                    onValueChange = onNeonLineWidthChange,
+                    valueRange = 0.5f..4f,
+                    step = 0.5f
+                )
+            }
+        }
+
+        if (config.showBlob) {
+            SettingsGroup("Atmosphere color") {
+                LabeledSlider(
+                    label = "Saturation",
+                    value = saturation,
+                    onValueChange = onSaturationChange,
+                    valueRange = 0f..3f,
+                    step = 0.1f
+                )
+                Spacer(Modifier.height(12.dp))
+                LabeledSlider(
+                    label = "Contrast",
+                    value = contrast,
+                    onValueChange = onContrastChange,
+                    valueRange = 0f..3f,
+                    step = 0.1f
+                )
+            }
+        }
+
+        if (config.showNoiseSwitch) {
+            SettingsGroup("Film grain") {
+                SettingSwitchRow(
+                    title = "Blur noise",
+                    checked = noiseEnabled,
+                    onCheckedChange = onNoiseEnabledChange
+                )
+                AnimatedVisibility(visible = noiseEnabled) {
+                    Column {
+                        Spacer(Modifier.height(12.dp))
+                        AtmoNumberField(
+                            label = "Grain scale",
+                            value = noiseScale,
+                            onValueChange = { onNoiseScaleChange(it.filterDecimal()) },
+                            helper = "Recommended: 2000",
+                            decimal = true
+                        )
+                        Spacer(Modifier.height(14.dp))
+                        AtmoNumberField(
+                            label = "Grain strength",
+                            value = noiseStrength,
+                            onValueChange = { onNoiseStrengthChange(it.filterDecimal()) },
+                            helper = "Recommended: 0.06",
+                            decimal = true
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TimingSettings(
+    poll: String,
+    onPollChange: (String) -> Unit,
+    delay: String,
+    onDelayChange: (String) -> Unit,
+    duration: String,
+    onDurationChange: (String) -> Unit,
+    onPollInfo: () -> Unit,
+    onDelayInfo: () -> Unit
+) {
+    val info = painterResource(R.drawable.ic_info)
+    SettingsScroll {
+        SettingsGroup("Unlock response") {
+            AtmoNumberField(
+                label = "Unlock check interval (ms)",
+                value = poll,
+                onValueChange = onPollChange,
+                helper = "Standard: 50 | Samsung: 30000",
+                infoIcon = info,
+                onInfoClick = onPollInfo
+            )
+            Spacer(Modifier.height(16.dp))
+            AtmoNumberField(
+                label = "Lock delay (ms)",
+                value = delay,
+                onValueChange = onDelayChange,
+                helper = "Standard: 800 | Samsung: 0",
+                infoIcon = info,
+                onInfoClick = onDelayInfo
+            )
+        }
+        SettingsGroup("Animation") {
+            AtmoNumberField(
+                label = "Duration (ms)",
+                value = duration,
+                onValueChange = onDurationChange,
+                helper = "Canvas Sketch defaults to 1000 ms"
+            )
+        }
+    }
+}
+
+@Composable
+private fun DisplaySettings(
+    config: AdvancedConfig,
+    scrollEnabled: Boolean,
+    onScrollEnabledChange: (Boolean) -> Unit,
+    rotationIndex: Int,
+    onRotationSelected: (Int) -> Unit
+) {
+    SettingsScroll {
+        SettingsGroup("Home screen") {
+            SettingSwitchRow(
+                title = "Wallpaper scrolling",
+                subtitle = "Pan wide images between launcher pages.",
+                checked = scrollEnabled,
+                onCheckedChange = onScrollEnabledChange
+            )
+        }
+        if (config.isPlaylistMode) {
+            SettingsGroup("Playlist") {
+                AtmoDropdownField(
+                    label = "Rotation mode",
+                    options = config.rotationOptions,
+                    selectedIndex = rotationIndex,
+                    onSelected = onRotationSelected
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingsScroll(content: @Composable ColumnScope.() -> Unit) {
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .widthIn(max = 760.dp)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+            content = content
+        )
+    }
+}
+
+@Composable
+private fun SettingsGroup(
+    title: String,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        SectionHeader(title)
+        AtmoCard(contentPadding = PaddingValues(horizontal = 18.dp, vertical = 14.dp)) {
+            content()
+        }
+    }
+}
+
 private enum class InfoDialog(val title: String, val message: String) {
     Poll(
-        "Unlock Check Interval",
-        "Controls how frequently the app checks if the device has been unlocked.\n\n" +
-            "• What it solves:\n" +
-            "If you unlock your phone and the animation starts after a delay, lower this value.\n\n" +
-            "• Recommended:\n" +
-            "30000ms for Samsung and most devices (saves battery).\n" +
-            "50ms if you experience delayed animation start."
+        "Unlock check interval",
+        "Lower values react sooner after unlock but check more often. Use 30000 ms on " +
+            "Samsung or 50 ms if the animation starts late."
     ),
     Delay(
-        "Lock Delay",
-        "Adds a pause before the wallpaper resets when you lock the phone.\n\n" +
-            "• What it solves:\n" +
-            "If you see a glimpse of the wallpaper resetting/snapping back before the screen turns fully black, increase this value.\n\n" +
-            "• Recommended:\n" +
-            "0ms for Samsung / most devices.\n" +
-            "500ms - 800ms if you experience the glitch.\n\n" +
-            "⚠️ Note: If this value is too high, unlocking immediately after locking might show the wallpaper in its previous state."
+        "Lock delay",
+        "Increase this only if the wallpaper visibly resets before the screen turns off. " +
+            "Use 0 ms on Samsung or 500-800 ms when needed."
     )
 }
 
@@ -482,7 +637,6 @@ private fun String.filterDecimal(): String {
     val cleaned = filter { it.isDigit() || it == '.' }
     val firstDot = cleaned.indexOf('.')
     if (firstDot == -1) return cleaned
-    // keep only the first dot
     return cleaned.substring(0, firstDot + 1) +
         cleaned.substring(firstDot + 1).replace(".", "")
 }

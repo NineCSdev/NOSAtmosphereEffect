@@ -2,6 +2,7 @@ package com.app.nosatmosphereeffect.activity
 
 import android.content.Context
 import android.content.Intent
+import android.graphics.BitmapFactory
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -12,6 +13,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.core.content.edit
 import com.app.nosatmosphereeffect.helper.CanvasSubjectSettings
 import com.app.nosatmosphereeffect.helper.SubjectModelManager
@@ -26,6 +29,7 @@ import com.app.nosatmosphereeffect.ui.theme.AtmoEngineTheme
 class AdvancedSettingsActivity : ComponentActivity() {
 
     private var subjectModelManager: SubjectModelManager? = null
+    private var previewBitmap by mutableStateOf<ImageBitmap?>(null)
 
     private val rotationOptions = listOf(
         "System Theme (Light/Dark)", "Every Lock (Instant)", "1 Minute", "15 Minutes",
@@ -71,6 +75,7 @@ class AdvancedSettingsActivity : ComponentActivity() {
         val subjectModelReady = prefs.getBoolean(CanvasSubjectSettings.MODEL_READY_KEY, false)
 
         val config = AdvancedConfig(
+            effectId = activeEffect,
             showHalftone = isHalftone,
             showColorFill = isColorFill,
             showNeon = isNeon,
@@ -105,6 +110,7 @@ class AdvancedSettingsActivity : ComponentActivity() {
         if (isNeon) {
             subjectModelManager = SubjectModelManager(applicationContext)
         }
+        loadWallpaperPreview()
 
         setContent {
             AtmoEngineTheme {
@@ -130,6 +136,7 @@ class AdvancedSettingsActivity : ComponentActivity() {
                 }
                 AdvancedSettingsScreen(
                     config = config,
+                    previewBitmap = previewBitmap,
                     subjectModelState = subjectModelState,
                     onDownloadSubjectModel = {
                         val manager = subjectModelManager
@@ -146,6 +153,22 @@ class AdvancedSettingsActivity : ComponentActivity() {
                 )
             }
         }
+    }
+
+    private fun loadWallpaperPreview() {
+        val file = java.io.File(filesDir, "wallpaper.jpg")
+        if (!file.exists()) return
+        Thread {
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeFile(file.absolutePath, bounds)
+            var sample = 1
+            while (maxOf(bounds.outWidth, bounds.outHeight) / sample > 2000) sample *= 2
+            val bitmap = BitmapFactory.decodeFile(
+                file.absolutePath,
+                BitmapFactory.Options().apply { inSampleSize = sample }
+            )
+            runOnUiThread { previewBitmap = bitmap?.asImageBitmap() }
+        }.start()
     }
 
     private fun applySettings(

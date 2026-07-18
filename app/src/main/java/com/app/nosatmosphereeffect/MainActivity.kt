@@ -3,6 +3,7 @@ package com.app.nosatmosphereeffect
 import android.app.WallpaperManager
 import android.content.ClipData
 import android.content.Intent
+import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Bundle
 import android.os.Build
@@ -15,6 +16,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.core.content.edit
 import com.app.nosatmosphereeffect.activity.AdvancedSettingsActivity
 import com.app.nosatmosphereeffect.activity.BlurToSharpCropActivity
@@ -32,6 +35,7 @@ import com.app.nosatmosphereeffect.service.HalftoneService
 import com.app.nosatmosphereeffect.service.NeonReverseService
 import com.app.nosatmosphereeffect.service.NeonService
 import com.app.nosatmosphereeffect.ui.screens.MainScreen
+import com.app.nosatmosphereeffect.ui.theme.AppearancePreferences
 import com.app.nosatmosphereeffect.ui.theme.AtmoEngineTheme
 import java.io.File
 
@@ -43,6 +47,9 @@ class MainActivity : ComponentActivity() {
     private var showBlur by mutableStateOf(false)
     private var isPlaylistModeActive by mutableStateOf(false)
     private var syncColors by mutableStateOf(true)
+    private var expressiveThemeEnabled by mutableStateOf(true)
+    private var activeEffectId by mutableStateOf<String?>(null)
+    private var previewBitmap by mutableStateOf<ImageBitmap?>(null)
 
     private var dimness by mutableFloatStateOf(0.2f)
     private var savedDimness by mutableFloatStateOf(0.2f)
@@ -63,14 +70,17 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         initializeSmartDefaults()
+        expressiveThemeEnabled = AppearancePreferences.isExpressiveEnabled(this)
 
         statusText = getString(R.string.status_instruction)
 
         setContent {
-            AtmoEngineTheme {
+            AtmoEngineTheme(expressive = expressiveThemeEnabled) {
                 MainScreen(
                     wallpaperActive = wallpaperActive,
                     statusText = statusText,
+                    activeEffectId = activeEffectId,
+                    previewBitmap = previewBitmap,
                     isPlaylistMode = isPlaylistModeActive,
                     showBlur = showBlur,
                     dimness = dimness,
@@ -83,6 +93,8 @@ class MainActivity : ComponentActivity() {
                     onApplyBlur = { applyBlurUpdate() },
                     syncColors = syncColors,
                     onSyncColorsChange = { updateSyncColors(it) },
+                    expressiveThemeEnabled = expressiveThemeEnabled,
+                    onExpressiveThemeChange = { updateExpressiveTheme(it) },
                     onSetupWallpaper = {
                         startActivity(Intent(this, EffectSelectionActivity::class.java))
                     },
@@ -102,6 +114,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        expressiveThemeEnabled = AppearancePreferences.isExpressiveEnabled(this)
         checkWallpaperStatus()
     }
 
@@ -124,6 +137,7 @@ class MainActivity : ComponentActivity() {
     private fun checkWallpaperStatus() {
         val activeEffect = getActiveEffectType()
         if (activeEffect != null) {
+            activeEffectId = activeEffect
             wallpaperActive = true
             statusText = "Wallpaper is active. Customize your experience below."
             loadCurrentDimness()
@@ -155,10 +169,37 @@ class MainActivity : ComponentActivity() {
             }
 
             syncColors = prefs.getBoolean("notify_system_colors", !isPlaylistModeActive)
+            loadWallpaperPreview()
         } else {
+            activeEffectId = null
+            previewBitmap = null
             wallpaperActive = false
             statusText = getString(R.string.status_instruction)
         }
+    }
+
+    private fun updateExpressiveTheme(enabled: Boolean) {
+        expressiveThemeEnabled = enabled
+        AppearancePreferences.setExpressiveEnabled(this, enabled)
+    }
+
+    private fun loadWallpaperPreview() {
+        val file = File(filesDir, "wallpaper.jpg")
+        if (!file.exists()) {
+            previewBitmap = null
+            return
+        }
+        Thread {
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeFile(file.absolutePath, bounds)
+            var sample = 1
+            while (maxOf(bounds.outWidth, bounds.outHeight) / sample > 2000) sample *= 2
+            val bitmap = BitmapFactory.decodeFile(
+                file.absolutePath,
+                BitmapFactory.Options().apply { inSampleSize = sample }
+            )
+            runOnUiThread { previewBitmap = bitmap?.asImageBitmap() }
+        }.start()
     }
 
     private fun updateSyncColors(enabled: Boolean) {

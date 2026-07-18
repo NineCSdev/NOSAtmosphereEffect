@@ -4,6 +4,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,6 +18,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -48,15 +57,17 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.text.KeyboardOptions
-import com.app.nosatmosphereeffect.ui.theme.AtmoOnSurfaceVariant
-import com.app.nosatmosphereeffect.ui.theme.AtmoOutline
-import com.app.nosatmosphereeffect.ui.theme.AtmoPurple
+import com.app.nosatmosphereeffect.ui.theme.LocalAtmoExpressive
+import java.util.Locale
 import kotlin.math.roundToInt
 
 /* -------------------------------------------------------------------------- */
@@ -71,11 +82,22 @@ fun AtmoPrimaryButton(
     enabled: Boolean = true,
     icon: Painter? = null
 ) {
+    val expressive = LocalAtmoExpressive.current
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (pressed && expressive) 0.97f else 1f,
+        animationSpec = spring(stiffness = 650f),
+        label = "primaryButtonScale"
+    )
     Button(
         onClick = onClick,
         enabled = enabled,
-        modifier = modifier.heightIn(min = 56.dp),
-        shape = RoundedCornerShape(28.dp),
+        modifier = modifier
+            .heightIn(min = 56.dp)
+            .scale(scale),
+        interactionSource = interaction,
+        shape = RoundedCornerShape(if (expressive) 20.dp else 8.dp),
         colors = ButtonDefaults.buttonColors(
             containerColor = MaterialTheme.colorScheme.primary,
             contentColor = MaterialTheme.colorScheme.onPrimary
@@ -96,22 +118,26 @@ fun AtmoTonalButton(
     modifier: Modifier = Modifier,
     icon: Painter? = null
 ) {
+    val expressive = LocalAtmoExpressive.current
     FilledTonalButton(
         onClick = onClick,
-        modifier = modifier.heightIn(min = 64.dp),
-        shape = RoundedCornerShape(22.dp),
+        modifier = modifier.heightIn(min = 56.dp),
+        shape = RoundedCornerShape(if (expressive) 18.dp else 8.dp),
         colors = ButtonDefaults.filledTonalButtonColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
             contentColor = MaterialTheme.colorScheme.onSurface
         )
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            if (icon != null) {
-                Icon(icon, contentDescription = null, tint = AtmoPurple, modifier = Modifier.size(22.dp))
-                Spacer(Modifier.height(6.dp))
-            }
-            Text(text, style = MaterialTheme.typography.labelMedium, textAlign = TextAlign.Center)
+        if (icon != null) {
+            Icon(
+                icon,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(21.dp)
+            )
+            Spacer(Modifier.width(9.dp))
         }
+        Text(text, style = MaterialTheme.typography.labelLarge, textAlign = TextAlign.Center)
     }
 }
 
@@ -124,12 +150,13 @@ fun AtmoOutlinedButton(
     accent: Boolean = false,
     icon: Painter? = null
 ) {
+    val expressive = LocalAtmoExpressive.current
     val contentColor = if (accent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
     OutlinedButton(
         onClick = onClick,
         enabled = enabled,
         modifier = modifier.heightIn(min = 56.dp),
-        shape = RoundedCornerShape(28.dp),
+        shape = RoundedCornerShape(if (expressive) 20.dp else 8.dp),
         border = BorderStroke(
             1.dp,
             if (accent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
@@ -153,13 +180,32 @@ fun AtmoOutlinedButton(
 fun AtmoCard(
     modifier: Modifier = Modifier,
     contentPadding: PaddingValues = PaddingValues(20.dp),
+    selected: Boolean = false,
+    onClick: (() -> Unit)? = null,
     content: @Composable () -> Unit
 ) {
+    val borderColor = if (selected) {
+        MaterialTheme.colorScheme.primary
+    } else {
+        MaterialTheme.colorScheme.outlineVariant
+    }
     Card(
-        modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-        border = BorderStroke(1.dp, AtmoOutline)
+        modifier = modifier
+            .fillMaxWidth()
+            .animateContentSize()
+            .then(
+                if (onClick != null) Modifier.clickable(onClick = onClick)
+                else Modifier
+            ),
+        shape = RoundedCornerShape(8.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = if (selected) {
+                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.34f)
+            } else {
+                MaterialTheme.colorScheme.surfaceContainer
+            }
+        ),
+        border = BorderStroke(if (selected) 2.dp else 1.dp, borderColor)
     ) {
         Column(Modifier.padding(contentPadding)) { content() }
     }
@@ -168,9 +214,9 @@ fun AtmoCard(
 @Composable
 fun SectionHeader(title: String, modifier: Modifier = Modifier) {
     Text(
-        text = title.uppercase(),
-        style = MaterialTheme.typography.labelMedium,
-        color = AtmoOnSurfaceVariant,
+        text = title,
+        style = MaterialTheme.typography.titleMedium,
+        color = MaterialTheme.colorScheme.onSurface,
         modifier = modifier
     )
 }
@@ -200,11 +246,20 @@ fun LabeledSlider(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(label, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
-            Text(
-                valueText(value),
-                style = MaterialTheme.typography.labelLarge,
-                color = AtmoPurple
-            )
+            AnimatedContent(
+                targetState = valueText(value),
+                transitionSpec = {
+                    androidx.compose.animation.fadeIn(tween(120)) togetherWith
+                        androidx.compose.animation.fadeOut(tween(90))
+                },
+                label = "sliderValue"
+            ) { text ->
+                Text(
+                    text,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
         }
         Spacer(Modifier.height(4.dp))
         Slider(
@@ -212,8 +267,8 @@ fun LabeledSlider(
             onValueChange = { raw -> onValueChange(if (step > 0f) snap(raw, valueRange, step) else raw) },
             valueRange = valueRange,
             colors = SliderDefaults.colors(
-                thumbColor = AtmoPurple,
-                activeTrackColor = AtmoPurple,
+                thumbColor = MaterialTheme.colorScheme.primary,
+                activeTrackColor = MaterialTheme.colorScheme.primary,
                 inactiveTrackColor = MaterialTheme.colorScheme.surfaceContainerHighest
             )
         )
@@ -228,8 +283,8 @@ private fun snap(raw: Float, range: ClosedFloatingPointRange<Float>, step: Float
 private fun defaultFormat(value: Float, step: Float): String =
     when {
         step >= 1f || step == 0f && value == value.roundToInt().toFloat() -> value.roundToInt().toString()
-        step >= 0.1f -> String.format("%.1f", value)
-        else -> String.format("%.2f", value)
+        step >= 0.1f -> String.format(Locale.ROOT, "%.1f", value)
+        else -> String.format(Locale.ROOT, "%.2f", value)
     }
 
 /* -------------------------------------------------------------------------- */
@@ -248,27 +303,38 @@ fun SettingSwitchRow(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .alpha(if (enabled) 1f else 0.55f),
+            .alpha(if (enabled) 1f else 0.55f)
+            .toggleable(
+                value = checked,
+                enabled = enabled,
+                role = Role.Switch,
+                onValueChange = onCheckedChange
+            )
+            .padding(vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column(Modifier.weight(1f)) {
             Text(title, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
             if (subtitle != null) {
                 Spacer(Modifier.height(2.dp))
-                Text(subtitle, style = MaterialTheme.typography.bodySmall, color = AtmoOnSurfaceVariant)
+                Text(
+                    subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         }
         Spacer(Modifier.width(16.dp))
         Switch(
             checked = checked,
-            onCheckedChange = onCheckedChange,
+            onCheckedChange = null,
             enabled = enabled,
             colors = SwitchDefaults.colors(
                 checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
-                checkedTrackColor = AtmoPurple,
-                uncheckedThumbColor = AtmoOnSurfaceVariant,
+                checkedTrackColor = MaterialTheme.colorScheme.primary,
+                uncheckedThumbColor = MaterialTheme.colorScheme.onSurfaceVariant,
                 uncheckedTrackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-                uncheckedBorderColor = AtmoOutline
+                uncheckedBorderColor = MaterialTheme.colorScheme.outline
             )
         )
     }
@@ -303,7 +369,7 @@ fun AtmoDropdownField(
                 label = { Text(label) },
                 trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
                 colors = atmoFieldColors(),
-                shape = RoundedCornerShape(16.dp),
+                shape = RoundedCornerShape(8.dp),
                 modifier = Modifier
                     .fillMaxWidth()
                     .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
@@ -325,7 +391,11 @@ fun AtmoDropdownField(
         }
         if (helper != null) {
             Spacer(Modifier.height(6.dp))
-            Text(helper, style = MaterialTheme.typography.bodySmall, color = AtmoOnSurfaceVariant)
+            Text(
+                helper,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
 }
@@ -357,30 +427,38 @@ fun AtmoNumberField(
             trailingIcon = if (infoIcon != null && onInfoClick != null) {
                 {
                     IconButton(onClick = onInfoClick) {
-                        Icon(infoIcon, contentDescription = "More info", tint = AtmoPurple)
+                        Icon(
+                            infoIcon,
+                            contentDescription = "More info",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
                     }
                 }
             } else null,
             colors = atmoFieldColors(),
-            shape = RoundedCornerShape(16.dp),
+            shape = RoundedCornerShape(8.dp),
             modifier = Modifier.fillMaxWidth()
         )
         if (helper != null) {
             Spacer(Modifier.height(6.dp))
-            Text(helper, style = MaterialTheme.typography.bodySmall, color = AtmoOnSurfaceVariant)
+            Text(
+                helper,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
 }
 
 @Composable
 private fun atmoFieldColors() = OutlinedTextFieldDefaults.colors(
-    focusedBorderColor = AtmoPurple,
-    unfocusedBorderColor = AtmoOutline,
-    focusedLabelColor = AtmoPurple,
-    unfocusedLabelColor = AtmoOnSurfaceVariant,
+    focusedBorderColor = MaterialTheme.colorScheme.primary,
+    unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+    focusedLabelColor = MaterialTheme.colorScheme.primary,
+    unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
     focusedTextColor = MaterialTheme.colorScheme.onSurface,
     unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
-    cursorColor = AtmoPurple,
+    cursorColor = MaterialTheme.colorScheme.primary,
     focusedContainerColor = Color.Transparent,
     unfocusedContainerColor = Color.Transparent
 )
@@ -417,13 +495,76 @@ fun AtmoTopBar(
 /* -------------------------------------------------------------------------- */
 
 @Composable
+fun AtmoSegmentedControl(
+    options: List<String>,
+    selectedIndex: Int,
+    onSelected: (Int) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+            .padding(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        options.forEachIndexed { index, option ->
+            val selected = index == selectedIndex
+            val containerColor by animateColorAsState(
+                targetValue = if (selected) {
+                    MaterialTheme.colorScheme.primaryContainer
+                } else {
+                    Color.Transparent
+                },
+                animationSpec = tween(180),
+                label = "segmentColor"
+            )
+            val contentColor by animateColorAsState(
+                targetValue = if (selected) {
+                    MaterialTheme.colorScheme.onPrimaryContainer
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+                animationSpec = tween(180),
+                label = "segmentContentColor"
+            )
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .heightIn(min = 44.dp)
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(containerColor)
+                    .clickable { onSelected(index) }
+                    .padding(horizontal = 8.dp, vertical = 10.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = option,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = contentColor,
+                    textAlign = TextAlign.Center
+                )
+            }
+        }
+    }
+}
+
+@Composable
 fun AtmoChip(text: String, modifier: Modifier = Modifier) {
     Box(
         modifier = modifier
-            .background(AtmoPurple.copy(alpha = 0.14f), RoundedCornerShape(8.dp))
+            .background(
+                MaterialTheme.colorScheme.tertiaryContainer,
+                RoundedCornerShape(6.dp)
+            )
             .padding(horizontal = 10.dp, vertical = 4.dp)
     ) {
-        Text(text, style = MaterialTheme.typography.labelMedium, color = AtmoPurple)
+        Text(
+            text,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onTertiaryContainer
+        )
     }
 }
 
@@ -449,7 +590,7 @@ fun AtmoDialogRow(
             .padding(vertical = 4.dp)
             .background(
                 MaterialTheme.colorScheme.surfaceContainerHighest,
-                RoundedCornerShape(16.dp)
+                RoundedCornerShape(8.dp)
             )
             .clickable(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 14.dp)
@@ -465,7 +606,7 @@ fun AtmoDialogRow(
                 Text(
                     subtitle,
                     style = MaterialTheme.typography.bodySmall,
-                    color = AtmoOnSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         }
