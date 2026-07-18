@@ -92,11 +92,11 @@ dependencies {
     debugImplementation(libs.androidx.ui.tooling)
 
     // --- Dependencies for v36 (API 36) ---
-    // These only apply when building the v36 flavor
-    "v36Implementation"("androidx.core:core-ktx:1.17.0")
-    "v36Implementation"("androidx.lifecycle:lifecycle-service:2.10.0")
+    // Latest stable AndroidX and Material Components releases.
+    "v36Implementation"("androidx.core:core-ktx:1.19.0")
+    "v36Implementation"("androidx.lifecycle:lifecycle-service:2.11.0")
     "v36Implementation"("androidx.appcompat:appcompat:1.7.1")
-    "v36Implementation"("com.google.android.material:material:1.13.0")
+    "v36Implementation"("com.google.android.material:material:1.14.0")
 
     // --- Dependencies for v35 (API 35 / Google Play) ---
     // These only apply when building the v35 flavor

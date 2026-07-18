@@ -36,7 +36,6 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilledTonalButton
@@ -113,7 +112,6 @@ fun AtmoReveal(
     }
 }
 
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun AtmoPrimaryButton(
     text: String,
@@ -136,10 +134,7 @@ fun AtmoPrimaryButton(
             if (expressive) haptics.performHapticFeedback(HapticFeedbackType.ContextClick)
             onClick()
         },
-        shapes = ButtonDefaults.shapes(
-            shape = RoundedCornerShape(50),
-            pressedShape = if (expressive) RoundedCornerShape(18.dp) else RoundedCornerShape(50)
-        ),
+        shape = if (expressive) RoundedCornerShape(50) else RoundedCornerShape(18.dp),
         enabled = enabled,
         modifier = modifier
             .heightIn(min = 58.dp)
@@ -159,7 +154,6 @@ fun AtmoPrimaryButton(
     }
 }
 
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun AtmoTonalButton(
     text: String,
@@ -181,10 +175,7 @@ fun AtmoTonalButton(
             if (expressive) haptics.performHapticFeedback(HapticFeedbackType.ContextClick)
             onClick()
         },
-        shapes = ButtonDefaults.shapes(
-            shape = RoundedCornerShape(50),
-            pressedShape = if (expressive) RoundedCornerShape(18.dp) else RoundedCornerShape(50)
-        ),
+        shape = if (expressive) RoundedCornerShape(50) else RoundedCornerShape(18.dp),
         modifier = modifier.heightIn(min = 58.dp).scale(scale),
         interactionSource = interaction,
         contentPadding = PaddingValues(horizontal = 20.dp, vertical = 14.dp),
@@ -206,7 +197,6 @@ fun AtmoTonalButton(
     }
 }
 
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun AtmoOutlinedButton(
     text: String,
@@ -231,10 +221,7 @@ fun AtmoOutlinedButton(
             if (expressive) haptics.performHapticFeedback(HapticFeedbackType.ContextClick)
             onClick()
         },
-        shapes = ButtonDefaults.shapes(
-            shape = RoundedCornerShape(50),
-            pressedShape = if (expressive) RoundedCornerShape(18.dp) else RoundedCornerShape(50)
-        ),
+        shape = if (expressive) RoundedCornerShape(50) else RoundedCornerShape(18.dp),
         enabled = enabled,
         modifier = modifier.heightIn(min = 58.dp).scale(scale),
         interactionSource = interaction,
@@ -253,7 +240,6 @@ fun AtmoOutlinedButton(
     }
 }
 
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun AtmoTextButton(
     text: String,
@@ -276,10 +262,7 @@ fun AtmoTextButton(
             if (expressive) haptics.performHapticFeedback(HapticFeedbackType.ContextClick)
             onClick()
         },
-        shapes = ButtonDefaults.shapes(
-            shape = RoundedCornerShape(50),
-            pressedShape = if (expressive) RoundedCornerShape(14.dp) else RoundedCornerShape(50)
-        ),
+        shape = if (expressive) RoundedCornerShape(50) else RoundedCornerShape(14.dp),
         modifier = modifier.scale(scale),
         enabled = enabled,
         interactionSource = interaction,

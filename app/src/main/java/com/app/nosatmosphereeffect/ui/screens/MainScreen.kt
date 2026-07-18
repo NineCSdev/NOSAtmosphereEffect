@@ -1,6 +1,7 @@
 package com.app.nosatmosphereeffect.ui.screens
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -8,6 +9,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -39,11 +41,9 @@ import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.Wallpaper
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
@@ -365,6 +365,11 @@ private fun AppearanceSettingsSheet(
     onPitchBlackChange: (Boolean) -> Unit,
     onDismiss: () -> Unit
 ) {
+    val darkThemeActive = when (themeMode) {
+        AppThemeMode.SYSTEM -> isSystemInDarkTheme()
+        AppThemeMode.LIGHT -> false
+        AppThemeMode.DARK -> true
+    }
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         containerColor = MaterialTheme.colorScheme.surfaceContainer,
@@ -409,12 +414,14 @@ private fun AppearanceSettingsSheet(
                 )
             }
 
-            SettingSwitchRow(
-                title = "Pitch-black background",
-                subtitle = "Use pure black whenever dark theme is active.",
-                checked = pitchBlack,
-                onCheckedChange = onPitchBlackChange
-            )
+            AnimatedVisibility(visible = darkThemeActive) {
+                SettingSwitchRow(
+                    title = "Pitch-black background",
+                    subtitle = "Use pure black instead of the system dark surface.",
+                    checked = pitchBlack,
+                    onCheckedChange = onPitchBlackChange
+                )
+            }
         }
     }
 }
@@ -541,7 +548,6 @@ private fun ModeOption(
     }
 }
 
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun AliveIconButton(
     icon: ImageVector,
@@ -562,10 +568,7 @@ private fun AliveIconButton(
             if (expressive) haptics.performHapticFeedback(HapticFeedbackType.ContextClick)
             onClick()
         },
-        shapes = IconButtonDefaults.shapes(
-            shape = CircleShape,
-            pressedShape = if (expressive) RoundedCornerShape(14.dp) else CircleShape
-        ),
+        shape = if (expressive) CircleShape else RoundedCornerShape(16.dp),
         interactionSource = interaction,
         modifier = Modifier.size(48.dp).scale(scale)
     ) {

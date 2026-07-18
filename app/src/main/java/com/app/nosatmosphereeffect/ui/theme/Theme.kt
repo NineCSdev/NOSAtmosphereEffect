@@ -3,8 +3,6 @@ package com.app.nosatmosphereeffect.ui.theme
 import android.app.Activity
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.MaterialExpressiveTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.darkColorScheme
@@ -111,7 +109,6 @@ private val ExpressiveShapes = Shapes(
 
 val LocalAtmoExpressive = staticCompositionLocalOf { true }
 
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun AtmoEngineTheme(
     expressive: Boolean? = null,
@@ -138,14 +135,11 @@ fun AtmoEngineTheme(
         }
     }
 
-    val systemOrFixedColors = if (useExpressive && useDarkTheme) {
-        dynamicDarkColorScheme(context)
-    } else if (useExpressive) {
-        dynamicLightColorScheme(context)
-    } else if (useDarkTheme) {
-        AtmoDarkColors
-    } else {
-        AtmoLightColors
+    val systemOrFixedColors = when {
+        useExpressive && useDarkTheme -> dynamicDarkColorScheme(context)
+        useExpressive -> dynamicLightColorScheme(context)
+        useDarkTheme -> AtmoDarkColors
+        else -> AtmoLightColors
     }
     val colors = if (useDarkTheme && usePitchBlack) {
         systemOrFixedColors.copy(
@@ -159,20 +153,11 @@ fun AtmoEngineTheme(
     }
 
     CompositionLocalProvider(LocalAtmoExpressive provides useExpressive) {
-        if (useExpressive) {
-            MaterialExpressiveTheme(
-                colorScheme = colors,
-                typography = AtmoTypography,
-                shapes = ExpressiveShapes,
-                content = content
-            )
-        } else {
-            MaterialTheme(
-                colorScheme = colors,
-                typography = AtmoTypography,
-                shapes = StandardShapes,
-                content = content
-            )
-        }
+        MaterialTheme(
+            colorScheme = colors,
+            typography = AtmoTypography,
+            shapes = if (useExpressive) ExpressiveShapes else StandardShapes,
+            content = content
+        )
     }
 }
