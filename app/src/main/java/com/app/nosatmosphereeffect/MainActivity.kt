@@ -22,6 +22,7 @@ import com.app.nosatmosphereeffect.activity.BlurToSharpCropActivity
 import com.app.nosatmosphereeffect.activity.CropActivity
 import com.app.nosatmosphereeffect.activity.EffectSelectionActivity
 import com.app.nosatmosphereeffect.activity.PlaylistEditorActivity
+import com.app.nosatmosphereeffect.helper.SystemColorSyncPreferences
 import com.app.nosatmosphereeffect.service.AtmosphereService
 import com.app.nosatmosphereeffect.service.BlurToSharpService
 import com.app.nosatmosphereeffect.service.ColorFillReverseService
@@ -153,22 +154,7 @@ class MainActivity : ComponentActivity() {
                 if (!files.isNullOrEmpty() && files.size > 1) isPlaylistModeActive = true
             }
 
-            // Detect mode change and force safe defaults for the colour sync toggle.
-            val prefs = getSharedPreferences("app_prefs", MODE_PRIVATE)
-            val lastMode = prefs.getString("last_known_wallpaper_mode", "UNKNOWN")
-            val currentMode = if (isPlaylistModeActive) "PLAYLIST" else "SINGLE"
-            if (lastMode != currentMode) {
-                if (isPlaylistModeActive) {
-                    prefs.edit { putBoolean("notify_system_colors", false) }
-                    sendConfigUpdate()
-                } else {
-                    prefs.edit { putBoolean("notify_system_colors", true) }
-                    sendConfigUpdate()
-                }
-                prefs.edit { putString("last_known_wallpaper_mode", currentMode) }
-            }
-
-            syncColors = prefs.getBoolean("notify_system_colors", !isPlaylistModeActive)
+            syncColors = SystemColorSyncPreferences.isEnabled(this)
             loadWallpaperPreview()
         } else {
             activeEffectId = null
@@ -214,9 +200,7 @@ class MainActivity : ComponentActivity() {
 
     private fun updateSyncColors(enabled: Boolean) {
         syncColors = enabled
-        getSharedPreferences("app_prefs", MODE_PRIVATE).edit {
-            putBoolean("notify_system_colors", enabled)
-        }
+        SystemColorSyncPreferences.setEnabled(this, enabled)
         sendConfigUpdate()
     }
 

@@ -1,12 +1,16 @@
 package com.app.nosatmosphereeffect.helper
 
+import android.app.WallpaperColors
 import android.content.Context
+import android.graphics.BitmapFactory
 import android.opengl.GLSurfaceView
 import android.service.wallpaper.WallpaperService
 import android.view.SurfaceHolder
 import android.graphics.PixelFormat
 import android.os.Handler
 import android.os.Looper
+import java.io.File
+import kotlin.math.max
 
 /**
  * Implemented by renderers that can pan their wallpaper horizontally in response
@@ -21,11 +25,26 @@ interface WallpaperScrollRenderer {
 
 abstract class GLWallpaperService : WallpaperService() {
 
+    private data class WallpaperColorSource(
+        val lastModified: Long,
+        val length: Long
+    )
+
     open inner class GLEngine : Engine() {
         private var glSurfaceView: WallpaperGLSurfaceView? = null
         private var activeRenderer: GLSurfaceView.Renderer? = null
         private val pauseHandler = Handler(Looper.getMainLooper())
         private val pauseRunnable = Runnable { glSurfaceView?.onPause() }
+        private val systemColorHandler = Handler(Looper.getMainLooper())
+        private var cachedSystemColors: WallpaperColors? = null
+        private var cachedColorSource: WallpaperColorSource? = null
+        private val publishSystemColors = Runnable {
+            cachedSystemColors = null
+            cachedColorSource = null
+            if (SystemColorSyncPreferences.isEnabled(this@GLWallpaperService)) {
+                notifyColorsChanged()
+            }
+        }
 
         override fun onCreate(surfaceHolder: SurfaceHolder) {
             super.onCreate(surfaceHolder)
@@ -44,6 +63,68 @@ abstract class GLWallpaperService : WallpaperService() {
 
         fun requestRender() {
             glSurfaceView?.requestRender()
+        }
+
+        /**
+         * Invalidates the active image palette and publishes it from the engine's
+         * main thread. Calls made during playlist file I/O are safely marshalled.
+         */
+        protected fun notifySystemColorsChanged() {
+            systemColorHandler.removeCallbacks(publishSystemColors)
+            systemColorHandler.post(publishSystemColors)
+        }
+
+        final override fun onComputeColors(): WallpaperColors? {
+            if (!SystemColorSyncPreferences.isEnabled(this@GLWallpaperService)) {
+                cachedSystemColors = null
+                cachedColorSource = null
+                return null
+            }
+
+            val wallpaperFile = File(filesDir, WallpaperFitHelper.ACTIVE_WALLPAPER_FILE)
+            if (!wallpaperFile.isFile) {
+                cachedSystemColors = null
+                cachedColorSource = null
+                return null
+            }
+
+            val source = WallpaperColorSource(
+                lastModified = wallpaperFile.lastModified(),
+                length = wallpaperFile.length()
+            )
+            cachedSystemColors?.let { colors ->
+                if (cachedColorSource == source) return colors
+            }
+
+            val colors = decodeWallpaperColors(wallpaperFile)
+            cachedSystemColors = colors
+            cachedColorSource = if (colors != null) source else null
+            return colors
+        }
+
+        private fun decodeWallpaperColors(file: File): WallpaperColors? {
+            return try {
+                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                BitmapFactory.decodeFile(file.absolutePath, bounds)
+                if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+
+                var sampleSize = 1
+                while (max(bounds.outWidth, bounds.outHeight) / sampleSize > 512) {
+                    sampleSize *= 2
+                }
+
+                val bitmap = BitmapFactory.decodeFile(
+                    file.absolutePath,
+                    BitmapFactory.Options().apply { inSampleSize = sampleSize }
+                ) ?: return null
+                try {
+                    WallpaperColors.fromBitmap(bitmap)
+                } finally {
+                    bitmap.recycle()
+                }
+            } catch (_: Exception) {
+                null
+            }
         }
 
         override fun onOffsetsChanged(
@@ -82,6 +163,7 @@ abstract class GLWallpaperService : WallpaperService() {
         override fun onDestroy() {
             super.onDestroy()
             pauseHandler.removeCallbacks(pauseRunnable)
+            systemColorHandler.removeCallbacks(publishSystemColors)
             glSurfaceView?.onPause()
         }
 

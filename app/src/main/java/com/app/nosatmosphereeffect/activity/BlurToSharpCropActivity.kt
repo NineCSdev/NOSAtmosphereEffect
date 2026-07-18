@@ -22,6 +22,7 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.exifinterface.media.ExifInterface
+import com.app.nosatmosphereeffect.helper.SystemColorSyncPreferences
 import com.app.nosatmosphereeffect.helper.TouchImageView
 import com.app.nosatmosphereeffect.helper.WallpaperFitHelper
 import com.app.nosatmosphereeffect.service.BlurToSharpService
@@ -218,6 +219,7 @@ class BlurToSharpCropActivity : ComponentActivity() {
 
         Thread {
             try {
+                SystemColorSyncPreferences.isEnabled(this)
                 getSharedPreferences("app_prefs", Context.MODE_PRIVATE).edit().clear().apply()
                 getSharedPreferences("wallpaper_prefs", Context.MODE_PRIVATE).edit().clear().apply()
 

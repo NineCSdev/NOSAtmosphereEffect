@@ -2,12 +2,10 @@ package com.app.nosatmosphereeffect.service
 
 import android.animation.ValueAnimator
 import android.app.KeyguardManager
-import android.app.WallpaperColors
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.graphics.BitmapFactory
 import android.opengl.GLSurfaceView
 import android.os.Build
 import android.os.Handler
@@ -53,7 +51,6 @@ class BlurToSharpService : GLWallpaperService() {
     }
 
     inner class AtmosphereEngine : GLEngine() {
-        private var cachedColors: WallpaperColors? = null
         private var pollInterval: Long = if (isSamsungDevice()) 30000L else 50L
         private var lockDelay: Long = if (isSamsungDevice()) 0L else 800L
         private var animDuration: Long = 1500L
@@ -62,7 +59,6 @@ class BlurToSharpService : GLWallpaperService() {
         private var blurAnimator: ValueAnimator? = null
         private var isLocked: Boolean = true
         private val handler = Handler(Looper.getMainLooper())
-        private var enableSystemColorUpdate: Boolean = false
         private val resetRunnable = Runnable {
             prepareForNextUnlock()
         }
@@ -141,10 +137,8 @@ class BlurToSharpService : GLWallpaperService() {
 
                         myRenderer?.queuePlaylistTransition(nextBitmap)
                         requestRender()
-
-                        cachedColors = null
                         prefs.edit().putLong("last_rotation_timestamp", System.currentTimeMillis()).apply()
-                        notifyColorsChanged()
+                        notifySystemColorsChanged()
                     }
                 } catch (e: Exception) {
                     e.printStackTrace()
@@ -191,34 +185,6 @@ class BlurToSharpService : GLWallpaperService() {
             }.start()
         }
 
-        override fun onComputeColors(): WallpaperColors? {
-            if (!enableSystemColorUpdate) {
-                if (cachedColors != null) {
-                    cachedColors = null
-                }
-                return super.onComputeColors()
-            }
-
-            if (cachedColors != null) {
-                return cachedColors
-            }
-
-            try {
-                val file = File(filesDir, "wallpaper.jpg")
-                if (file.exists()) {
-                    val options = BitmapFactory.Options().apply {
-                        inSampleSize = 2
-                    }
-                    val bitmap = BitmapFactory.decodeFile(file.absolutePath, options)
-                    if (bitmap != null) {
-                        cachedColors = WallpaperColors.fromBitmap(bitmap)
-                        bitmap.recycle() // Clean up memory immediately
-                        return cachedColors
-                    }
-                }
-            } catch (e: Exception) { }
-            return super.onComputeColors()
-        }
         private val unlockChecker = object : Runnable {
             override fun run() {
                 val keyguardManager = getSystemService(KEYGUARD_SERVICE) as KeyguardManager
@@ -264,15 +230,14 @@ class BlurToSharpService : GLWallpaperService() {
                         }
                     }
                     "com.app.nosatmosphereeffect.RELOAD_WALLPAPER" -> {
-                        cachedColors = null
                         myRenderer?.reloadTexture()
                         requestRender()
-                        notifyColorsChanged()
+                        notifySystemColorsChanged()
                     }
                     "com.app.nosatmosphereeffect.UPDATE_CONFIG" -> {
                         updateRendererConfig()
                         requestRender()
-                        notifyColorsChanged()
+                        notifySystemColorsChanged()
                     }
                 }
             }
@@ -405,8 +370,6 @@ class BlurToSharpService : GLWallpaperService() {
             val noise = prefs.getBoolean("enable_noise", false)
             val scale = prefs.getFloat("noise_scale", 2000.0f)
             val strength = prefs.getFloat("noise_strength", 0.06f)
-
-            enableSystemColorUpdate = prefs.getBoolean("notify_system_colors", false)
 
             myRenderer?.blobSaturation = prefs.getFloat("blob_saturation", 1.0f)
             myRenderer?.blobContrast = prefs.getFloat("blob_contrast", 1.0f)

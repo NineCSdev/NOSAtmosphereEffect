@@ -2,12 +2,10 @@ package com.app.nosatmosphereeffect.service
 
 import android.animation.ValueAnimator
 import android.app.KeyguardManager
-import android.app.WallpaperColors
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.graphics.BitmapFactory
 import android.opengl.GLSurfaceView
 import android.os.Build
 import android.os.Handler
@@ -52,14 +50,12 @@ class ColorFillReverseService : GLWallpaperService() {
     }
 
     inner class ColorFillEngine : GLEngine() {
-        private var cachedColors: WallpaperColors? = null
         private var pollInterval: Long = if (isSamsungDevice()) 30000L else 50L
         private var lockDelay: Long = if (isSamsungDevice()) 0L else 800L
         private var animDuration: Long = 500L
         private var myRenderer: ColorFillRenderer? = null
         private var blurAnimator: ValueAnimator? = null
         private var isLocked: Boolean = true
-        private var enableSystemColorUpdate: Boolean = false
         private val handler = Handler(Looper.getMainLooper())
 
         private val resetRunnable = Runnable {
@@ -132,10 +128,8 @@ class ColorFillReverseService : GLWallpaperService() {
 
                         myRenderer?.queuePlaylistTransition(nextBitmap)
                         requestRender()
-
-                        cachedColors = null
                         prefs.edit().putLong("last_rotation_timestamp", System.currentTimeMillis()).apply()
-                        notifyColorsChanged()
+                        notifySystemColorsChanged()
                     }
                 } catch (e: Exception) {
                     e.printStackTrace()
@@ -173,35 +167,6 @@ class ColorFillReverseService : GLWallpaperService() {
                     e.printStackTrace()
                 }
             }.start()
-        }
-
-        override fun onComputeColors(): WallpaperColors? {
-            if (!enableSystemColorUpdate) {
-                if (cachedColors != null) {
-                    cachedColors = null
-                }
-                return super.onComputeColors()
-            }
-
-            if (cachedColors != null) {
-                return cachedColors
-            }
-
-            try {
-                val file = File(filesDir, "wallpaper.jpg")
-                if (file.exists()) {
-                    val options = BitmapFactory.Options().apply {
-                        inSampleSize = 2
-                    }
-                    val bitmap = BitmapFactory.decodeFile(file.absolutePath, options)
-                    if (bitmap != null) {
-                        cachedColors = WallpaperColors.fromBitmap(bitmap)
-                        bitmap.recycle()
-                        return cachedColors
-                    }
-                }
-            } catch (e: Exception) { }
-            return super.onComputeColors()
         }
 
         private val unlockChecker = object : Runnable {
@@ -243,15 +208,14 @@ class ColorFillReverseService : GLWallpaperService() {
                         }
                     }
                     "com.app.nosatmosphereeffect.RELOAD_WALLPAPER" -> {
-                        cachedColors = null
                         myRenderer?.reloadTexture()
                         requestRender()
-                        notifyColorsChanged()
+                        notifySystemColorsChanged()
                     }
                     "com.app.nosatmosphereeffect.UPDATE_CONFIG" -> {
                         updateRendererConfig()
                         requestRender()
-                        notifyColorsChanged()
+                        notifySystemColorsChanged()
                     }
                 }
             }
@@ -369,8 +333,6 @@ class ColorFillReverseService : GLWallpaperService() {
 
             myRenderer?.originX = prefs.getFloat("origin_x", 0.5f)
             myRenderer?.originY = prefs.getFloat("origin_y", 0.8f)
-
-            enableSystemColorUpdate = prefs.getBoolean("notify_system_colors", false)
 
             pollInterval = if (savedPoll != -1L) savedPoll else if (isSamsungDevice()) 30000L else 50L
             lockDelay = if (savedDelay != -1L) savedDelay else if (isSamsungDevice()) 0L else 800L

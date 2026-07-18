@@ -2,12 +2,10 @@ package com.app.nosatmosphereeffect.service
 
 import android.animation.ValueAnimator
 import android.app.KeyguardManager
-import android.app.WallpaperColors
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.graphics.BitmapFactory
 import android.opengl.GLSurfaceView
 import android.os.Build
 import android.view.animation.LinearInterpolator
@@ -42,7 +40,6 @@ class HalftoneReverseService : GLWallpaperService(){
     }
 
     inner class HalftoneEngine : GLEngine() {
-        private var cachedColors: WallpaperColors? = null
         private var pollInterval: Long = 50L
         private var lockDelay: Long = 0L
         private var animDuration: Long = 500L
@@ -50,7 +47,6 @@ class HalftoneReverseService : GLWallpaperService(){
         private var myRenderer: HalftoneRenderer? = null
         private var blurAnimator: ValueAnimator? = null
         private var isLocked: Boolean = true
-        private var enableSystemColorUpdate: Boolean = false
         private val handler = android.os.Handler(android.os.Looper.getMainLooper())
 
         private val resetRunnable = Runnable {
@@ -114,9 +110,8 @@ class HalftoneReverseService : GLWallpaperService(){
                         WallpaperFitHelper.promoteNextMode(applicationContext)
                         myRenderer?.queuePlaylistTransition(nextBitmap)
                         requestRender()
-                        cachedColors = null
                         prefs.edit().putLong("last_rotation_timestamp", System.currentTimeMillis()).apply()
-                        notifyColorsChanged()
+                        notifySystemColorsChanged()
                     }
                 } catch (e: Exception) { e.printStackTrace() }
                 prepareNextWallpaper()
@@ -146,27 +141,6 @@ class HalftoneReverseService : GLWallpaperService(){
                     }
                 } catch (e: Exception) { e.printStackTrace() }
             }.start()
-        }
-
-        override fun onComputeColors(): WallpaperColors? {
-            if (!enableSystemColorUpdate) {
-                if (cachedColors != null) cachedColors = null
-                return super.onComputeColors()
-            }
-            if (cachedColors != null) return cachedColors
-            try {
-                val file = File(filesDir, "wallpaper.jpg")
-                if (file.exists()) {
-                    val options = BitmapFactory.Options().apply { inSampleSize = 2 }
-                    val bitmap = BitmapFactory.decodeFile(file.absolutePath, options)
-                    if (bitmap != null) {
-                        cachedColors = WallpaperColors.fromBitmap(bitmap)
-                        bitmap.recycle()
-                        return cachedColors
-                    }
-                }
-            } catch (e: Exception) { }
-            return super.onComputeColors()
         }
 
         private val unlockChecker = object : Runnable {
@@ -208,15 +182,14 @@ class HalftoneReverseService : GLWallpaperService(){
                         }
                     }
                     "com.app.nosatmosphereeffect.RELOAD_WALLPAPER" -> {
-                        cachedColors = null
                         myRenderer?.reloadTexture()
                         requestRender()
-                        notifyColorsChanged()
+                        notifySystemColorsChanged()
                     }
                     "com.app.nosatmosphereeffect.UPDATE_CONFIG" -> {
                         updateRendererConfig()
                         requestRender()
-                        notifyColorsChanged()
+                        notifySystemColorsChanged()
                     }
                 }
             }
@@ -305,7 +278,6 @@ class HalftoneReverseService : GLWallpaperService(){
         private fun updateRendererConfig() {
             val prefs = getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
             myRenderer?.dimLevel = prefs.getFloat("dim_level", 0.0f)
-            enableSystemColorUpdate = prefs.getBoolean("notify_system_colors", false)
             myRenderer?.dotSize = prefs.getFloat("halftone_dot_size", 12.0f)
             myRenderer?.grayscale = prefs.getBoolean("halftone_grayscale", false)
 

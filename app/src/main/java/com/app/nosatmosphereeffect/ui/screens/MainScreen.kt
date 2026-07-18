@@ -176,7 +176,11 @@ fun MainScreen(
                             UnframedSettingsSection(title = "Wallpaper behavior") {
                                 SettingSwitchRow(
                                     title = "Sync system colors",
-                                    subtitle = if (isPlaylistMode) "Not recommended for playlists" else null,
+                                    subtitle = if (isPlaylistMode) {
+                                        "Updates the system palette with every playlist image"
+                                    } else {
+                                        "Updates the system palette from this wallpaper"
+                                    },
                                     checked = syncColors,
                                     onCheckedChange = onSyncColorsChange
                                 )
@@ -400,7 +404,7 @@ private fun AppearanceSettingsSheet(
             }
 
             SettingSwitchRow(
-                title = "Material Theme",
+                title = "Material Expressive",
                 checked = expressive,
                 onCheckedChange = onExpressiveChange
             )
