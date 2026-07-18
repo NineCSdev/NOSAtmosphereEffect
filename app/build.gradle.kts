@@ -100,15 +100,15 @@ dependencies {
 
     // --- Dependencies for v35 (API 35 / Google Play) ---
     // These only apply when building the v35 flavor
-    "v35Implementation"("androidx.core:core-ktx:1.15.0")
-    "v35Implementation"("androidx.lifecycle:lifecycle-service:2.8.7")
-    "v35Implementation"("androidx.appcompat:appcompat:1.7.0")
-    "v35Implementation"("com.google.android.material:material:1.12.0")
+    "v35Implementation"("androidx.core:core-ktx:1.19.0")
+    "v35Implementation"("androidx.lifecycle:lifecycle-service:2.11.0")
+    "v35Implementation"("androidx.appcompat:appcompat:1.7.1")
+    "v35Implementation"("com.google.android.material:material:1.14.0")
 
     // --- Dependencies for v33 (API 33) ---
     // These only apply when building the v33 flavor
-    "v33Implementation"("androidx.core:core-ktx:1.12.0")
-    "v33Implementation"("androidx.lifecycle:lifecycle-service:2.6.2")
-    "v33Implementation"("androidx.appcompat:appcompat:1.6.1")
-    "v33Implementation"("com.google.android.material:material:1.11.0")
+    "v33Implementation"("androidx.core:core-ktx:1.19.0")
+    "v33Implementation"("androidx.lifecycle:lifecycle-service:2.11.0")
+    "v33Implementation"("androidx.appcompat:appcompat:1.7.1")
+    "v33Implementation"("com.google.android.material:material:1.14.0")
 }

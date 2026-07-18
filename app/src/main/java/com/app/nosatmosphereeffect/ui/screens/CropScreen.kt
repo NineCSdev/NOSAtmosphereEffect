@@ -160,7 +160,8 @@ fun CropScreen(
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .fillMaxWidth(),
-            color = Color.Black.copy(alpha = 0.64f),
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            contentColor = MaterialTheme.colorScheme.onSurface,
             shape = RoundedCornerShape(bottomStart = 28.dp, bottomEnd = 28.dp)
         ) {
             androidx.compose.foundation.layout.Row(
@@ -180,14 +181,14 @@ fun CropScreen(
                     Icon(
                         Icons.AutoMirrored.Rounded.ArrowBack,
                         contentDescription = "Back",
-                        tint = Color.White
+                        tint = MaterialTheme.colorScheme.onSurface
                     )
                 }
                 Spacer(Modifier.size(8.dp))
                 Text(
                     "Frame wallpaper",
                     style = MaterialTheme.typography.titleLarge,
-                    color = Color.White
+                    color = MaterialTheme.colorScheme.onSurface
                 )
             }
         }
@@ -197,7 +198,8 @@ fun CropScreen(
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth(),
             shape = RoundedCornerShape(topStart = 36.dp, topEnd = 36.dp),
-            color = Color.Black.copy(alpha = 0.82f)
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            contentColor = MaterialTheme.colorScheme.onSurface
         ) {
             Column(
                 modifier = Modifier
