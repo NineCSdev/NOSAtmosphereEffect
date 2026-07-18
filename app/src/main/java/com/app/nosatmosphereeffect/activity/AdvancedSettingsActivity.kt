@@ -2,7 +2,6 @@ package com.app.nosatmosphereeffect.activity
 
 import android.content.Context
 import android.content.Intent
-import android.graphics.BitmapFactory
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -13,8 +12,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.core.content.edit
 import com.app.nosatmosphereeffect.helper.CanvasSubjectSettings
 import com.app.nosatmosphereeffect.helper.SubjectModelManager
@@ -24,12 +21,12 @@ import com.app.nosatmosphereeffect.helper.WallpaperFitHelper
 import com.app.nosatmosphereeffect.ui.screens.AdvancedConfig
 import com.app.nosatmosphereeffect.ui.screens.AdvancedResult
 import com.app.nosatmosphereeffect.ui.screens.AdvancedSettingsScreen
+import com.app.nosatmosphereeffect.ui.model.EffectCatalog
 import com.app.nosatmosphereeffect.ui.theme.AtmoEngineTheme
 
 class AdvancedSettingsActivity : ComponentActivity() {
 
     private var subjectModelManager: SubjectModelManager? = null
-    private var previewBitmap by mutableStateOf<ImageBitmap?>(null)
 
     private val rotationOptions = listOf(
         "System Theme (Light/Dark)", "Every Lock (Instant)", "1 Minute", "15 Minutes",
@@ -48,16 +45,12 @@ class AdvancedSettingsActivity : ComponentActivity() {
         val isHalftone = activeEffect.contains("HALFTONE")
         val isColorFill = activeEffect.contains("COLORFILL")
         val isNeon = activeEffect.contains("NEON")
+        val isFrosted = activeEffect.contains("FROSTED")
         val showNoiseSwitch = !isHalftone && !isColorFill && !isNeon
         val showBlob = activeEffect == "ORIGINAL" || activeEffect == "REVERSE"
 
-        // Canvas needs a little time for the line sketch to read before the
-        // wallpaper settles in.
-        val defaultDuration =
-            if (isNeon) 1000L
-            else if (activeEffect == "REVERSE" || isColorFill) 1500L
-            else if (activeEffect == "ORIGINAL") 2500L
-            else 500L
+        val defaultDuration = EffectCatalog.recommendedDurationMillis(activeEffect)
+        val defaultDimness = EffectCatalog.defaultDimness(activeEffect)
         val defaultPoll = if (isSamsung) 30000L else 50L
         val defaultDelay = if (isSamsung) 0L else 800L
 
@@ -75,10 +68,12 @@ class AdvancedSettingsActivity : ComponentActivity() {
         val subjectModelReady = prefs.getBoolean(CanvasSubjectSettings.MODEL_READY_KEY, false)
 
         val config = AdvancedConfig(
-            effectId = activeEffect,
+            activeEffectTitle = EffectCatalog.find(activeEffect).title,
+            recommendedDurationMs = defaultDuration,
             showHalftone = isHalftone,
             showColorFill = isColorFill,
             showNeon = isNeon,
+            showFrosted = isFrosted,
             showNoiseSwitch = showNoiseSwitch,
             showBlob = showBlob,
             isPlaylistMode = isPlaylistMode,
@@ -87,6 +82,8 @@ class AdvancedSettingsActivity : ComponentActivity() {
             poll = if (savedPoll != -1L) savedPoll.toString() else defaultPoll.toString(),
             delay = if (savedDelay != -1L) savedDelay.toString() else defaultDelay.toString(),
             duration = if (savedDuration != -1L) savedDuration.toString() else defaultDuration.toString(),
+            dimness = prefs.getFloat("dim_level", defaultDimness),
+            blurStrength = prefs.getFloat("frosted_blur_radius", 200f),
             enableNoise = prefs.getBoolean("enable_noise", false),
             noiseScale = if (savedNoiseScale != -1f) savedNoiseScale.toString() else "2000.0",
             noiseStrength = if (savedNoiseStrength != -1f) savedNoiseStrength.toString() else "0.06",
@@ -110,8 +107,6 @@ class AdvancedSettingsActivity : ComponentActivity() {
         if (isNeon) {
             subjectModelManager = SubjectModelManager(applicationContext)
         }
-        loadWallpaperPreview()
-
         setContent {
             AtmoEngineTheme {
                 var subjectModelState by remember { mutableStateOf(initialSubjectModelState) }
@@ -136,7 +131,6 @@ class AdvancedSettingsActivity : ComponentActivity() {
                 }
                 AdvancedSettingsScreen(
                     config = config,
-                    previewBitmap = previewBitmap,
                     subjectModelState = subjectModelState,
                     onDownloadSubjectModel = {
                         val manager = subjectModelManager
@@ -153,22 +147,6 @@ class AdvancedSettingsActivity : ComponentActivity() {
                 )
             }
         }
-    }
-
-    private fun loadWallpaperPreview() {
-        val file = java.io.File(filesDir, "wallpaper.jpg")
-        if (!file.exists()) return
-        Thread {
-            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            BitmapFactory.decodeFile(file.absolutePath, bounds)
-            var sample = 1
-            while (maxOf(bounds.outWidth, bounds.outHeight) / sample > 2000) sample *= 2
-            val bitmap = BitmapFactory.decodeFile(
-                file.absolutePath,
-                BitmapFactory.Options().apply { inSampleSize = sample }
-            )
-            runOnUiThread { previewBitmap = bitmap?.asImageBitmap() }
-        }.start()
     }
 
     private fun applySettings(
@@ -193,6 +171,8 @@ class AdvancedSettingsActivity : ComponentActivity() {
             putLong("poll_interval", poll)
             putLong("lock_delay", delay)
             putLong("anim_duration", duration)
+            putFloat("dim_level", result.dimness)
+            putFloat("frosted_blur_radius", result.blurStrength)
             putBoolean("enable_noise", result.enableNoise)
             putFloat("noise_scale", noiseScale)
             putFloat("noise_strength", noiseStrength)
@@ -225,6 +205,8 @@ class AdvancedSettingsActivity : ComponentActivity() {
             remove("poll_interval")
             remove("lock_delay")
             remove("anim_duration")
+            remove("dim_level")
+            remove("frosted_blur_radius")
             remove("enable_noise")
             remove("noise_scale")
             remove("noise_strength")

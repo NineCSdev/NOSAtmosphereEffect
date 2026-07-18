@@ -174,7 +174,21 @@ object WallpaperFitHelper {
      * width" bitmap (capped to [MAX_SCROLL_WIDTH_FACTOR]x the screen width) so
      * there is horizontal content to pan across.
      */
-    fun loadForRender(context: Context, surfaceW: Int, surfaceH: Int): RenderImage {
+    fun loadForRender(
+        context: Context,
+        surfaceW: Int,
+        surfaceH: Int,
+        previewSource: (() -> Bitmap?)? = null
+    ): RenderImage {
+        if (previewSource != null) {
+            val source = previewSource()
+            if (source != null) {
+                return RenderImage(
+                    fitBitmap(source, surfaceW, surfaceH, MODE_FILL, FILL_BLACK),
+                    1.0f
+                )
+            }
+        }
         if (!isScrollEnabled(context) || surfaceW <= 0 || surfaceH <= 0) {
             return RenderImage(loadDisplayBitmap(context, surfaceW, surfaceH), 1.0f)
         }

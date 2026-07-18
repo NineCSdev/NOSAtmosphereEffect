@@ -5,9 +5,16 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
 import android.net.Uri
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -30,6 +37,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -40,10 +48,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -52,8 +64,10 @@ import com.app.nosatmosphereeffect.ui.components.AtmoChip
 import com.app.nosatmosphereeffect.ui.components.AtmoOutlinedButton
 import com.app.nosatmosphereeffect.ui.components.AtmoPrimaryButton
 import com.app.nosatmosphereeffect.ui.components.AtmoTopBar
+import com.app.nosatmosphereeffect.ui.theme.LocalAtmoExpressive
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlin.math.absoluteValue
 
 /** Lightweight view of a playlist entry the screen needs in order to render. */
 data class PlaylistEntry(
@@ -104,12 +118,25 @@ fun PlaylistEditorScreen(
                     ) { page ->
                         // guard against transient out-of-range during deletions
                         val entry = entries.getOrNull(page) ?: return@HorizontalPager
-                        PlaylistCard(
-                            entry = entry,
-                            effectId = effectId,
-                            onClick = { onEditItem(page) },
-                            onDelete = { onDeleteItem(page) }
-                        )
+                        val pageOffset = (
+                            (pagerState.currentPage - page) + pagerState.currentPageOffsetFraction
+                        ).absoluteValue.coerceIn(0f, 1f)
+                        Box(
+                            Modifier.graphicsLayer {
+                                val emphasis = 1f - pageOffset
+                                scaleX = 0.94f + emphasis * 0.06f
+                                scaleY = 0.94f + emphasis * 0.06f
+                                alpha = 0.72f + emphasis * 0.28f
+                            }
+                        ) {
+                            PlaylistCard(
+                                entry = entry,
+                                effectId = effectId,
+                                isActive = page == pagerState.currentPage,
+                                onClick = { onEditItem(page) },
+                                onDelete = { onDeleteItem(page) }
+                            )
+                        }
                     }
                 }
             }
@@ -131,30 +158,35 @@ fun PlaylistEditorScreen(
                 )
             }
 
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .navigationBarsPadding()
-                    .padding(horizontal = 20.dp, vertical = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceContainerLow,
+                shape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp)
             ) {
-                androidx.compose.foundation.layout.Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .navigationBarsPadding()
+                        .padding(horizontal = 20.dp, vertical = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    AtmoOutlinedButton(
-                        text = "Add",
-                        onClick = onAddMore,
-                        accent = true,
-                        icon = painterResource(R.drawable.ic_add),
-                        modifier = Modifier.weight(0.38f)
-                    )
-                    AtmoPrimaryButton(
-                        text = "Apply playlist",
-                        onClick = onApply,
-                        enabled = entries.isNotEmpty(),
-                        modifier = Modifier.weight(0.62f)
-                    )
+                    androidx.compose.foundation.layout.Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        AtmoOutlinedButton(
+                            text = "Add",
+                            onClick = onAddMore,
+                            accent = true,
+                            icon = painterResource(R.drawable.ic_add),
+                            modifier = Modifier.weight(0.38f)
+                        )
+                        AtmoPrimaryButton(
+                            text = "Apply playlist",
+                            onClick = onApply,
+                            enabled = entries.isNotEmpty(),
+                            modifier = Modifier.weight(0.62f)
+                        )
+                    }
                 }
             }
         }
@@ -165,24 +197,49 @@ fun PlaylistEditorScreen(
 private fun PlaylistCard(
     entry: PlaylistEntry,
     effectId: String,
+    isActive: Boolean,
     onClick: () -> Unit,
     onDelete: () -> Unit
 ) {
     val context = LocalContext.current
+    val expressive = LocalAtmoExpressive.current
+    val haptics = LocalHapticFeedback.current
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (pressed && expressive) 0.975f else 1f,
+        animationSpec = spring(stiffness = 420f, dampingRatio = 0.66f),
+        label = "playlistCardScale"
+    )
     val thumb = rememberThumbnail(context, entry.displayUri)
 
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .aspectRatio(0.62f)
-            .clip(RoundedCornerShape(8.dp))
+            .scale(scale)
+            .clip(RoundedCornerShape(if (expressive) 32.dp else 20.dp))
             .background(MaterialTheme.colorScheme.surfaceContainerHighest)
-            .clickable(onClick = onClick)
+            .clickable(
+                interactionSource = interaction,
+                indication = LocalIndication.current,
+                onClick = {
+                    if (expressive) haptics.performHapticFeedback(HapticFeedbackType.ContextClick)
+                    onClick()
+                }
+            )
     ) {
-        if (thumb != null) {
+        if (thumb != null && isActive) {
             com.app.nosatmosphereeffect.ui.components.WallpaperTransitionPreview(
                 effectId = effectId,
                 wallpaper = thumb,
+                modifier = Modifier.fillMaxSize()
+            )
+        } else if (thumb != null) {
+            Image(
+                bitmap = thumb,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize()
             )
         } else {
@@ -237,15 +294,25 @@ private fun PageIndicator(
     ) {
         repeat(count.coerceAtMost(9)) { index ->
             val selected = index == current.coerceAtMost(8)
+            val width by animateDpAsState(
+                targetValue = if (selected) 22.dp else 7.dp,
+                animationSpec = spring(stiffness = 420f, dampingRatio = 0.68f),
+                label = "pageIndicatorWidth"
+            )
+            val color by animateColorAsState(
+                targetValue = if (selected) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.outlineVariant
+                },
+                label = "pageIndicatorColor"
+            )
             Box(
                 Modifier
                     .padding(horizontal = 3.dp)
-                    .size(if (selected) 18.dp else 6.dp, 6.dp)
+                    .size(width, 7.dp)
                     .clip(CircleShape)
-                    .background(
-                        if (selected) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.outline
-                    )
+                    .background(color)
             )
         }
     }

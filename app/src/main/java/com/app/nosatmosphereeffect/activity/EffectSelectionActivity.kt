@@ -11,21 +11,12 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
 import com.app.nosatmosphereeffect.service.AtmosphereService
 import com.app.nosatmosphereeffect.service.BlurToSharpService
 import com.app.nosatmosphereeffect.service.ColorFillReverseService
@@ -36,8 +27,8 @@ import com.app.nosatmosphereeffect.service.HalftoneReverseService
 import com.app.nosatmosphereeffect.service.HalftoneService
 import com.app.nosatmosphereeffect.service.NeonReverseService
 import com.app.nosatmosphereeffect.service.NeonService
-import com.app.nosatmosphereeffect.ui.components.AtmoDialogRow
 import com.app.nosatmosphereeffect.ui.screens.EffectSelectionScreen
+import com.app.nosatmosphereeffect.ui.screens.WallpaperModeSheet
 import com.app.nosatmosphereeffect.ui.model.EffectCatalog
 import com.app.nosatmosphereeffect.ui.model.EffectItem
 import com.app.nosatmosphereeffect.ui.theme.AtmoEngineTheme
@@ -102,10 +93,11 @@ class EffectSelectionActivity : ComponentActivity() {
                 )
 
                 if (pendingMode) {
-                    ModeChoiceDialog(
+                    WallpaperModeSheet(
+                        title = "Wallpaper mode",
                         onDismiss = { pendingMode = false },
-                        onSingle = { pendingMode = false; pickSingleImage.launch("image/*") },
-                        onMultiple = { pendingMode = false; pickMultipleImages.launch("image/*") }
+                        onPickSingle = { pendingMode = false; pickSingleImage.launch("image/*") },
+                        onPickMultiple = { pendingMode = false; pickMultipleImages.launch("image/*") }
                     )
                 }
             }
@@ -198,33 +190,4 @@ class EffectSelectionActivity : ComponentActivity() {
         startActivity(intent)
         finish()
     }
-}
-
-@Composable
-private fun ModeChoiceDialog(
-    onDismiss: () -> Unit,
-    onSingle: () -> Unit,
-    onMultiple: () -> Unit
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-        title = { Text("Select Wallpaper Mode", color = MaterialTheme.colorScheme.onSurface) },
-        text = {
-            Column(Modifier.fillMaxWidth()) {
-                AtmoDialogRow("Single Image", "One wallpaper", onSingle)
-                AtmoDialogRow(
-                    "Multiple Images (Playlist)",
-                    "Rotate through several wallpapers",
-                    onMultiple
-                )
-            }
-        },
-        confirmButton = {},
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Cancel", color = MaterialTheme.colorScheme.primary)
-            }
-        }
-    )
 }

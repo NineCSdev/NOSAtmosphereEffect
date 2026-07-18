@@ -19,7 +19,8 @@ import javax.microedition.khronos.opengles.GL10
 
 class ColorFillRenderer(
     private val context: Context,
-    private val isReverse: Boolean = false
+    private val isReverse: Boolean = false,
+    private val previewSource: (() -> Bitmap?)? = null
 ) : GLSurfaceView.Renderer, WallpaperScrollRenderer {
 
     // --- Wallpaper scrolling (home-screen parallax) ---
@@ -45,7 +46,7 @@ class ColorFillRenderer(
     private var nextSet = TextureSet()
     @Volatile private var pendingPlaylistBitmap: Bitmap? = null
 
-    var blurStrength: Float = 0.0f
+    @Volatile var blurStrength: Float = 0.0f
     @Volatile var dimLevel: Float = 0.0f
     @Volatile private var needsReload: Boolean = false
 
@@ -110,7 +111,7 @@ class ColorFillRenderer(
         }
         fittedForWidth = surfaceWidth
         fittedForHeight = surfaceHeight
-        val render = WallpaperFitHelper.loadForRender(context, surfaceWidth, surfaceHeight)
+        val render = WallpaperFitHelper.loadForRender(context, surfaceWidth, surfaceHeight, previewSource)
         val sharpBitmap = render.bitmap
         currentWindowX = render.windowX
 

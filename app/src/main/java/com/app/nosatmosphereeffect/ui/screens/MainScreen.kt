@@ -1,13 +1,16 @@
 package com.app.nosatmosphereeffect.ui.screens
 
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.LocalIndication
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -27,17 +30,20 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.AutoAwesome
-import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Collections
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.Palette
+import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.Wallpaper
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
@@ -52,20 +58,24 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.app.nosatmosphereeffect.ui.components.AtmoCard
 import com.app.nosatmosphereeffect.ui.components.AtmoChip
 import com.app.nosatmosphereeffect.ui.components.AtmoOutlinedButton
 import com.app.nosatmosphereeffect.ui.components.AtmoPrimaryButton
+import com.app.nosatmosphereeffect.ui.components.AtmoReveal
+import com.app.nosatmosphereeffect.ui.components.AtmoSegmentedControl
 import com.app.nosatmosphereeffect.ui.components.AtmoTonalButton
-import com.app.nosatmosphereeffect.ui.components.LabeledSlider
-import com.app.nosatmosphereeffect.ui.components.SectionHeader
 import com.app.nosatmosphereeffect.ui.components.SettingSwitchRow
 import com.app.nosatmosphereeffect.ui.components.WallpaperTransitionPreview
 import com.app.nosatmosphereeffect.ui.model.EffectCatalog
+import com.app.nosatmosphereeffect.ui.theme.AppThemeMode
+import com.app.nosatmosphereeffect.ui.theme.LocalAtmoExpressive
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -75,19 +85,14 @@ fun MainScreen(
     activeEffectId: String?,
     previewBitmap: ImageBitmap?,
     isPlaylistMode: Boolean,
-    showBlur: Boolean,
-    dimness: Float,
-    dimnessDirty: Boolean,
-    onDimnessChange: (Float) -> Unit,
-    onApplyDimness: () -> Unit,
-    blur: Float,
-    blurDirty: Boolean,
-    onBlurChange: (Float) -> Unit,
-    onApplyBlur: () -> Unit,
     syncColors: Boolean,
     onSyncColorsChange: (Boolean) -> Unit,
     expressiveThemeEnabled: Boolean,
     onExpressiveThemeChange: (Boolean) -> Unit,
+    themeMode: AppThemeMode,
+    onThemeModeChange: (AppThemeMode) -> Unit,
+    pitchBlackEnabled: Boolean,
+    onPitchBlackChange: (Boolean) -> Unit,
     onSetupWallpaper: () -> Unit,
     onChangeEffect: () -> Unit,
     onPickSingleImage: () -> Unit,
@@ -96,6 +101,7 @@ fun MainScreen(
     onAdvancedSettings: () -> Unit
 ) {
     var showImageSheet by remember { mutableStateOf(false) }
+    var showSettingsSheet by remember { mutableStateOf(false) }
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -104,12 +110,26 @@ fun MainScreen(
                 title = {
                     Column {
                         Text("Atmo Engine", style = MaterialTheme.typography.titleLarge)
-                        Text(
-                            if (wallpaperActive) "Wallpaper active" else "Wallpaper studio",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                        AnimatedContent(
+                            targetState = wallpaperActive,
+                            transitionSpec = { fadeIn() togetherWith fadeOut() },
+                            label = "wallpaperStatusLabel"
+                        ) { active ->
+                            Text(
+                                if (active) "Wallpaper active" else "Wallpaper studio",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
+                },
+                actions = {
+                    AliveIconButton(
+                        icon = Icons.Rounded.Settings,
+                        description = "Appearance settings",
+                        onClick = { showSettingsSheet = true }
+                    )
+                    Spacer(Modifier.width(8.dp))
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.background,
@@ -128,19 +148,12 @@ fun MainScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .widthIn(max = 760.dp),
-                contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 36.dp),
-                verticalArrangement = Arrangement.spacedBy(22.dp)
+                contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 6.dp, bottom = 42.dp),
+                verticalArrangement = Arrangement.spacedBy(26.dp)
             ) {
                 item {
-                    AnimatedContent(
-                        targetState = wallpaperActive,
-                        transitionSpec = {
-                            (fadeIn() + slideInVertically { it / 10 }) togetherWith
-                                (fadeOut() + slideOutVertically { -it / 10 })
-                        },
-                        label = "wallpaperState"
-                    ) { active ->
-                        if (active) {
+                    AtmoReveal {
+                        if (wallpaperActive) {
                             ActiveWallpaperPanel(
                                 effectId = activeEffectId ?: "ORIGINAL",
                                 previewBitmap = previewBitmap,
@@ -159,87 +172,24 @@ fun MainScreen(
 
                 if (wallpaperActive) {
                     item {
-                        SettingsSection(title = "Display") {
-                            LabeledSlider(
-                                label = "Dimness",
-                                value = dimness,
-                                onValueChange = onDimnessChange,
-                                valueRange = 0f..0.8f,
-                                step = 0.05f,
-                                valueText = { "${(it * 100).toInt()}%" }
-                            )
-                            AnimatedVisibility(
-                                visible = dimnessDirty,
-                                enter = fadeIn() + slideInVertically { it / 2 },
-                                exit = fadeOut() + slideOutVertically { it / 2 }
-                            ) {
-                                AtmoPrimaryButton(
-                                    text = "Apply dimness",
-                                    onClick = onApplyDimness,
+                        AtmoReveal(delayMillis = 70) {
+                            UnframedSettingsSection(title = "Wallpaper behavior") {
+                                SettingSwitchRow(
+                                    title = "Sync system colors",
+                                    subtitle = if (isPlaylistMode) "Not recommended for playlists" else null,
+                                    checked = syncColors,
+                                    onCheckedChange = onSyncColorsChange
+                                )
+                                Spacer(Modifier.height(4.dp))
+                                AtmoOutlinedButton(
+                                    text = "Fine tune",
+                                    onClick = onAdvancedSettings,
+                                    accent = true,
+                                    icon = androidx.compose.ui.graphics.vector.rememberVectorPainter(Icons.Rounded.Tune),
                                     modifier = Modifier.fillMaxWidth()
                                 )
                             }
-
-                            AnimatedVisibility(visible = showBlur) {
-                                Column {
-                                    Spacer(Modifier.height(18.dp))
-                                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                                    Spacer(Modifier.height(18.dp))
-                                    LabeledSlider(
-                                        label = "Blur strength",
-                                        value = blur,
-                                        onValueChange = onBlurChange,
-                                        valueRange = 0f..400f,
-                                        step = 10f
-                                    )
-                                    AnimatedVisibility(
-                                        visible = blurDirty,
-                                        enter = fadeIn() + slideInVertically { it / 2 },
-                                        exit = fadeOut() + slideOutVertically { it / 2 }
-                                    ) {
-                                        AtmoPrimaryButton(
-                                            text = "Apply blur",
-                                            onClick = onApplyBlur,
-                                            modifier = Modifier.fillMaxWidth()
-                                        )
-                                    }
-                                }
-                            }
                         }
-                    }
-
-                    item {
-                        SettingsSection(title = "Wallpaper behavior") {
-                            SettingSwitchRow(
-                                title = "Sync system colors",
-                                subtitle = if (isPlaylistMode) {
-                                    "Off is recommended for rotating playlists."
-                                } else {
-                                    "Refresh Material You colors with this wallpaper."
-                                },
-                                checked = syncColors,
-                                onCheckedChange = onSyncColorsChange
-                            )
-                            Spacer(Modifier.height(8.dp))
-                            AtmoOutlinedButton(
-                                text = "Fine tune",
-                                onClick = onAdvancedSettings,
-                                accent = true,
-                                icon = androidx.compose.ui.graphics.vector.rememberVectorPainter(Icons.Rounded.Tune),
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                        }
-                    }
-                }
-
-                item {
-                    SettingsSection(title = "Appearance") {
-                        SettingSwitchRow(
-                            title = "Material 3 Expressive",
-                            subtitle = "Dynamic color, expressive shapes, and spring motion.",
-                            checked = expressiveThemeEnabled,
-                            onCheckedChange = onExpressiveThemeChange
-                        )
                     }
                 }
             }
@@ -247,12 +197,25 @@ fun MainScreen(
     }
 
     if (showImageSheet) {
-        ImageModeSheet(
+        WallpaperModeSheet(
+            title = "Wallpaper image",
             isPlaylistMode = isPlaylistMode,
             onDismiss = { showImageSheet = false },
             onPickSingle = { showImageSheet = false; onPickSingleImage() },
             onPickMultiple = { showImageSheet = false; onPickMultipleImages() },
             onEditExisting = { showImageSheet = false; onEditExistingPlaylist() }
+        )
+    }
+
+    if (showSettingsSheet) {
+        AppearanceSettingsSheet(
+            expressive = expressiveThemeEnabled,
+            themeMode = themeMode,
+            pitchBlack = pitchBlackEnabled,
+            onExpressiveChange = onExpressiveThemeChange,
+            onThemeModeChange = onThemeModeChange,
+            onPitchBlackChange = onPitchBlackChange,
+            onDismiss = { showSettingsSheet = false }
         )
     }
 }
@@ -271,13 +234,19 @@ private fun ActiveWallpaperPanel(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                Icons.Rounded.CheckCircle,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(20.dp)
-            )
-            Spacer(Modifier.width(8.dp))
+            Surface(
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(22.dp)
+            ) {
+                Icon(
+                    Icons.Rounded.Check,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onPrimary,
+                    modifier = Modifier.padding(4.dp)
+                )
+            }
+            Spacer(Modifier.width(9.dp))
             Text(
                 if (isPlaylistMode) "Active playlist" else "Active wallpaper",
                 style = MaterialTheme.typography.labelLarge,
@@ -292,30 +261,21 @@ private fun ActiveWallpaperPanel(
             wallpaper = previewBitmap,
             modifier = Modifier
                 .fillMaxWidth()
-                .aspectRatio(1.48f)
+                .aspectRatio(0.92f)
         )
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(Modifier.weight(1f)) {
-                Text(
-                    effect.title,
-                    style = MaterialTheme.typography.titleLarge,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Text(
-                    effect.transition,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            Icon(
-                Icons.Rounded.AutoAwesome,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.tertiary,
-                modifier = Modifier.size(24.dp)
+        Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text(
+                effect.title,
+                style = MaterialTheme.typography.headlineSmall,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                effect.transition,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
 
@@ -344,13 +304,13 @@ private fun EmptyWallpaperPanel(
     statusText: String,
     onSetupWallpaper: () -> Unit
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(15.dp)) {
         WallpaperTransitionPreview(
             effectId = "ORIGINAL",
             wallpaper = null,
             modifier = Modifier
                 .fillMaxWidth()
-                .aspectRatio(1.48f)
+                .aspectRatio(0.92f)
         )
         Text(
             "Create a wallpaper",
@@ -372,59 +332,135 @@ private fun EmptyWallpaperPanel(
 }
 
 @Composable
-private fun SettingsSection(
+private fun UnframedSettingsSection(
     title: String,
     content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        SectionHeader(title)
-        AtmoCard(contentPadding = PaddingValues(horizontal = 18.dp, vertical = 14.dp)) {
-            content()
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text(
+            title,
+            style = MaterialTheme.typography.titleLarge,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+        Column(
+            modifier = Modifier.padding(horizontal = 2.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            content = content
+        )
+        HorizontalDivider(
+            color = MaterialTheme.colorScheme.outlineVariant,
+            modifier = Modifier.padding(top = 4.dp)
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AppearanceSettingsSheet(
+    expressive: Boolean,
+    themeMode: AppThemeMode,
+    pitchBlack: Boolean,
+    onExpressiveChange: (Boolean) -> Unit,
+    onThemeModeChange: (AppThemeMode) -> Unit,
+    onPitchBlackChange: (Boolean) -> Unit,
+    onDismiss: () -> Unit
+) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = MaterialTheme.colorScheme.surfaceContainer,
+            shape = RoundedCornerShape(topStart = 40.dp, topEnd = 40.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .padding(start = 24.dp, end = 24.dp, bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(18.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Surface(
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    modifier = Modifier.size(42.dp)
+                ) {
+                    Icon(
+                        Icons.Rounded.Settings,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.padding(10.dp)
+                    )
+                }
+                Spacer(Modifier.width(14.dp))
+                Text("Appearance", style = MaterialTheme.typography.headlineSmall)
+            }
+
+            SettingSwitchRow(
+                title = "Material Expressive",
+                checked = expressive,
+                onCheckedChange = onExpressiveChange
+            )
+
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Theme", style = MaterialTheme.typography.titleMedium)
+                AtmoSegmentedControl(
+                    options = listOf("System", "Light", "Dark"),
+                    selectedIndex = themeMode.ordinal,
+                    onSelected = { onThemeModeChange(AppThemeMode.entries[it]) }
+                )
+            }
+
+            SettingSwitchRow(
+                title = "Pitch-black background",
+                subtitle = "Use pure black whenever dark theme is active.",
+                checked = pitchBlack,
+                onCheckedChange = onPitchBlackChange
+            )
         }
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ImageModeSheet(
-    isPlaylistMode: Boolean,
+fun WallpaperModeSheet(
+    title: String = "Wallpaper mode",
+    isPlaylistMode: Boolean = false,
     onDismiss: () -> Unit,
     onPickSingle: () -> Unit,
     onPickMultiple: () -> Unit,
-    onEditExisting: () -> Unit
+    onEditExisting: (() -> Unit)? = null
 ) {
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         containerColor = MaterialTheme.colorScheme.surfaceContainer,
-        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
+        shape = RoundedCornerShape(topStart = 40.dp, topEnd = 40.dp)
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .navigationBarsPadding()
-                .padding(bottom = 16.dp)
+                .padding(bottom = 18.dp)
         ) {
             Text(
-                "Wallpaper image",
+                title,
                 style = MaterialTheme.typography.headlineSmall,
                 modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp)
             )
             ModeOption(
                 title = "Single image",
-                subtitle = "Replace the current wallpaper",
+                subtitle = "Use one wallpaper",
                 icon = Icons.Rounded.Image,
                 onClick = onPickSingle
             )
             ModeOption(
                 title = if (isPlaylistMode) "New playlist" else "Playlist",
-                subtitle = "Choose several rotating images",
+                subtitle = "Use several rotating images",
                 icon = Icons.Rounded.Collections,
                 onClick = onPickMultiple
             )
-            if (isPlaylistMode) {
+            if (isPlaylistMode && onEditExisting != null) {
                 ModeOption(
                     title = "Edit current playlist",
-                    subtitle = "Crop, add, or remove images",
+                    subtitle = "Change its images and crops",
                     icon = Icons.Rounded.Edit,
                     onClick = onEditExisting
                 )
@@ -440,32 +476,99 @@ private fun ModeOption(
     icon: ImageVector,
     onClick: () -> Unit
 ) {
-    Row(
+    val expressive = LocalAtmoExpressive.current
+    val haptics = LocalHapticFeedback.current
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (pressed) 0.985f else 1f,
+        animationSpec = spring(stiffness = 700f, dampingRatio = 0.72f),
+        label = "modeOptionScale"
+    )
+    val container by animateColorAsState(
+        targetValue = if (pressed) {
+            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.42f)
+        } else {
+            MaterialTheme.colorScheme.surfaceContainer
+        },
+        label = "modeOptionColor"
+    )
+
+    Surface(
+        color = container,
+        shape = RoundedCornerShape(if (expressive) 28.dp else 20.dp),
         modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(horizontal = 24.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically
+            .padding(horizontal = 16.dp, vertical = 4.dp)
+            .scale(scale)
     ) {
-        Surface(
-            shape = CircleShape,
-            color = MaterialTheme.colorScheme.secondaryContainer
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(
+                    interactionSource = interaction,
+                    indication = LocalIndication.current,
+                    onClick = {
+                        if (expressive) {
+                            haptics.performHapticFeedback(HapticFeedbackType.ContextClick)
+                        }
+                        onClick()
+                    }
+                )
+                .padding(horizontal = 18.dp, vertical = 16.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                icon,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                modifier = Modifier.padding(10.dp).size(22.dp)
-            )
+            Surface(
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.secondaryContainer
+            ) {
+                Icon(
+                    icon,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                    modifier = Modifier.padding(10.dp).size(22.dp)
+                )
+            }
+            Spacer(Modifier.width(16.dp))
+            Column(Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.titleMedium)
+                Text(
+                    subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
-        Spacer(Modifier.width(16.dp))
-        Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.titleMedium)
-            Text(
-                subtitle,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun AliveIconButton(
+    icon: ImageVector,
+    description: String,
+    onClick: () -> Unit
+) {
+    val expressive = LocalAtmoExpressive.current
+    val haptics = LocalHapticFeedback.current
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (pressed && expressive) 0.9f else 1f,
+        animationSpec = spring(stiffness = 460f, dampingRatio = 0.6f),
+        label = "iconButtonScale"
+    )
+    FilledTonalIconButton(
+        onClick = {
+            if (expressive) haptics.performHapticFeedback(HapticFeedbackType.ContextClick)
+            onClick()
+        },
+        shapes = IconButtonDefaults.shapes(
+            shape = CircleShape,
+            pressedShape = if (expressive) RoundedCornerShape(14.dp) else CircleShape
+        ),
+        interactionSource = interaction,
+        modifier = Modifier.size(48.dp).scale(scale)
+    ) {
+        Icon(icon, contentDescription = description)
     }
 }

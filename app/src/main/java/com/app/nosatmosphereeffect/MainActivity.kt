@@ -7,13 +7,11 @@ import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Bundle
 import android.os.Build
-import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.ImageBitmap
@@ -36,6 +34,7 @@ import com.app.nosatmosphereeffect.service.NeonReverseService
 import com.app.nosatmosphereeffect.service.NeonService
 import com.app.nosatmosphereeffect.ui.screens.MainScreen
 import com.app.nosatmosphereeffect.ui.theme.AppearancePreferences
+import com.app.nosatmosphereeffect.ui.theme.AppThemeMode
 import com.app.nosatmosphereeffect.ui.theme.AtmoEngineTheme
 import java.io.File
 
@@ -44,17 +43,14 @@ class MainActivity : ComponentActivity() {
     // --- UI state (observed by Compose) ---
     private var wallpaperActive by mutableStateOf(false)
     private var statusText by mutableStateOf("")
-    private var showBlur by mutableStateOf(false)
     private var isPlaylistModeActive by mutableStateOf(false)
     private var syncColors by mutableStateOf(true)
     private var expressiveThemeEnabled by mutableStateOf(true)
+    private var themeMode by mutableStateOf(AppThemeMode.SYSTEM)
+    private var pitchBlackEnabled by mutableStateOf(false)
     private var activeEffectId by mutableStateOf<String?>(null)
     private var previewBitmap by mutableStateOf<ImageBitmap?>(null)
-
-    private var dimness by mutableFloatStateOf(0.2f)
-    private var savedDimness by mutableFloatStateOf(0.2f)
-    private var blur by mutableFloatStateOf(200f)
-    private var savedBlur by mutableFloatStateOf(200f)
+    private var skipNextResumeStatusRefresh = false
 
     private val pickSingleImage =
         registerForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
@@ -71,30 +67,33 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         initializeSmartDefaults()
         expressiveThemeEnabled = AppearancePreferences.isExpressiveEnabled(this)
+        themeMode = AppearancePreferences.getThemeMode(this)
+        pitchBlackEnabled = AppearancePreferences.isPitchBlackEnabled(this)
 
         statusText = getString(R.string.status_instruction)
+        checkWallpaperStatus()
+        skipNextResumeStatusRefresh = true
 
         setContent {
-            AtmoEngineTheme(expressive = expressiveThemeEnabled) {
+            AtmoEngineTheme(
+                expressive = expressiveThemeEnabled,
+                themeMode = themeMode,
+                pitchBlack = pitchBlackEnabled
+            ) {
                 MainScreen(
                     wallpaperActive = wallpaperActive,
                     statusText = statusText,
                     activeEffectId = activeEffectId,
                     previewBitmap = previewBitmap,
                     isPlaylistMode = isPlaylistModeActive,
-                    showBlur = showBlur,
-                    dimness = dimness,
-                    dimnessDirty = dimness != savedDimness,
-                    onDimnessChange = { dimness = it },
-                    onApplyDimness = { applyDimnessUpdate() },
-                    blur = blur,
-                    blurDirty = blur != savedBlur,
-                    onBlurChange = { blur = it },
-                    onApplyBlur = { applyBlurUpdate() },
                     syncColors = syncColors,
                     onSyncColorsChange = { updateSyncColors(it) },
                     expressiveThemeEnabled = expressiveThemeEnabled,
                     onExpressiveThemeChange = { updateExpressiveTheme(it) },
+                    themeMode = themeMode,
+                    onThemeModeChange = { updateThemeMode(it) },
+                    pitchBlackEnabled = pitchBlackEnabled,
+                    onPitchBlackChange = { updatePitchBlack(it) },
                     onSetupWallpaper = {
                         startActivity(Intent(this, EffectSelectionActivity::class.java))
                     },
@@ -115,7 +114,13 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         expressiveThemeEnabled = AppearancePreferences.isExpressiveEnabled(this)
-        checkWallpaperStatus()
+        themeMode = AppearancePreferences.getThemeMode(this)
+        pitchBlackEnabled = AppearancePreferences.isPitchBlackEnabled(this)
+        if (skipNextResumeStatusRefresh) {
+            skipNextResumeStatusRefresh = false
+        } else {
+            checkWallpaperStatus()
+        }
     }
 
     private fun isSamsungDevice(): Boolean =
@@ -140,11 +145,6 @@ class MainActivity : ComponentActivity() {
             activeEffectId = activeEffect
             wallpaperActive = true
             statusText = "Wallpaper is active. Customize your experience below."
-            loadCurrentDimness()
-
-            showBlur = activeEffect.contains("FROSTED")
-            if (showBlur) loadCurrentBlur()
-
             // Determine current mode (single vs playlist).
             val playlistDir = File(filesDir, "playlist")
             isPlaylistModeActive = false
@@ -159,13 +159,13 @@ class MainActivity : ComponentActivity() {
             val currentMode = if (isPlaylistModeActive) "PLAYLIST" else "SINGLE"
             if (lastMode != currentMode) {
                 if (isPlaylistModeActive) {
-                    prefs.edit().putBoolean("notify_system_colors", false).apply()
+                    prefs.edit { putBoolean("notify_system_colors", false) }
                     sendConfigUpdate()
                 } else {
-                    prefs.edit().putBoolean("notify_system_colors", true).apply()
+                    prefs.edit { putBoolean("notify_system_colors", true) }
                     sendConfigUpdate()
                 }
-                prefs.edit().putString("last_known_wallpaper_mode", currentMode).apply()
+                prefs.edit { putString("last_known_wallpaper_mode", currentMode) }
             }
 
             syncColors = prefs.getBoolean("notify_system_colors", !isPlaylistModeActive)
@@ -181,6 +181,16 @@ class MainActivity : ComponentActivity() {
     private fun updateExpressiveTheme(enabled: Boolean) {
         expressiveThemeEnabled = enabled
         AppearancePreferences.setExpressiveEnabled(this, enabled)
+    }
+
+    private fun updateThemeMode(mode: AppThemeMode) {
+        themeMode = mode
+        AppearancePreferences.setThemeMode(this, mode)
+    }
+
+    private fun updatePitchBlack(enabled: Boolean) {
+        pitchBlackEnabled = enabled
+        AppearancePreferences.setPitchBlackEnabled(this, enabled)
     }
 
     private fun loadWallpaperPreview() {
@@ -214,39 +224,6 @@ class MainActivity : ComponentActivity() {
         val intent = Intent("com.app.nosatmosphereeffect.UPDATE_CONFIG")
         intent.setPackage(packageName)
         sendBroadcast(intent)
-    }
-
-    private fun defaultDimnessFor(effect: String?): Float =
-        if (!effect.isNullOrEmpty() && (effect.contains("HALFTONE") || effect.contains("NEON"))) 0.0f
-        else 0.2f
-
-    private fun loadCurrentDimness() {
-        val prefs = getSharedPreferences("app_prefs", MODE_PRIVATE)
-        val default = defaultDimnessFor(getActiveEffectType())
-        val current = prefs.getFloat("dim_level", default)
-        dimness = current
-        savedDimness = current
-    }
-
-    private fun applyDimnessUpdate() {
-        getSharedPreferences("app_prefs", MODE_PRIVATE).edit { putFloat("dim_level", dimness) }
-        sendConfigUpdate()
-        savedDimness = dimness
-        Toast.makeText(this, "Wallpaper Updated!", Toast.LENGTH_SHORT).show()
-    }
-
-    private fun loadCurrentBlur() {
-        val prefs = getSharedPreferences("app_prefs", MODE_PRIVATE)
-        val current = prefs.getFloat("frosted_blur_radius", 200f)
-        blur = current
-        savedBlur = current
-    }
-
-    private fun applyBlurUpdate() {
-        getSharedPreferences("app_prefs", MODE_PRIVATE).edit { putFloat("frosted_blur_radius", blur) }
-        sendConfigUpdate()
-        savedBlur = blur
-        Toast.makeText(this, "Blur Strength Updated!", Toast.LENGTH_SHORT).show()
     }
 
     private fun openAdvancedSettings() {

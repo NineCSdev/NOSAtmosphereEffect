@@ -11,10 +11,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -23,6 +21,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.LinearProgressIndicator
@@ -30,7 +29,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -40,29 +38,29 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import com.app.nosatmosphereeffect.R
 import com.app.nosatmosphereeffect.helper.SubjectModelPhase
 import com.app.nosatmosphereeffect.helper.SubjectModelState
-import com.app.nosatmosphereeffect.ui.components.AtmoCard
 import com.app.nosatmosphereeffect.ui.components.AtmoDropdownField
 import com.app.nosatmosphereeffect.ui.components.AtmoNumberField
 import com.app.nosatmosphereeffect.ui.components.AtmoOutlinedButton
 import com.app.nosatmosphereeffect.ui.components.AtmoPrimaryButton
+import com.app.nosatmosphereeffect.ui.components.AtmoReveal
 import com.app.nosatmosphereeffect.ui.components.AtmoSegmentedControl
 import com.app.nosatmosphereeffect.ui.components.AtmoTopBar
+import com.app.nosatmosphereeffect.ui.components.AtmoTextButton
 import com.app.nosatmosphereeffect.ui.components.LabeledSlider
-import com.app.nosatmosphereeffect.ui.components.SectionHeader
 import com.app.nosatmosphereeffect.ui.components.SettingSwitchRow
-import com.app.nosatmosphereeffect.ui.components.WallpaperTransitionPreview
 
 data class AdvancedConfig(
-    val effectId: String,
+    val activeEffectTitle: String,
+    val recommendedDurationMs: Long,
     val showHalftone: Boolean,
     val showColorFill: Boolean,
     val showNeon: Boolean,
+    val showFrosted: Boolean,
     val showNoiseSwitch: Boolean,
     val showBlob: Boolean,
     val isPlaylistMode: Boolean,
@@ -71,6 +69,8 @@ data class AdvancedConfig(
     val poll: String,
     val delay: String,
     val duration: String,
+    val dimness: Float,
+    val blurStrength: Float,
     val enableNoise: Boolean,
     val noiseScale: String,
     val noiseStrength: String,
@@ -90,6 +90,8 @@ data class AdvancedResult(
     val poll: String,
     val delay: String,
     val duration: String,
+    val dimness: Float,
+    val blurStrength: Float,
     val enableNoise: Boolean,
     val noiseScale: String,
     val noiseStrength: String,
@@ -115,7 +117,6 @@ private enum class FineTuneTab(val label: String) {
 @Composable
 fun AdvancedSettingsScreen(
     config: AdvancedConfig,
-    previewBitmap: ImageBitmap?,
     subjectModelState: SubjectModelState,
     onDownloadSubjectModel: () -> Unit,
     onApply: (AdvancedResult) -> Unit,
@@ -126,6 +127,8 @@ fun AdvancedSettingsScreen(
     var poll by remember { mutableStateOf(config.poll) }
     var delay by remember { mutableStateOf(config.delay) }
     var duration by remember { mutableStateOf(config.duration) }
+    var dimness by remember { mutableFloatStateOf(config.dimness) }
+    var blurStrength by remember { mutableFloatStateOf(config.blurStrength) }
     var rotationIndex by remember { mutableIntStateOf(config.initialRotationIndex) }
     var dotSize by remember { mutableFloatStateOf(config.dotSize) }
     var grayscale by remember { mutableStateOf(config.grayscale) }
@@ -175,6 +178,8 @@ fun AdvancedSettingsScreen(
         poll = poll,
         delay = delay,
         duration = duration,
+        dimness = dimness,
+        blurStrength = blurStrength,
         enableNoise = noiseEnabled,
         noiseScale = noiseScale,
         noiseStrength = noiseStrength,
@@ -203,7 +208,8 @@ fun AdvancedSettingsScreen(
         bottomBar = {
             Surface(
                 color = MaterialTheme.colorScheme.surfaceContainer,
-                tonalElevation = 3.dp
+                tonalElevation = 3.dp,
+                shape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp)
             ) {
                 Row(
                     modifier = Modifier
@@ -233,14 +239,16 @@ fun AdvancedSettingsScreen(
                 .imePadding(),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            AtmoSegmentedControl(
-                options = FineTuneTab.entries.map { it.label },
-                selectedIndex = selectedTab.ordinal,
-                onSelected = { selectedTab = FineTuneTab.entries[it] },
-                modifier = Modifier
-                    .widthIn(max = 720.dp)
-                    .padding(horizontal = 20.dp, vertical = 8.dp)
-            )
+            AtmoReveal {
+                AtmoSegmentedControl(
+                    options = FineTuneTab.entries.map { it.label },
+                    selectedIndex = selectedTab.ordinal,
+                    onSelected = { selectedTab = FineTuneTab.entries[it] },
+                    modifier = Modifier
+                        .widthIn(max = 720.dp)
+                        .padding(horizontal = 20.dp, vertical = 8.dp)
+                )
+            }
 
             AnimatedContent(
                 targetState = selectedTab,
@@ -255,7 +263,6 @@ fun AdvancedSettingsScreen(
                 when (tab) {
                     FineTuneTab.Effect -> EffectSettings(
                         config = config,
-                        previewBitmap = previewBitmap,
                         dotSize = dotSize,
                         onDotSizeChange = { dotSize = it },
                         grayscale = grayscale,
@@ -288,6 +295,8 @@ fun AdvancedSettingsScreen(
                         onNoiseStrengthChange = { noiseStrength = it }
                     )
                     FineTuneTab.Timing -> TimingSettings(
+                        activeEffectTitle = config.activeEffectTitle,
+                        recommendedDurationMs = config.recommendedDurationMs,
                         poll = poll,
                         onPollChange = { poll = it.filterDigits() },
                         delay = delay,
@@ -299,6 +308,10 @@ fun AdvancedSettingsScreen(
                     )
                     FineTuneTab.Display -> DisplaySettings(
                         config = config,
+                        dimness = dimness,
+                        onDimnessChange = { dimness = it },
+                        blurStrength = blurStrength,
+                        onBlurStrengthChange = { blurStrength = it },
                         scrollEnabled = scrollEnabled,
                         onScrollEnabledChange = { scrollEnabled = it },
                         rotationIndex = rotationIndex,
@@ -316,7 +329,7 @@ fun AdvancedSettingsScreen(
             title = { Text(dialog.title) },
             text = { Text(dialog.message, color = MaterialTheme.colorScheme.onSurfaceVariant) },
             confirmButton = {
-                TextButton(onClick = { infoDialog = null }) { Text("Done") }
+                AtmoTextButton(text = "Done", onClick = { infoDialog = null })
             }
         )
     }
@@ -325,7 +338,6 @@ fun AdvancedSettingsScreen(
 @Composable
 private fun EffectSettings(
     config: AdvancedConfig,
-    previewBitmap: ImageBitmap?,
     dotSize: Float,
     onDotSizeChange: (Float) -> Unit,
     grayscale: Boolean,
@@ -358,12 +370,6 @@ private fun EffectSettings(
     onNoiseStrengthChange: (String) -> Unit
 ) {
     SettingsScroll {
-        WallpaperTransitionPreview(
-            effectId = config.effectId,
-            wallpaper = previewBitmap,
-            modifier = Modifier.fillMaxWidth().aspectRatio(1.48f)
-        )
-
         if (config.showHalftone) {
             SettingsGroup("Halftone") {
                 LabeledSlider(
@@ -519,6 +525,8 @@ private fun EffectSettings(
 
 @Composable
 private fun TimingSettings(
+    activeEffectTitle: String,
+    recommendedDurationMs: Long,
     poll: String,
     onPollChange: (String) -> Unit,
     delay: String,
@@ -554,7 +562,7 @@ private fun TimingSettings(
                 label = "Duration (ms)",
                 value = duration,
                 onValueChange = onDurationChange,
-                helper = "Canvas Sketch defaults to 1000 ms"
+                helper = "Recommended for $activeEffectTitle: $recommendedDurationMs ms"
             )
         }
     }
@@ -563,16 +571,39 @@ private fun TimingSettings(
 @Composable
 private fun DisplaySettings(
     config: AdvancedConfig,
+    dimness: Float,
+    onDimnessChange: (Float) -> Unit,
+    blurStrength: Float,
+    onBlurStrengthChange: (Float) -> Unit,
     scrollEnabled: Boolean,
     onScrollEnabledChange: (Boolean) -> Unit,
     rotationIndex: Int,
     onRotationSelected: (Int) -> Unit
 ) {
     SettingsScroll {
+        SettingsGroup("Wallpaper appearance") {
+            LabeledSlider(
+                label = "Dimness",
+                value = dimness,
+                onValueChange = onDimnessChange,
+                valueRange = 0f..0.8f,
+                step = 0.05f,
+                valueText = { "${(it * 100).toInt()}%" }
+            )
+            if (config.showFrosted) {
+                Spacer(Modifier.height(12.dp))
+                LabeledSlider(
+                    label = "Blur strength",
+                    value = blurStrength,
+                    onValueChange = onBlurStrengthChange,
+                    valueRange = 0f..400f,
+                    step = 10f
+                )
+            }
+        }
         SettingsGroup("Home screen") {
             SettingSwitchRow(
                 title = "Wallpaper scrolling",
-                subtitle = "Pan wide images between launcher pages.",
                 checked = scrollEnabled,
                 onCheckedChange = onScrollEnabledChange
             )
@@ -610,9 +641,16 @@ private fun SettingsGroup(
     title: String,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        SectionHeader(title)
-        AtmoCard(contentPadding = PaddingValues(horizontal = 18.dp, vertical = 14.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleLarge,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+        Column(
+            modifier = Modifier.padding(horizontal = 2.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
             content()
         }
     }

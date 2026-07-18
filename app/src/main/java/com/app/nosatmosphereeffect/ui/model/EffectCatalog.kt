@@ -73,6 +73,23 @@ object EffectCatalog {
 
     fun find(id: String?): EffectItem = items.firstOrNull { it.id == id } ?: items.first()
 
+    fun recommendedDurationMillis(id: String?): Long = when (id) {
+        "ORIGINAL" -> 2500L
+        "REVERSE" -> 1500L
+        "FROSTED", "FROSTED_REVERSE" -> 500L
+        "HALFTONE", "HALFTONE_REVERSE" -> 500L
+        "COLORFILL", "COLORFILL_REVERSE" -> 1500L
+        "NEON", "NEON_REVERSE" -> 1000L
+        else -> 1000L
+    }
+
+    fun defaultDimness(id: String?): Float = when {
+        id?.contains("HALFTONE") == true -> 0f
+        id?.contains("COLORFILL") == true -> 0f
+        id?.contains("NEON") == true -> 0f
+        else -> 0.2f
+    }
+
     fun isReverse(id: String): Boolean = id.endsWith("_REVERSE") || id == "REVERSE"
 
     fun family(id: String): String = when {
