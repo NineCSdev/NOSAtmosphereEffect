@@ -400,7 +400,7 @@ private fun AppearanceSettingsSheet(
             }
 
             SettingSwitchRow(
-                title = "Material Expressive",
+                title = "Material Theme",
                 checked = expressive,
                 onCheckedChange = onExpressiveChange
             )
