@@ -28,6 +28,7 @@ import com.app.nosatmosphereeffect.service.AtmosphereService
 import com.app.nosatmosphereeffect.service.ColorFillService
 import com.app.nosatmosphereeffect.service.FrostedService
 import com.app.nosatmosphereeffect.service.HalftoneService
+import com.app.nosatmosphereeffect.service.NeonService
 import com.app.nosatmosphereeffect.ui.screens.CropController
 import com.app.nosatmosphereeffect.ui.screens.CropScreen
 import com.app.nosatmosphereeffect.ui.screens.SimpleConfirmDialog
@@ -261,6 +262,8 @@ class CropActivity : ComponentActivity() {
                 HalftoneService::class.java
             } else if (effectId == "COLORFILL") {
                 ColorFillService::class.java
+            } else if (effectId == "NEON") {
+                NeonService::class.java
             } else {
                 AtmosphereService::class.java
             }
