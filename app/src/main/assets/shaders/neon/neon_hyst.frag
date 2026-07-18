@@ -25,31 +25,7 @@ void main() {
     float c = textureLod(uTexture, vTexCoord, 0.0).r;
     float v = c;
 
-    // Join a one-texel break only when a contour reaches it from opposite
-    // directions. This repairs dashed walls and facial outlines without
-    // growing isolated texture in every direction.
-    if (c <= 0.25) {
-        float left = textureLod(uTexture, vTexCoord + vec2(-uStep.x, 0.0), 0.0).r;
-        float right = textureLod(uTexture, vTexCoord + vec2(uStep.x, 0.0), 0.0).r;
-        float up = textureLod(uTexture, vTexCoord + vec2(0.0, -uStep.y), 0.0).r;
-        float down = textureLod(uTexture, vTexCoord + vec2(0.0, uStep.y), 0.0).r;
-        float diagonalA = min(
-            textureLod(uTexture, vTexCoord - uStep, 0.0).r,
-            textureLod(uTexture, vTexCoord + uStep, 0.0).r
-        );
-        float diagonalB = min(
-            textureLod(uTexture, vTexCoord + vec2(-uStep.x, uStep.y), 0.0).r,
-            textureLod(uTexture, vTexCoord + vec2(uStep.x, -uStep.y), 0.0).r
-        );
-        float bridge = max(max(min(left, right), min(up, down)), max(diagonalA, diagonalB));
-        if (bridge > 0.75) {
-            v = 1.0;
-        } else if (bridge > 0.25) {
-            v = 0.5;
-        }
-    }
-
-    if (v > 0.25 && v < 0.75) {
+    if (c > 0.25 && c < 0.75) {
         float m = 0.0;
         for (int y = -1; y <= 1; y++) {
             for (int x = -1; x <= 1; x++) {
