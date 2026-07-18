@@ -22,6 +22,7 @@ import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.runtime.mutableStateListOf
 import androidx.core.view.WindowCompat
 import androidx.exifinterface.media.ExifInterface
+import com.app.nosatmosphereeffect.helper.SystemColorSyncPreferences
 import com.app.nosatmosphereeffect.helper.WallpaperFitHelper
 import com.app.nosatmosphereeffect.service.AtmosphereService
 import com.app.nosatmosphereeffect.service.BlurToSharpService
@@ -121,6 +122,7 @@ class PlaylistEditorActivity : ComponentActivity() {
         setContent {
             AtmoEngineTheme {
                 PlaylistEditorScreen(
+                    effectId = effectId,
                     entries = playlistItems.map { item ->
                         val displayUri = if (item.isEdited && item.editedFilePath != null) {
                             Uri.parse("file://${item.editedFilePath}")
@@ -288,6 +290,7 @@ class PlaylistEditorActivity : ComponentActivity() {
                 val preservedRotation =
                     if (isEditExisting) wallpaperPrefs.getLong("rotation_interval_minutes", 0L) else null
 
+                SystemColorSyncPreferences.isEnabled(this@PlaylistEditorActivity)
                 wallpaperPrefs.edit().clear().apply()
                 if (!isEditExisting) {
                     getSharedPreferences("app_prefs", Context.MODE_PRIVATE).edit().clear().apply()

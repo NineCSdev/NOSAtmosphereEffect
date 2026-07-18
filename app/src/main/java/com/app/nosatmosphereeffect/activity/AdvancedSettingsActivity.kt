@@ -21,6 +21,7 @@ import com.app.nosatmosphereeffect.helper.WallpaperFitHelper
 import com.app.nosatmosphereeffect.ui.screens.AdvancedConfig
 import com.app.nosatmosphereeffect.ui.screens.AdvancedResult
 import com.app.nosatmosphereeffect.ui.screens.AdvancedSettingsScreen
+import com.app.nosatmosphereeffect.ui.model.EffectCatalog
 import com.app.nosatmosphereeffect.ui.theme.AtmoEngineTheme
 
 class AdvancedSettingsActivity : ComponentActivity() {
@@ -44,16 +45,12 @@ class AdvancedSettingsActivity : ComponentActivity() {
         val isHalftone = activeEffect.contains("HALFTONE")
         val isColorFill = activeEffect.contains("COLORFILL")
         val isNeon = activeEffect.contains("NEON")
+        val isFrosted = activeEffect.contains("FROSTED")
         val showNoiseSwitch = !isHalftone && !isColorFill && !isNeon
         val showBlob = activeEffect == "ORIGINAL" || activeEffect == "REVERSE"
 
-        // Canvas needs a little time for the line sketch to read before the
-        // wallpaper settles in.
-        val defaultDuration =
-            if (isNeon) 1000L
-            else if (activeEffect == "REVERSE" || isColorFill) 1500L
-            else if (activeEffect == "ORIGINAL") 2500L
-            else 500L
+        val defaultDuration = EffectCatalog.recommendedDurationMillis(activeEffect)
+        val defaultDimness = EffectCatalog.defaultDimness(activeEffect)
         val defaultPoll = if (isSamsung) 30000L else 50L
         val defaultDelay = if (isSamsung) 0L else 800L
 
@@ -71,9 +68,12 @@ class AdvancedSettingsActivity : ComponentActivity() {
         val subjectModelReady = prefs.getBoolean(CanvasSubjectSettings.MODEL_READY_KEY, false)
 
         val config = AdvancedConfig(
+            activeEffectTitle = EffectCatalog.find(activeEffect).title,
+            recommendedDurationMs = defaultDuration,
             showHalftone = isHalftone,
             showColorFill = isColorFill,
             showNeon = isNeon,
+            showFrosted = isFrosted,
             showNoiseSwitch = showNoiseSwitch,
             showBlob = showBlob,
             isPlaylistMode = isPlaylistMode,
@@ -82,6 +82,8 @@ class AdvancedSettingsActivity : ComponentActivity() {
             poll = if (savedPoll != -1L) savedPoll.toString() else defaultPoll.toString(),
             delay = if (savedDelay != -1L) savedDelay.toString() else defaultDelay.toString(),
             duration = if (savedDuration != -1L) savedDuration.toString() else defaultDuration.toString(),
+            dimness = prefs.getFloat("dim_level", defaultDimness),
+            blurStrength = prefs.getFloat("frosted_blur_radius", 200f),
             enableNoise = prefs.getBoolean("enable_noise", false),
             noiseScale = if (savedNoiseScale != -1f) savedNoiseScale.toString() else "2000.0",
             noiseStrength = if (savedNoiseStrength != -1f) savedNoiseStrength.toString() else "0.06",
@@ -105,7 +107,6 @@ class AdvancedSettingsActivity : ComponentActivity() {
         if (isNeon) {
             subjectModelManager = SubjectModelManager(applicationContext)
         }
-
         setContent {
             AtmoEngineTheme {
                 var subjectModelState by remember { mutableStateOf(initialSubjectModelState) }
@@ -170,6 +171,8 @@ class AdvancedSettingsActivity : ComponentActivity() {
             putLong("poll_interval", poll)
             putLong("lock_delay", delay)
             putLong("anim_duration", duration)
+            putFloat("dim_level", result.dimness)
+            putFloat("frosted_blur_radius", result.blurStrength)
             putBoolean("enable_noise", result.enableNoise)
             putFloat("noise_scale", noiseScale)
             putFloat("noise_strength", noiseStrength)
@@ -202,6 +205,8 @@ class AdvancedSettingsActivity : ComponentActivity() {
             remove("poll_interval")
             remove("lock_delay")
             remove("anim_duration")
+            remove("dim_level")
+            remove("frosted_blur_radius")
             remove("enable_noise")
             remove("noise_scale")
             remove("noise_strength")

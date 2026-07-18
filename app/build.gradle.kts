@@ -9,8 +9,8 @@ android {
 
     defaultConfig {
         applicationId = "com.saad_khan_rind.atmosphere_effect"
-        versionName = "6.0.7"
-        versionCode = 200607
+        versionName = "7.0.1"
+        versionCode = 200701
     }
 
     flavorDimensions += "apiLevel"
@@ -21,7 +21,7 @@ android {
             dimension = "apiLevel"
             minSdk = 36
             targetSdk = 36
-            versionCode = 200607
+            versionCode = 200701
         }
 
         // Android 15+ (API 35) — this is the build published on Google Play.
@@ -29,14 +29,14 @@ android {
             dimension = "apiLevel"
             minSdk = 35
             targetSdk = 35
-            versionCode = 300607
+            versionCode = 300701
         }
 
         create("v33") {
             dimension = "apiLevel"
             minSdk = 33
             targetSdk = 33
-            versionCode = 100607
+            versionCode = 100701
         }
 
     }
@@ -81,6 +81,9 @@ dependencies {
     // --- Jetpack Compose (common to all flavors) ---
     val composeBom = platform(libs.androidx.compose.bom)
     implementation(composeBom)
+    implementation(libs.androidx.compose.animation)
+    implementation(libs.androidx.compose.foundation)
+    implementation(libs.androidx.compose.material.icons.extended)
     implementation(libs.androidx.ui)
     implementation(libs.androidx.ui.graphics)
     implementation(libs.androidx.ui.tooling.preview)
@@ -89,11 +92,11 @@ dependencies {
     debugImplementation(libs.androidx.ui.tooling)
 
     // --- Dependencies for v36 (API 36) ---
-    // These only apply when building the v36 flavor
-    "v36Implementation"("androidx.core:core-ktx:1.17.0")
-    "v36Implementation"("androidx.lifecycle:lifecycle-service:2.10.0")
+    // Latest stable AndroidX and Material Components releases.
+    "v36Implementation"("androidx.core:core-ktx:1.19.0")
+    "v36Implementation"("androidx.lifecycle:lifecycle-service:2.11.0")
     "v36Implementation"("androidx.appcompat:appcompat:1.7.1")
-    "v36Implementation"("com.google.android.material:material:1.13.0")
+    "v36Implementation"("com.google.android.material:material:1.14.0")
 
     // --- Dependencies for v35 (API 35 / Google Play) ---
     // These only apply when building the v35 flavor

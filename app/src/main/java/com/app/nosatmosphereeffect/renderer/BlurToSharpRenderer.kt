@@ -22,7 +22,10 @@ import kotlin.math.hypot
 import kotlin.math.min
 import kotlin.math.pow
 
-class BlurToSharpRenderer(private val context: Context) : GLSurfaceView.Renderer, WallpaperScrollRenderer {
+class BlurToSharpRenderer(
+    private val context: Context,
+    private val previewSource: (() -> Bitmap?)? = null
+) : GLSurfaceView.Renderer, WallpaperScrollRenderer {
 
     // --- Wallpaper scrolling (home-screen parallax) ---
     @Volatile private var scrollOffsetX: Float = 0.5f
@@ -72,7 +75,7 @@ class BlurToSharpRenderer(private val context: Context) : GLSurfaceView.Renderer
     private var cachedDownloadBuffer: ByteBuffer? = null
     // ------------------------------------------------
 
-    var blurStrength: Float = 0.0f
+    @Volatile var blurStrength: Float = 0.0f
         set(value) {
             if (value == 0.0f && field != 0.0f) {
                 reRollTargets()
@@ -199,7 +202,7 @@ class BlurToSharpRenderer(private val context: Context) : GLSurfaceView.Renderer
 
         fittedForWidth = surfaceWidth
         fittedForHeight = surfaceHeight
-        val render = WallpaperFitHelper.loadForRender(context, surfaceWidth, surfaceHeight)
+        val render = WallpaperFitHelper.loadForRender(context, surfaceWidth, surfaceHeight, previewSource)
         val sharpBitmap = render.bitmap
         currentWindowX = render.windowX
 

@@ -22,7 +22,8 @@ import javax.microedition.khronos.opengles.GL10
  */
 class NeonRenderer(
     private val context: Context,
-    private val isReverse: Boolean = false
+    private val isReverse: Boolean = false,
+    private val previewSource: (() -> Bitmap?)? = null
 ) : GLSurfaceView.Renderer, WallpaperScrollRenderer {
 
     private companion object {
@@ -93,7 +94,7 @@ class NeonRenderer(
     private var subjectMaskExtractor: SubjectMaskExtractor? = null
     @Volatile private var subjectSegmentationEnabled = false
 
-    var blurStrength = 0.0f
+    @Volatile var blurStrength = 0.0f
     @Volatile var dimLevel = 0.0f
     @Volatile private var needsReload = false
     @Volatile private var needsSketchRebuild = false
@@ -188,7 +189,7 @@ class NeonRenderer(
 
         fittedForWidth = surfaceWidth
         fittedForHeight = surfaceHeight
-        val render = WallpaperFitHelper.loadForRender(context, surfaceWidth, surfaceHeight)
+        val render = WallpaperFitHelper.loadForRender(context, surfaceWidth, surfaceHeight, previewSource)
         val bitmap = render.bitmap
         currentWindowX = render.windowX
 
