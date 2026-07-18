@@ -50,7 +50,8 @@ class AdvancedSettingsActivity : ComponentActivity() {
         // Canvas needs a little time for the line sketch to read before the
         // wallpaper settles in.
         val defaultDuration =
-            if (activeEffect == "REVERSE" || isColorFill || isNeon) 1500L
+            if (isNeon) 1000L
+            else if (activeEffect == "REVERSE" || isColorFill) 1500L
             else if (activeEffect == "ORIGINAL") 2500L
             else 500L
         val defaultPoll = if (isSamsung) 30000L else 50L

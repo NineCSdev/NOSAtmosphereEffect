@@ -46,7 +46,7 @@ class NeonService : GLWallpaperService() {
         private var cachedColors: WallpaperColors? = null
         private var pollInterval: Long = 50L
         private var lockDelay: Long = 0L
-        private var animDuration: Long = 1500L
+        private var animDuration: Long = 1000L
 
         private var myRenderer: NeonRenderer? = null
         private var blurAnimator: ValueAnimator? = null
@@ -324,7 +324,7 @@ class NeonService : GLWallpaperService() {
             val isSamsung = Build.MANUFACTURER.equals("samsung", ignoreCase = true)
             pollInterval = prefs.getLong("poll_interval", if (isSamsung) 30000L else 50L)
             lockDelay = prefs.getLong("lock_delay", if (isSamsung) 0L else 800L)
-            animDuration = prefs.getLong("anim_duration", 1500L)
+            animDuration = prefs.getLong("anim_duration", 1000L)
         }
     }
 }

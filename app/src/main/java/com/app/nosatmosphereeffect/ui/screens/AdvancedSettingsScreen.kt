@@ -205,7 +205,7 @@ fun AdvancedSettingsScreen(
                     label = "Animation Duration (ms)",
                     value = duration,
                     onValueChange = { duration = it.filterDigits() },
-                    helper = "Original: 2500 · Reverse, Color Fill & Canvas Sketch: 1500 · Others: 500"
+                    helper = "Canvas Sketch: 1000 · Original: 2500 · Reverse & Color Fill: 1500 · Others: 500"
                 )
             }
 
