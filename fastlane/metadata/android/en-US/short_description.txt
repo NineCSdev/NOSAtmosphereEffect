@@ -1,1 +1,1 @@
-Replicate the dynamic 'Atmosphere' unlock transition effect from Nothing OS.
+Animated lock-screen wallpapers with Atmosphere, Canvas Sketch and playlists.
