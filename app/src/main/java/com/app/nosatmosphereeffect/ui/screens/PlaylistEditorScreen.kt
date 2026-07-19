@@ -63,6 +63,7 @@ import com.app.nosatmosphereeffect.R
 import com.app.nosatmosphereeffect.ui.components.AtmoChip
 import com.app.nosatmosphereeffect.ui.components.AtmoOutlinedButton
 import com.app.nosatmosphereeffect.ui.components.AtmoPrimaryButton
+import com.app.nosatmosphereeffect.ui.components.AtmoSegmentedControl
 import com.app.nosatmosphereeffect.ui.components.AtmoTopBar
 import com.app.nosatmosphereeffect.ui.theme.LocalAtmoExpressive
 import kotlinx.coroutines.Dispatchers
@@ -79,6 +80,13 @@ data class PlaylistEntry(
 fun PlaylistEditorScreen(
     entries: List<PlaylistEntry>,
     effectId: String,
+    title: String = "Edit Playlist",
+    playlistTabs: List<String> = emptyList(),
+    playlistCounts: List<Int> = emptyList(),
+    selectedPlaylist: Int = 0,
+    onPlaylistSelected: (Int) -> Unit = {},
+    applyLabel: String = "Apply playlist",
+    applyEnabled: Boolean = entries.isNotEmpty(),
     onEditItem: (Int) -> Unit,
     onDeleteItem: (Int) -> Unit,
     onAddMore: () -> Unit,
@@ -86,11 +94,14 @@ fun PlaylistEditorScreen(
     onBack: () -> Unit
 ) {
     val pagerState = rememberPagerState(pageCount = { entries.size })
+    LaunchedEffect(selectedPlaylist) {
+        if (entries.isNotEmpty()) pagerState.scrollToPage(0)
+    }
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             AtmoTopBar(
-                title = "Edit Playlist",
+                title = title,
                 backIcon = painterResource(R.drawable.ic_arrow_back),
                 onBack = onBack
             )
@@ -101,6 +112,25 @@ fun PlaylistEditorScreen(
                 .fillMaxSize()
                 .padding(inner)
         ) {
+            if (playlistTabs.isNotEmpty()) {
+                Column(
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(9.dp)
+                ) {
+                    AtmoSegmentedControl(
+                        options = playlistTabs.mapIndexed { index, label ->
+                            "$label ${playlistCounts.getOrElse(index) { 0 }}"
+                        },
+                        selectedIndex = selectedPlaylist.coerceIn(playlistTabs.indices),
+                        onSelected = onPlaylistSelected
+                    )
+                    Text(
+                        if (selectedPlaylist == 0) "Light theme wallpapers" else "Dark theme wallpapers",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
             Box(
                 modifier = Modifier
                     .weight(1f)
@@ -108,7 +138,15 @@ fun PlaylistEditorScreen(
                 contentAlignment = Alignment.Center
             ) {
                 if (entries.isEmpty()) {
-                    EmptyPlaylist()
+                    EmptyPlaylist(
+                        label = if (playlistTabs.isEmpty()) {
+                            "this playlist"
+                        } else if (selectedPlaylist == 0) {
+                            "the light playlist"
+                        } else {
+                            "the dark playlist"
+                        }
+                    )
                 } else {
                     HorizontalPager(
                         state = pagerState,
@@ -118,11 +156,12 @@ fun PlaylistEditorScreen(
                     ) { page ->
                         // guard against transient out-of-range during deletions
                         val entry = entries.getOrNull(page) ?: return@HorizontalPager
-                        val pageOffset = (
-                            (pagerState.currentPage - page) + pagerState.currentPageOffsetFraction
-                        ).absoluteValue.coerceIn(0f, 1f)
                         Box(
                             Modifier.graphicsLayer {
+                                val pageOffset = (
+                                    (pagerState.currentPage - page) +
+                                        pagerState.currentPageOffsetFraction
+                                    ).absoluteValue.coerceIn(0f, 1f)
                                 val emphasis = 1f - pageOffset
                                 scaleX = 0.94f + emphasis * 0.06f
                                 scaleY = 0.94f + emphasis * 0.06f
@@ -181,9 +220,9 @@ fun PlaylistEditorScreen(
                             modifier = Modifier.weight(0.38f)
                         )
                         AtmoPrimaryButton(
-                            text = "Apply playlist",
+                            text = applyLabel,
                             onClick = onApply,
-                            enabled = entries.isNotEmpty(),
+                            enabled = applyEnabled,
                             modifier = Modifier.weight(0.62f)
                         )
                     }
@@ -319,7 +358,7 @@ private fun PageIndicator(
 }
 
 @Composable
-private fun EmptyPlaylist() {
+private fun EmptyPlaylist(label: String) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier.padding(32.dp)
@@ -339,7 +378,7 @@ private fun EmptyPlaylist() {
         )
         Spacer(Modifier.height(4.dp))
         Text(
-            "Tap \"Add More\" to choose photos for your playlist.",
+            "Tap Add to choose photos for $label.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = androidx.compose.ui.text.style.TextAlign.Center

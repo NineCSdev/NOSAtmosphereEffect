@@ -2,7 +2,6 @@ package com.app.nosatmosphereeffect.helper
 
 import android.content.Context
 import androidx.core.content.edit
-import java.io.File
 
 /**
  * Stores system color sync separately from effect tuning, which is reset when a
@@ -37,8 +36,6 @@ object SystemColorSyncPreferences {
     }
 
     private fun hasActivePlaylist(context: Context): Boolean {
-        val playlistDir = File(context.filesDir, "playlist")
-        val images = playlistDir.listFiles { _, name -> name.endsWith(".jpg") }
-        return images != null && images.size > 1
+        return PlaylistModeManager.isPlaylistMode(context)
     }
 }

@@ -29,10 +29,10 @@ class AdvancedSettingsActivity : ComponentActivity() {
     private var subjectModelManager: SubjectModelManager? = null
 
     private val rotationOptions = listOf(
-        "System Theme (Light/Dark)", "Every Lock (Instant)", "1 Minute", "15 Minutes",
+        "Every Lock (Instant)", "1 Minute", "15 Minutes",
         "30 Minutes", "1 Hour", "3 Hours", "6 Hours", "12 Hours", "24 Hours"
     )
-    private val rotationValues = longArrayOf(-1, 0, 1, 15, 30, 60, 180, 360, 720, 1440)
+    private val rotationValues = longArrayOf(0, 1, 15, 30, 60, 180, 360, 720, 1440)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -58,7 +58,7 @@ class AdvancedSettingsActivity : ComponentActivity() {
         val wpPrefs = getSharedPreferences("wallpaper_prefs", Context.MODE_PRIVATE)
 
         val savedRotation = wpPrefs.getLong("rotation_interval_minutes", 0)
-        val savedRotationIndex = rotationValues.indexOf(savedRotation).takeIf { it >= 0 } ?: 1
+        val savedRotationIndex = rotationValues.indexOf(savedRotation).takeIf { it >= 0 } ?: 0
 
         val savedPoll = prefs.getLong("poll_interval", -1L)
         val savedDelay = prefs.getLong("lock_delay", -1L)
@@ -163,7 +163,7 @@ class AdvancedSettingsActivity : ComponentActivity() {
         val noiseScale = result.noiseScale.toFloatOrNull() ?: 2000.0f
         val noiseStrength = result.noiseStrength.toFloatOrNull() ?: 0.06f
         val selectedRotationValue =
-            rotationValues.getOrElse(result.rotationIndex) { rotationValues[1] }
+            rotationValues.getOrElse(result.rotationIndex) { rotationValues[0] }
 
         wpPrefs.edit { putLong("rotation_interval_minutes", selectedRotationValue) }
 

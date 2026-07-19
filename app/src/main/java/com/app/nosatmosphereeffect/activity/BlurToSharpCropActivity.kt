@@ -23,6 +23,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.exifinterface.media.ExifInterface
 import com.app.nosatmosphereeffect.helper.SystemColorSyncPreferences
+import com.app.nosatmosphereeffect.helper.PlaylistModeManager
 import com.app.nosatmosphereeffect.helper.TouchImageView
 import com.app.nosatmosphereeffect.helper.WallpaperFitHelper
 import com.app.nosatmosphereeffect.service.BlurToSharpService
@@ -223,8 +224,9 @@ class BlurToSharpCropActivity : ComponentActivity() {
                 getSharedPreferences("app_prefs", Context.MODE_PRIVATE).edit().clear().apply()
                 getSharedPreferences("wallpaper_prefs", Context.MODE_PRIVATE).edit().clear().apply()
 
-                val playlistDir = File(filesDir, "playlist")
-                if (playlistDir.exists()) playlistDir.deleteRecursively()
+                PlaylistModeManager.clearStandardCollections(this)
+                PlaylistModeManager.clearThemeCollections(this)
+                PlaylistModeManager.setMode(this, PlaylistModeManager.MODE_SINGLE)
 
                 val nextWallpaper = File(filesDir, "next_wallpaper.jpg")
                 if (nextWallpaper.exists()) nextWallpaper.delete()
@@ -234,7 +236,6 @@ class BlurToSharpCropActivity : ComponentActivity() {
                 WallpaperFitHelper.saveActiveSource(this, sourceBitmap)
                 WallpaperFitHelper.setActiveModes(this, WallpaperFitHelper.MODE_FILL, WallpaperFitHelper.FILL_BLACK)
                 WallpaperFitHelper.setNextModes(this, WallpaperFitHelper.MODE_FILL, WallpaperFitHelper.FILL_BLACK)
-
                 runOnUiThread {
                     val intent = Intent("com.app.nosatmosphereeffect.RELOAD_WALLPAPER")
                     intent.setPackage(packageName)

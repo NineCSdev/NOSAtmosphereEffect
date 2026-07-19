@@ -444,18 +444,49 @@ object WallpaperFitHelper {
      * is removed so the rotation falls back to the cropped image.
      */
     fun stageNextSource(filesDir: File, playlistFileName: String) {
-        copyPlaylistOriginalTo(filesDir, playlistFileName, NEXT_SOURCE_FILE)
+        stageNextSource(filesDir, playlistFileName, PLAYLIST_ORIGINALS_DIR)
+    }
+
+    fun stageNextSource(
+        filesDir: File,
+        playlistFileName: String,
+        originalsDirectoryName: String
+    ) {
+        copyPlaylistOriginalTo(
+            filesDir,
+            playlistFileName,
+            NEXT_SOURCE_FILE,
+            originalsDirectoryName
+        )
     }
 
     /** Same as [stageNextSource] but for the active wallpaper source. */
     fun stageActiveSourceFromPlaylist(filesDir: File, playlistFileName: String) {
-        copyPlaylistOriginalTo(filesDir, playlistFileName, ACTIVE_SOURCE_FILE)
+        stageActiveSourceFromPlaylist(filesDir, playlistFileName, PLAYLIST_ORIGINALS_DIR)
     }
 
-    private fun copyPlaylistOriginalTo(filesDir: File, playlistFileName: String, destName: String) {
+    fun stageActiveSourceFromPlaylist(
+        filesDir: File,
+        playlistFileName: String,
+        originalsDirectoryName: String
+    ) {
+        copyPlaylistOriginalTo(
+            filesDir,
+            playlistFileName,
+            ACTIVE_SOURCE_FILE,
+            originalsDirectoryName
+        )
+    }
+
+    private fun copyPlaylistOriginalTo(
+        filesDir: File,
+        playlistFileName: String,
+        destName: String,
+        originalsDirectoryName: String
+    ) {
         try {
             val dest = File(filesDir, destName)
-            val original = findPlaylistOriginal(filesDir, playlistFileName)
+            val original = findPlaylistOriginal(filesDir, playlistFileName, originalsDirectoryName)
             if (original != null) {
                 original.copyTo(dest, overwrite = true)
             } else if (dest.exists()) {
@@ -466,13 +497,17 @@ object WallpaperFitHelper {
         }
     }
 
-    private fun findPlaylistOriginal(filesDir: File, playlistFileName: String): File? {
+    private fun findPlaylistOriginal(
+        filesDir: File,
+        playlistFileName: String,
+        originalsDirectoryName: String
+    ): File? {
         // Playlist crops are named "wallpaper_<n>.jpg", originals "original_<n>.jpg"
         val index = playlistFileName
             .removePrefix("wallpaper_")
             .removeSuffix(".jpg")
             .toIntOrNull() ?: return null
-        val file = File(File(filesDir, PLAYLIST_ORIGINALS_DIR), "original_$index.jpg")
+        val file = File(File(filesDir, originalsDirectoryName), "original_$index.jpg")
         return if (file.exists()) file else null
     }
 

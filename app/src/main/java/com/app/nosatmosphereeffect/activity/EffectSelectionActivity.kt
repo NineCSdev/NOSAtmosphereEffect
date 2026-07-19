@@ -97,7 +97,11 @@ class EffectSelectionActivity : ComponentActivity() {
                         title = "Wallpaper mode",
                         onDismiss = { pendingMode = false },
                         onPickSingle = { pendingMode = false; pickSingleImage.launch("image/*") },
-                        onPickMultiple = { pendingMode = false; pickMultipleImages.launch("image/*") }
+                        onPickMultiple = { pendingMode = false; pickMultipleImages.launch("image/*") },
+                        onPickThemePlaylists = {
+                            pendingMode = false
+                            launchThemePlaylistEditor()
+                        }
                     )
                 }
             }
@@ -165,6 +169,15 @@ class EffectSelectionActivity : ComponentActivity() {
         intent.putParcelableArrayListExtra("IMAGE_URIS", uris)
         intent.putExtra("EFFECT_ID", selectedEffectId)
         startActivity(intent)
+        finish()
+    }
+
+    private fun launchThemePlaylistEditor() {
+        startActivity(
+            Intent(this, ThemePlaylistEditorActivity::class.java).apply {
+                putExtra("EFFECT_ID", selectedEffectId)
+            }
+        )
         finish()
     }
 

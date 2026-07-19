@@ -5,8 +5,8 @@ import android.content.ClipData
 import android.content.Intent
 import android.graphics.BitmapFactory
 import android.net.Uri
-import android.os.Bundle
 import android.os.Build
+import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -21,7 +21,10 @@ import com.app.nosatmosphereeffect.activity.AdvancedSettingsActivity
 import com.app.nosatmosphereeffect.activity.BlurToSharpCropActivity
 import com.app.nosatmosphereeffect.activity.CropActivity
 import com.app.nosatmosphereeffect.activity.EffectSelectionActivity
+import com.app.nosatmosphereeffect.activity.PaletteDiagnosticsActivity
 import com.app.nosatmosphereeffect.activity.PlaylistEditorActivity
+import com.app.nosatmosphereeffect.activity.ThemePlaylistEditorActivity
+import com.app.nosatmosphereeffect.helper.PlaylistModeManager
 import com.app.nosatmosphereeffect.helper.SystemColorSyncPreferences
 import com.app.nosatmosphereeffect.service.AtmosphereService
 import com.app.nosatmosphereeffect.service.BlurToSharpService
@@ -45,6 +48,7 @@ class MainActivity : ComponentActivity() {
     private var wallpaperActive by mutableStateOf(false)
     private var statusText by mutableStateOf("")
     private var isPlaylistModeActive by mutableStateOf(false)
+    private var isThemePlaylistModeActive by mutableStateOf(false)
     private var syncColors by mutableStateOf(true)
     private var expressiveThemeEnabled by mutableStateOf(true)
     private var themeMode by mutableStateOf(AppThemeMode.SYSTEM)
@@ -52,6 +56,8 @@ class MainActivity : ComponentActivity() {
     private var activeEffectId by mutableStateOf<String?>(null)
     private var previewBitmap by mutableStateOf<ImageBitmap?>(null)
     private var skipNextResumeStatusRefresh = false
+    private var titleTapCount = 0
+    private var lastTitleTapTime = 0L
 
     private val pickSingleImage =
         registerForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
@@ -87,6 +93,7 @@ class MainActivity : ComponentActivity() {
                     activeEffectId = activeEffectId,
                     previewBitmap = previewBitmap,
                     isPlaylistMode = isPlaylistModeActive,
+                    isThemePlaylistMode = isThemePlaylistModeActive,
                     syncColors = syncColors,
                     onSyncColorsChange = { updateSyncColors(it) },
                     expressiveThemeEnabled = expressiveThemeEnabled,
@@ -105,11 +112,14 @@ class MainActivity : ComponentActivity() {
                     },
                     onPickSingleImage = { pickSingleImage.launch("image/*") },
                     onPickMultipleImages = { pickMultipleImages.launch("image/*") },
+                    onPickThemePlaylists = { launchThemePlaylistEditor(editExisting = false) },
                     onEditExistingPlaylist = { launchEditExistingPlaylist() },
-                    onAdvancedSettings = { openAdvancedSettings() }
+                    onAdvancedSettings = { openAdvancedSettings() },
+                    onTitleTap = { handleTitleTap() }
                 )
             }
         }
+
     }
 
     override fun onResume() {
@@ -146,13 +156,9 @@ class MainActivity : ComponentActivity() {
             activeEffectId = activeEffect
             wallpaperActive = true
             statusText = "Wallpaper is active. Customize your experience below."
-            // Determine current mode (single vs playlist).
-            val playlistDir = File(filesDir, "playlist")
-            isPlaylistModeActive = false
-            if (playlistDir.exists() && playlistDir.isDirectory) {
-                val files = playlistDir.listFiles { _, name -> name.endsWith(".jpg") }
-                if (!files.isNullOrEmpty() && files.size > 1) isPlaylistModeActive = true
-            }
+            isPlaylistModeActive = PlaylistModeManager.isPlaylistMode(this)
+            isThemePlaylistModeActive =
+                isPlaylistModeActive && PlaylistModeManager.isThemeMode(this)
 
             syncColors = SystemColorSyncPreferences.isEnabled(this)
             loadWallpaperPreview()
@@ -160,6 +166,8 @@ class MainActivity : ComponentActivity() {
             activeEffectId = null
             previewBitmap = null
             wallpaperActive = false
+            isPlaylistModeActive = false
+            isThemePlaylistModeActive = false
             statusText = getString(R.string.status_instruction)
         }
     }
@@ -210,6 +218,21 @@ class MainActivity : ComponentActivity() {
         sendBroadcast(intent)
     }
 
+    private fun handleTitleTap() {
+        if (!wallpaperActive) {
+            titleTapCount = 0
+            return
+        }
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (now - lastTitleTapTime > 4_000L) titleTapCount = 0
+        lastTitleTapTime = now
+        titleTapCount++
+        if (titleTapCount >= 7) {
+            titleTapCount = 0
+            startActivity(Intent(this, PaletteDiagnosticsActivity::class.java))
+        }
+    }
+
     private fun openAdvancedSettings() {
         val intent = Intent(this, AdvancedSettingsActivity::class.java)
         intent.putExtra("ACTIVE_EFFECT_TYPE", getActiveEffectType() ?: "ORIGINAL")
@@ -240,15 +263,25 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun launchEditExistingPlaylist() {
-        val playlistDir = File(filesDir, "playlist")
-        if (!playlistDir.exists()) return
-        val files = playlistDir.listFiles { _, name -> name.endsWith(".jpg") }
-        if (files.isNullOrEmpty()) return
+        if (isThemePlaylistModeActive) {
+            launchThemePlaylistEditor(editExisting = true)
+            return
+        }
+        if (PlaylistModeManager.imageFiles(PlaylistModeManager.standardPlaylistDir(this)).isEmpty()) {
+            return
+        }
 
         val effectId = getActiveEffectType() ?: "ORIGINAL"
         val intent = Intent(this, PlaylistEditorActivity::class.java)
         intent.putExtra("EDIT_EXISTING", true)
         intent.putExtra("EFFECT_ID", effectId)
+        startActivity(intent)
+    }
+
+    private fun launchThemePlaylistEditor(editExisting: Boolean) {
+        val intent = Intent(this, ThemePlaylistEditorActivity::class.java)
+        intent.putExtra("EDIT_EXISTING", editExisting)
+        intent.putExtra("EFFECT_ID", getActiveEffectType() ?: "ORIGINAL")
         startActivity(intent)
     }
 

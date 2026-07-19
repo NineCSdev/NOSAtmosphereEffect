@@ -11,9 +11,8 @@ import android.os.Build
 import android.view.animation.LinearInterpolator
 import com.app.nosatmosphereeffect.helper.GLWallpaperService
 import com.app.nosatmosphereeffect.helper.CanvasSubjectSettings
-import com.app.nosatmosphereeffect.helper.WallpaperFitHelper
+import com.app.nosatmosphereeffect.helper.PlaylistRotationController
 import com.app.nosatmosphereeffect.renderer.NeonRenderer
-import java.io.File
 import android.os.PowerManager
 
 class NeonReverseService : GLWallpaperService() {
@@ -63,85 +62,14 @@ class NeonReverseService : GLWallpaperService() {
         }
 
         private fun rotateWallpaper(isThemeChange: Boolean = false, currentNightMode: Boolean = false) {
-            Thread {
-                val playlistDir = File(filesDir, "playlist")
-                val playlistFiles = playlistDir.listFiles { _, name -> name.endsWith(".jpg") }
-                if (playlistFiles == null || playlistFiles.size <= 1) return@Thread
-
-                val prefs = getSharedPreferences("wallpaper_prefs", Context.MODE_PRIVATE)
-                val intervalMinutes = prefs.getLong("rotation_interval_minutes", 0)
-
-                if (isThemeChange) {
-                    if (intervalMinutes == -1L) {
-                        val savedTheme = prefs.getInt("active_theme_state", -1)
-                        val newThemeState = if (currentNightMode) 1 else 0
-                        if (savedTheme != newThemeState) {
-                            prefs.edit().putInt("active_theme_state", newThemeState).apply()
-                            executeRotationRingBuffer(prefs)
-                        }
-                    }
-                    return@Thread
-                }
-
-                if (intervalMinutes > 0) {
-                    val lastRotationTime = prefs.getLong("last_rotation_timestamp", 0)
-                    val currentTime = System.currentTimeMillis()
-                    val diffMinutes = (currentTime - lastRotationTime) / 60000
-                    if (diffMinutes < intervalMinutes) return@Thread
-                } else if (intervalMinutes == -1L) {
-                    return@Thread
-                }
-                executeRotationRingBuffer(prefs)
-            }.start()
-        }
-
-        private fun executeRotationRingBuffer(prefs: android.content.SharedPreferences) {
-            val nextFile = File(filesDir, "next_wallpaper.jpg")
-            val activeFile = File(filesDir, "wallpaper.jpg")
-
-            if (nextFile.exists()) {
-                try {
-                    val nextBitmap = WallpaperFitHelper.decodeNextForDisplay(applicationContext)
-                    if (nextBitmap != null) {
-                        // Promote next image's files AND fit mode before handing the
-                        // bitmap to the renderer, so it fits with the per-image mode.
-                        if (activeFile.exists()) activeFile.delete()
-                        nextFile.renameTo(activeFile)
-                        WallpaperFitHelper.promoteNextSource(filesDir)
-                        WallpaperFitHelper.promoteNextMode(applicationContext)
-                        myRenderer?.queuePlaylistTransition(nextBitmap)
-                        requestRender()
-                        prefs.edit().putLong("last_rotation_timestamp", System.currentTimeMillis()).apply()
-                        notifySystemColorsChanged()
-                    }
-                } catch (e: Exception) { e.printStackTrace() }
-                prepareNextWallpaper()
-            } else {
-                prepareNextWallpaper()
-            }
-        }
-
-        private fun prepareNextWallpaper() {
-            Thread {
-                try {
-                    val playlistDir = File(filesDir, "playlist")
-                    if (playlistDir.exists() && playlistDir.isDirectory) {
-                        val files = playlistDir.listFiles { _, name -> name.endsWith(".jpg") }
-                        if (!files.isNullOrEmpty() && files.size > 1) {
-                            val prefs = getSharedPreferences("wallpaper_prefs", Context.MODE_PRIVATE)
-                            val lastUsedName = prefs.getString("last_playlist_image", "")
-                            val candidates = files.filter { it.name != lastUsedName }
-                            val validFiles = candidates.ifEmpty { files.toList() }
-                            val randomFile = validFiles.random()
-                            prefs.edit().putString("last_playlist_image", randomFile.name).apply()
-                            val nextFile = File(filesDir, "next_wallpaper.jpg")
-                            randomFile.copyTo(nextFile, overwrite = true)
-                            WallpaperFitHelper.stageNextSource(filesDir, randomFile.name)
-                            WallpaperFitHelper.stageNextModeFromPlaylist(applicationContext, randomFile.name)
-                        }
-                    }
-                } catch (e: Exception) { e.printStackTrace() }
-            }.start()
+            PlaylistRotationController.rotateAsync(
+                context = applicationContext,
+                isThemeChange = isThemeChange,
+                currentNightMode = currentNightMode,
+                queueTransition = { bitmap -> myRenderer?.queuePlaylistTransition(bitmap) },
+                requestRender = { requestRender() },
+                notifyColorsChanged = { notifySystemColorsChanged() }
+            )
         }
 
         private val unlockChecker = object : Runnable {

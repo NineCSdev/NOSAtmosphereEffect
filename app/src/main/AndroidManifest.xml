@@ -59,6 +59,8 @@
 
         <activity android:name=".activity.MultiImageCropActivity" />
         <activity android:name=".activity.PlaylistEditorActivity"/>
+        <activity android:name=".activity.ThemePlaylistEditorActivity" />
+        <activity android:name=".activity.PaletteDiagnosticsActivity" />
 
         <service
             android:name=".service.AtmosphereService"

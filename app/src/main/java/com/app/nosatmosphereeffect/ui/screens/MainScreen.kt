@@ -33,6 +33,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Brightness6
 import androidx.compose.material.icons.rounded.Collections
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Image
@@ -85,6 +86,7 @@ fun MainScreen(
     activeEffectId: String?,
     previewBitmap: ImageBitmap?,
     isPlaylistMode: Boolean,
+    isThemePlaylistMode: Boolean,
     syncColors: Boolean,
     onSyncColorsChange: (Boolean) -> Unit,
     expressiveThemeEnabled: Boolean,
@@ -97,8 +99,10 @@ fun MainScreen(
     onChangeEffect: () -> Unit,
     onPickSingleImage: () -> Unit,
     onPickMultipleImages: () -> Unit,
+    onPickThemePlaylists: () -> Unit,
     onEditExistingPlaylist: () -> Unit,
-    onAdvancedSettings: () -> Unit
+    onAdvancedSettings: () -> Unit,
+    onTitleTap: () -> Unit
 ) {
     var showImageSheet by remember { mutableStateOf(false) }
     var showSettingsSheet by remember { mutableStateOf(false) }
@@ -108,7 +112,7 @@ fun MainScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    Column {
+                    Column(modifier = Modifier.clickable(onClick = onTitleTap)) {
                         Text("Atmo Engine", style = MaterialTheme.typography.titleLarge)
                         AnimatedContent(
                             targetState = wallpaperActive,
@@ -158,6 +162,7 @@ fun MainScreen(
                                 effectId = activeEffectId ?: "ORIGINAL",
                                 previewBitmap = previewBitmap,
                                 isPlaylistMode = isPlaylistMode,
+                                isThemePlaylistMode = isThemePlaylistMode,
                                 onChangeEffect = onChangeEffect,
                                 onChangeImage = { showImageSheet = true }
                             )
@@ -177,14 +182,18 @@ fun MainScreen(
                                 SettingSwitchRow(
                                     title = "Sync system colors",
                                     subtitle = if (isPlaylistMode) {
-                                        "Updates the system palette with every playlist image"
+                                        if (isThemePlaylistMode) {
+                                            "Updates the system palette with each active theme playlist"
+                                        } else {
+                                            "Updates the system palette with every playlist image"
+                                        }
                                     } else {
                                         "Updates the system palette from this wallpaper"
                                     },
                                     checked = syncColors,
                                     onCheckedChange = onSyncColorsChange
                                 )
-                                Spacer(Modifier.height(4.dp))
+                                Spacer(Modifier.height(2.dp))
                                 AtmoOutlinedButton(
                                     text = "Fine tune",
                                     onClick = onAdvancedSettings,
@@ -204,9 +213,11 @@ fun MainScreen(
         WallpaperModeSheet(
             title = "Wallpaper image",
             isPlaylistMode = isPlaylistMode,
+            isThemePlaylistMode = isThemePlaylistMode,
             onDismiss = { showImageSheet = false },
             onPickSingle = { showImageSheet = false; onPickSingleImage() },
             onPickMultiple = { showImageSheet = false; onPickMultipleImages() },
+            onPickThemePlaylists = { showImageSheet = false; onPickThemePlaylists() },
             onEditExisting = { showImageSheet = false; onEditExistingPlaylist() }
         )
     }
@@ -229,6 +240,7 @@ private fun ActiveWallpaperPanel(
     effectId: String,
     previewBitmap: ImageBitmap?,
     isPlaylistMode: Boolean,
+    isThemePlaylistMode: Boolean,
     onChangeEffect: () -> Unit,
     onChangeImage: () -> Unit
 ) {
@@ -252,12 +264,22 @@ private fun ActiveWallpaperPanel(
             }
             Spacer(Modifier.width(9.dp))
             Text(
-                if (isPlaylistMode) "Active playlist" else "Active wallpaper",
+                when {
+                    isThemePlaylistMode -> "Active theme playlists"
+                    isPlaylistMode -> "Active playlist"
+                    else -> "Active wallpaper"
+                },
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.onSurface
             )
             Spacer(Modifier.weight(1f))
-            AtmoChip(if (isPlaylistMode) "Playlist" else "Single image")
+            AtmoChip(
+                when {
+                    isThemePlaylistMode -> "Light + dark"
+                    isPlaylistMode -> "Playlist"
+                    else -> "Single image"
+                }
+            )
         }
 
         WallpaperTransitionPreview(
@@ -435,9 +457,11 @@ private fun AppearanceSettingsSheet(
 fun WallpaperModeSheet(
     title: String = "Wallpaper mode",
     isPlaylistMode: Boolean = false,
+    isThemePlaylistMode: Boolean = false,
     onDismiss: () -> Unit,
     onPickSingle: () -> Unit,
     onPickMultiple: () -> Unit,
+    onPickThemePlaylists: () -> Unit,
     onEditExisting: (() -> Unit)? = null
 ) {
     ModalBottomSheet(
@@ -468,9 +492,19 @@ fun WallpaperModeSheet(
                 icon = Icons.Rounded.Collections,
                 onClick = onPickMultiple
             )
+            ModeOption(
+                title = if (isThemePlaylistMode) "New theme playlists" else "Theme playlists",
+                subtitle = "Separate wallpapers for light and dark themes",
+                icon = Icons.Rounded.Brightness6,
+                onClick = onPickThemePlaylists
+            )
             if (isPlaylistMode && onEditExisting != null) {
                 ModeOption(
-                    title = "Edit current playlist",
+                    title = if (isThemePlaylistMode) {
+                        "Edit current theme playlists"
+                    } else {
+                        "Edit current playlist"
+                    },
                     subtitle = "Change its images and crops",
                     icon = Icons.Rounded.Edit,
                     onClick = onEditExisting

@@ -75,6 +75,7 @@ kotlin {
 
 dependencies {
     implementation(libs.androidx.exifinterface)
+    implementation(libs.androidx.palette.ktx)
     implementation(libs.play.services.base)
     implementation(libs.play.services.mlkit.subject.segmentation)
 

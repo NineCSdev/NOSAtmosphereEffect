@@ -23,6 +23,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.core.view.WindowCompat
 import androidx.exifinterface.media.ExifInterface
 import com.app.nosatmosphereeffect.helper.SystemColorSyncPreferences
+import com.app.nosatmosphereeffect.helper.PlaylistModeManager
 import com.app.nosatmosphereeffect.helper.WallpaperFitHelper
 import com.app.nosatmosphereeffect.service.AtmosphereService
 import com.app.nosatmosphereeffect.service.BlurToSharpService
@@ -256,6 +257,7 @@ class PlaylistEditorActivity : ComponentActivity() {
                 val originalsDir = File(filesDir, "playlist_originals")
                 if (originalsDir.exists()) originalsDir.deleteRecursively()
                 tempOriginalsDir.renameTo(originalsDir)
+                PlaylistModeManager.clearThemeCollections(this@PlaylistEditorActivity)
 
                 // 5. Set Main Wallpaper
                 val firstFile = File(playlistDir, "wallpaper_0.jpg")
@@ -283,12 +285,15 @@ class PlaylistEditorActivity : ComponentActivity() {
                 // effect, single <-> playlist) still wipes everything, because those
                 // genuinely begin a new configuration.
                 //
-                // The runtime rotation pointers (last_playlist_image, active_theme_state,
-                // last_rotation_timestamp) are always re-seeded below regardless, since
-                // the underlying wallpaper_N.jpg files have just been rewritten.
+                // Runtime rotation pointers are always re-seeded below because the
+                // underlying wallpaper_N.jpg files have just been rewritten.
                 val wallpaperPrefs = getSharedPreferences("wallpaper_prefs", Context.MODE_PRIVATE)
                 val preservedRotation =
-                    if (isEditExisting) wallpaperPrefs.getLong("rotation_interval_minutes", 0L) else null
+                    if (isEditExisting) {
+                        wallpaperPrefs.getLong("rotation_interval_minutes", 0L).coerceAtLeast(0L)
+                    } else {
+                        null
+                    }
 
                 SystemColorSyncPreferences.isEnabled(this@PlaylistEditorActivity)
                 wallpaperPrefs.edit().clear().apply()
@@ -298,40 +303,15 @@ class PlaylistEditorActivity : ComponentActivity() {
                 if (preservedRotation != null) {
                     wallpaperPrefs.edit().putLong("rotation_interval_minutes", preservedRotation).apply()
                 }
+                PlaylistModeManager.setMode(
+                    this@PlaylistEditorActivity,
+                    PlaylistModeManager.MODE_STANDARD
+                )
 
-                if (playlistItems.size > 1) {
-                    val nextFile = File(filesDir, "next_wallpaper.jpg")
-                    val secondFile = File(playlistDir, "wallpaper_1.jpg")
-                    if (secondFile.exists()) {
-                        secondFile.copyTo(nextFile, overwrite = true)
-                        WallpaperFitHelper.stageNextSource(filesDir, secondFile.name)
-                        WallpaperFitHelper.setNextModes(
-                            this@PlaylistEditorActivity,
-                            WallpaperFitHelper.MODE_FILL,
-                            WallpaperFitHelper.FILL_BLACK
-                        )
-                    }
-                    // Tell the rotation logic that wallpaper_1 is queued, so it doesn't pick it again next time
-                    wallpaperPrefs.edit().putString("last_playlist_image", "wallpaper_1.jpg").apply()
-                } else if (playlistItems.size == 1) {
-                    // Fallback if only 1 image exists
-                    val nextFile = File(filesDir, "next_wallpaper.jpg")
-                    if (firstFile.exists()) {
-                        firstFile.copyTo(nextFile, overwrite = true)
-                        WallpaperFitHelper.stageNextSource(filesDir, firstFile.name)
-                        WallpaperFitHelper.setNextModes(
-                            this@PlaylistEditorActivity,
-                            WallpaperFitHelper.MODE_FILL,
-                            WallpaperFitHelper.FILL_BLACK
-                        )
-                    }
-                    wallpaperPrefs.edit().putString("last_playlist_image", "wallpaper_0.jpg").apply()
-                }
-
-                // --- BUG FIX: Pre-seed current theme state so it doesn't auto-rotate on first boot ---
-                val currentUiMode = resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK
-                val isNightMode = (currentUiMode == android.content.res.Configuration.UI_MODE_NIGHT_YES)
-                wallpaperPrefs.edit().putInt("active_theme_state", if (isNightMode) 1 else 0).apply()
+                wallpaperPrefs.edit()
+                    .putString("last_playlist_image", "wallpaper_0.jpg")
+                    .putLong("last_rotation_timestamp", System.currentTimeMillis())
+                    .apply()
 
                 runOnUiThread {
                     isProcessing = false
