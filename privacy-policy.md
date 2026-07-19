@@ -1,12 +1,18 @@
 ## Privacy Policy
 
-**Last updated: July 18, 2026**
+**Last updated: July 19, 2026**
 
 Atmo Engine is a live wallpaper application designed to process wallpapers locally on your Android device. It does not require an account and does not contain advertising or developer-operated analytics.
 
 ### Wallpaper and Image Data
 
 Images selected for wallpapers are cropped, stored, rendered, and analyzed locally on the device. Atmo Engine does not upload wallpaper images, subject masks, or generated sketches to the developer or to a remote server.
+
+### Theme and Color Processing
+
+Theme Playlists read Android's current Light or Dark appearance state so the app can choose the matching local playlist. When **Sync System Colors** is enabled, Atmo Engine extracts colors from the active wallpaper on-device and publishes them through Android's wallpaper color API. The device manufacturer ultimately decides whether and how those colors update the wider system palette.
+
+The hidden Palette Diagnostics screen can display the locally extracted colors, Android's wallpaper API colors, current system accent resources, device manufacturer and model, and local wallpaper-engine status or error messages. This information is shown only on the device and is not uploaded or shared with the developer.
 
 ### Optional Canvas Sketch Subject Model
 
@@ -32,7 +38,7 @@ Atmo Engine uses Android's wallpaper service and the `SET_WALLPAPER` permission 
 
 ### Local Storage and Deletion
 
-Wallpaper files, playlist content, crops, and preferences are stored locally in the app's private storage. They can be removed by clearing Atmo Engine's app data or uninstalling the app.
+Wallpaper files, standard and theme-based playlist content, crops, preferences, and palette diagnostic traces are stored locally in the app's private storage. They can be removed by clearing Atmo Engine's app data or uninstalling the app.
 
 ### Third-Party Services
 

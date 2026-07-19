@@ -1,6 +1,6 @@
 # Atmo Engine
 
-**Atmo Engine** is an Android application designed to replicate the distinctive "Atmosphere" transition effect found in Nothing OS.
+**Atmo Engine** is an open-source Android live wallpaper studio inspired by the distinctive Atmosphere transition in Nothing OS. It adds animated lock-screen-to-home-screen effects, accurate previews, flexible image fitting, and wallpaper playlists without uploading your images.
 
 ## 📥 Download
 Atmo Engine is available to download from the Play Store, F-Droid and Orion Store.
@@ -37,8 +37,8 @@ The fastest way to apply a wallpaper. Instead of opening the app and browsing fo
 
 Open the app and choose your desired atmosphere style from the selection screen:
 
-* **Original Atmosphere:** Signature style. Drifting ambient atmospheric clouds that transition to blur when unlocked.
-* **Reverse Atmosphere:** Mysterious reveal. Deep ambient clouds fade to a sharp clear view when unlocked.
+* **Original Atmosphere:** Signature style. A sharp wallpaper flows into drifting ambient clouds and blur.
+* **Reverse Atmosphere:** Mysterious reveal. Deep ambient clouds clear to reveal the wallpaper.
 * **Simple Frosted:** Modern minimalism. Applies a clean, uniform frosted glass blur (no clouds).
 * **Simple Frosted (Reverse):** Elegant clarity. Wakes up from a heavy frosted blur into a crystal clear wallpaper.
 * **Halftone Print:** Retro aesthetic. Sharp view dissolves into comic-book CMYK dots when locked.
@@ -63,9 +63,11 @@ After selecting an effect, you will be prompted to choose your wallpaper mode:
 
 * **Single Image:** Standard mode. Pick one image, crop it, and apply.
 
-* **Multiple Images (Playlist):** Select multiple images from your gallery to create a Wallpaper Playlist. You can simply apply the play list as it or adjust & crop any image from the playlist you want. Once finished, the app will automatically rotate through these wallpapers based on your settings.
+* **Multiple Images (Playlist):** Select multiple images from your gallery to create a wallpaper playlist. Apply it directly or adjust and crop each image first. Once finished, Atmo rotates through the collection using your selected interval.
 
-* **Edit Existing Playlist:** If you already have a playlist running, this option loads your currently saved wallpapers (including your exact zoom and crop settings). You can easily remove old images, add new ones from your gallery, or tweak existing crops without having to start from scratch.
+* **Theme Playlists:** Build separate Light and Dark playlists with one or more wallpapers in each. Atmo switches to the matching collection when the system theme changes, then rotates within that collection using your selected interval.
+
+* **Edit Existing Playlist:** If you already have a standard or theme-based playlist running, this option loads your saved wallpapers (including your exact zoom and crop settings). You can remove images, add new ones, or tweak existing crops without starting over.
 
 ### 3\. Application & Activation
 
@@ -77,6 +79,12 @@ Please follow these simple steps to apply the wallpaper:
 4. **MANDATORY Selection:** When prompted, you must select **"Home screen and Lock screen"**.
    > *Why? Both screens must be controlled by the live wallpaper to ensure a smooth transition when you unlock your device.*
 5. **Finish:** Setup is complete! Lock and unlock your screen to see the applied effect in action.
+
+## Interface and Previews
+
+Atmo Engine uses Jetpack Compose and Material 3 throughout the setup flow. Material Expressive styling follows the device's system color palette when enabled, while the appearance panel also supports fixed colors, System/Light/Dark modes, and an optional pitch-black dark background.
+
+Effect cards, the active-wallpaper dashboard, crop screens, and playlist cards use live previews driven by the real effect implementations. This lets you inspect the selected wallpaper and transition before applying it through Android's live wallpaper screen.
 
 
 ## Advanced Customization
@@ -99,43 +107,50 @@ Take full control of the animation and look. You can now tweak the following set
 * **Animation Duration:** Control the total transition duration.
 * **Lock Delay (Anti-Flicker):** Adds a configurable pause before the wallpaper resets when you lock the phone. This prevents the visual glitch where the wallpaper "snaps" back to its initial state before the screen turns fully black.
 * **Unlock Check Interval:** Adjusts how frequently the app detects unlock events. Tuning this eliminates "delayed start" issues, ensuring the animation begins immediately when you wake your device.
+* **Sync System Colors:** Publishes a locally extracted wallpaper palette to Android whenever a single wallpaper or playlist image changes. Whether the wider system theme refreshes is ultimately controlled by the device manufacturer.
 ### Playlist & Rotation
-(Only available when using Multiple Images mode)
+(Available when using Playlist or Theme Playlists mode)
 * **Rotation Interval:** Controls how often the wallpaper changes from your playlist.
-    * **Options:** System Theme (Light/Dark), Every Lock (Instant), 15 Minutes, 1 Hour, up to 24 Hours.
-    * **System Theme Sync:** When selected, the wallpaper will only change when your device switches between Light and Dark mode.
+    * **Options:** Every Lock (Instant), 1 Minute, 15 Minutes, 1 Hour, up to 24 Hours.
+    * **Theme Playlists:** A system Light/Dark change immediately switches collections. The selected interval continues to control rotation inside whichever collection is active.
     * **Smart Rotation:** To prevent lag or visual glitches, the wallpaper only rotates when the screen is OFF.
     * *Example:* If you set "15 Minutes", the app checks the time whenever you lock your phone. If 15 minutes have passed since the last change, it swaps the wallpaper in the background so it's ready the next time you unlock.
 
+### Palette Diagnostics
+
+When an Atmo wallpaper is active, tap the **Atmo Engine** title seven times to open the device-specific palette diagnostics screen. It compares Atmo's locally extracted colors, Android's Wallpaper API colors, and the current system color resources. The Force Apply test is available only while **Sync System Colors** is enabled. Diagnostic values and engine traces remain on the device.
+
 ## Screenshots
 <div align="center">
-  <img src="https://github.com/user-attachments/assets/5ca9fd98-880a-4377-973b-9192771aa185" width="45%" alt="1st" />
-  <img src="https://github.com/user-attachments/assets/e8bda8f0-821d-43c4-8194-421916560c64" width="45%" alt="2nd" />
+  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/1.png" width="45%" alt="Atmo Engine wallpaper dashboard" />
+  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/2.png" width="45%" alt="Animated effect selection" />
   <br/>
-  <img src="https://github.com/user-attachments/assets/160d8da4-fe29-40f2-90c1-74f0fc003fdc" width="45%" alt="3rd" />
-  <img src="https://github.com/user-attachments/assets/1e0734af-2e51-4941-9d03-42cd032099c0" width="45%" alt="4th" />
+  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/3.png" width="45%" alt="Expressive fine-tuning controls" />
+  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/4.png" width="45%" alt="Wallpaper mode chooser with theme playlists" />
+  <br/>
+  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/5.png" width="45%" alt="Light and dark theme playlist editor" />
 </div>
 
 ## Telegram Group
-I've made a telegram group for the discussion of issues and feature suggestion. You can join it using [this link](https://t.me/atmosphereEffect).
+I've made a Telegram group for discussing issues and feature suggestions. You can join it using [this link](https://t.me/atmosphereEffect).
 
 ## Known Issues
 
-* **Samsung Adaptive Clock:** As mentioned, programmatically setting the lock screen interferes with Samsung's Adaptive Clock on OneUI.
+* **Samsung Adaptive Clock:** One UI may disable or limit its adaptive clock treatment while a live wallpaper is active.
 
 ## Build & Installation
 
 This project is built using Kotlin and Gradle.
 
 1.  Clone the repository.
-2.  Open in Android Studio (Ladybug or newer recommended).
+2.  Open in the latest stable Android Studio.
 3.  Sync Gradle.
 4.  Build and Run on your device.
 
 <!-- end list -->
 
 ```bash
-git clone https://github.com/yourusername/NOSAtmosphereEffect.git
+git clone https://github.com/saad-khan-rind/NOSAtmosphereEffect.git
 ```
 
 ## Author
