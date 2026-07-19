@@ -128,7 +128,6 @@ When an Atmo wallpaper is active, tap the **Atmo Engine** title seven times to o
   <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/3.png" width="45%" alt="Expressive fine-tuning controls" />
   <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/4.png" width="45%" alt="Wallpaper mode chooser with theme playlists" />
   <br/>
-  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/5.png" width="45%" alt="Light and dark theme playlist editor" />
 </div>
 
 ## Telegram Group
