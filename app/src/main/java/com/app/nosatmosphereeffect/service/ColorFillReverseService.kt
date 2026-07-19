@@ -2,12 +2,10 @@ package com.app.nosatmosphereeffect.service
 
 import android.animation.ValueAnimator
 import android.app.KeyguardManager
-import android.app.WallpaperColors
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.graphics.BitmapFactory
 import android.opengl.GLSurfaceView
 import android.os.Build
 import android.os.Handler
@@ -15,9 +13,8 @@ import android.os.Looper
 import android.view.SurfaceHolder
 import android.view.animation.LinearInterpolator
 import com.app.nosatmosphereeffect.helper.GLWallpaperService
-import com.app.nosatmosphereeffect.helper.WallpaperFitHelper
+import com.app.nosatmosphereeffect.helper.PlaylistRotationController
 import com.app.nosatmosphereeffect.renderer.ColorFillRenderer
-import java.io.File
 import android.os.PowerManager
 
 class ColorFillReverseService : GLWallpaperService() {
@@ -52,14 +49,12 @@ class ColorFillReverseService : GLWallpaperService() {
     }
 
     inner class ColorFillEngine : GLEngine() {
-        private var cachedColors: WallpaperColors? = null
         private var pollInterval: Long = if (isSamsungDevice()) 30000L else 50L
         private var lockDelay: Long = if (isSamsungDevice()) 0L else 800L
         private var animDuration: Long = 500L
         private var myRenderer: ColorFillRenderer? = null
         private var blurAnimator: ValueAnimator? = null
         private var isLocked: Boolean = true
-        private var enableSystemColorUpdate: Boolean = false
         private val handler = Handler(Looper.getMainLooper())
 
         private val resetRunnable = Runnable {
@@ -75,133 +70,14 @@ class ColorFillReverseService : GLWallpaperService() {
         }
 
         private fun rotateWallpaper(isThemeChange: Boolean = false, currentNightMode: Boolean = false) {
-            Thread {
-                val playlistDir = File(filesDir, "playlist")
-                val playlistFiles = playlistDir.listFiles { _, name -> name.endsWith(".jpg") }
-
-                if (playlistFiles == null || playlistFiles.size <= 1) return@Thread
-
-                val prefs = getSharedPreferences("wallpaper_prefs", Context.MODE_PRIVATE)
-                val intervalMinutes = prefs.getLong("rotation_interval_minutes", 0)
-
-                if (isThemeChange) {
-                    if (intervalMinutes == -1L) {
-                        val savedTheme = prefs.getInt("active_theme_state", -1)
-                        val newThemeState = if (currentNightMode) 1 else 0
-
-                        if (savedTheme != newThemeState) {
-                            prefs.edit().putInt("active_theme_state", newThemeState).apply()
-                            executeRotationRingBuffer(prefs)
-                        }
-                    }
-                    return@Thread
-                }
-
-                if (intervalMinutes > 0) {
-                    val lastRotationTime = prefs.getLong("last_rotation_timestamp", 0)
-                    val currentTime = System.currentTimeMillis()
-                    val diffMinutes = (currentTime - lastRotationTime) / 60000
-
-                    if (diffMinutes < intervalMinutes) return@Thread
-                } else if (intervalMinutes == -1L) {
-                    return@Thread
-                }
-
-                executeRotationRingBuffer(prefs)
-
-            }.start()
-        }
-
-        private fun executeRotationRingBuffer(prefs: android.content.SharedPreferences) {
-            val nextFile = File(filesDir, "next_wallpaper.jpg")
-            val activeFile = File(filesDir, "wallpaper.jpg")
-
-            if (nextFile.exists()) {
-                try {
-                    val nextBitmap = WallpaperFitHelper.decodeNextForDisplay(applicationContext)
-                    if (nextBitmap != null) {
-                        // Promote the next image's files AND its fit mode to the active
-                        // slot BEFORE handing the bitmap to the renderer, so the incoming
-                        // image is fitted with its own per-image fit mode (race-free).
-                        if (activeFile.exists()) {
-                            activeFile.delete()
-                        }
-                        nextFile.renameTo(activeFile)
-                        WallpaperFitHelper.promoteNextSource(filesDir)
-                        WallpaperFitHelper.promoteNextMode(applicationContext)
-
-                        myRenderer?.queuePlaylistTransition(nextBitmap)
-                        requestRender()
-
-                        cachedColors = null
-                        prefs.edit().putLong("last_rotation_timestamp", System.currentTimeMillis()).apply()
-                        notifyColorsChanged()
-                    }
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                }
-                prepareNextWallpaper()
-            } else {
-                prepareNextWallpaper()
-            }
-        }
-
-        private fun prepareNextWallpaper() {
-            Thread {
-                try {
-                    val playlistDir = File(filesDir, "playlist")
-                    if (playlistDir.exists() && playlistDir.isDirectory) {
-                        val files = playlistDir.listFiles { _, name -> name.endsWith(".jpg") }
-
-                        if (!files.isNullOrEmpty() && files.size > 1) {
-                            val prefs = getSharedPreferences("wallpaper_prefs", Context.MODE_PRIVATE)
-                            val lastUsedName = prefs.getString("last_playlist_image", "")
-
-                            val candidates = files.filter { it.name != lastUsedName }
-                            val validFiles = candidates.ifEmpty { files.toList() }
-                            val randomFile = validFiles.random()
-
-                            prefs.edit().putString("last_playlist_image", randomFile.name).apply()
-
-                            val nextFile = File(filesDir, "next_wallpaper.jpg")
-                            randomFile.copyTo(nextFile, overwrite = true)
-                            WallpaperFitHelper.stageNextSource(filesDir, randomFile.name)
-                            WallpaperFitHelper.stageNextModeFromPlaylist(applicationContext, randomFile.name)
-                        }
-                    }
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                }
-            }.start()
-        }
-
-        override fun onComputeColors(): WallpaperColors? {
-            if (!enableSystemColorUpdate) {
-                if (cachedColors != null) {
-                    cachedColors = null
-                }
-                return super.onComputeColors()
-            }
-
-            if (cachedColors != null) {
-                return cachedColors
-            }
-
-            try {
-                val file = File(filesDir, "wallpaper.jpg")
-                if (file.exists()) {
-                    val options = BitmapFactory.Options().apply {
-                        inSampleSize = 2
-                    }
-                    val bitmap = BitmapFactory.decodeFile(file.absolutePath, options)
-                    if (bitmap != null) {
-                        cachedColors = WallpaperColors.fromBitmap(bitmap)
-                        bitmap.recycle()
-                        return cachedColors
-                    }
-                }
-            } catch (e: Exception) { }
-            return super.onComputeColors()
+            PlaylistRotationController.rotateAsync(
+                context = applicationContext,
+                isThemeChange = isThemeChange,
+                currentNightMode = currentNightMode,
+                queueTransition = { bitmap -> myRenderer?.queuePlaylistTransition(bitmap) },
+                requestRender = { requestRender() },
+                notifyColorsChanged = { notifySystemColorsChanged() }
+            )
         }
 
         private val unlockChecker = object : Runnable {
@@ -243,15 +119,14 @@ class ColorFillReverseService : GLWallpaperService() {
                         }
                     }
                     "com.app.nosatmosphereeffect.RELOAD_WALLPAPER" -> {
-                        cachedColors = null
                         myRenderer?.reloadTexture()
                         requestRender()
-                        notifyColorsChanged()
+                        notifySystemColorsChanged()
                     }
                     "com.app.nosatmosphereeffect.UPDATE_CONFIG" -> {
                         updateRendererConfig()
                         requestRender()
-                        notifyColorsChanged()
+                        notifySystemColorsChanged()
                     }
                 }
             }
@@ -369,8 +244,6 @@ class ColorFillReverseService : GLWallpaperService() {
 
             myRenderer?.originX = prefs.getFloat("origin_x", 0.5f)
             myRenderer?.originY = prefs.getFloat("origin_y", 0.8f)
-
-            enableSystemColorUpdate = prefs.getBoolean("notify_system_colors", false)
 
             pollInterval = if (savedPoll != -1L) savedPoll else if (isSamsungDevice()) 30000L else 50L
             lockDelay = if (savedDelay != -1L) savedDelay else if (isSamsungDevice()) 0L else 800L

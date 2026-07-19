@@ -3,24 +3,29 @@ package com.app.nosatmosphereeffect
 import android.app.WallpaperManager
 import android.content.ClipData
 import android.content.Intent
+import android.graphics.BitmapFactory
 import android.net.Uri
-import android.os.Bundle
 import android.os.Build
-import android.widget.Toast
+import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.core.content.edit
 import com.app.nosatmosphereeffect.activity.AdvancedSettingsActivity
 import com.app.nosatmosphereeffect.activity.BlurToSharpCropActivity
 import com.app.nosatmosphereeffect.activity.CropActivity
 import com.app.nosatmosphereeffect.activity.EffectSelectionActivity
+import com.app.nosatmosphereeffect.activity.PaletteDiagnosticsActivity
 import com.app.nosatmosphereeffect.activity.PlaylistEditorActivity
+import com.app.nosatmosphereeffect.activity.ThemePlaylistEditorActivity
+import com.app.nosatmosphereeffect.helper.PlaylistModeManager
+import com.app.nosatmosphereeffect.helper.SystemColorSyncPreferences
 import com.app.nosatmosphereeffect.service.AtmosphereService
 import com.app.nosatmosphereeffect.service.BlurToSharpService
 import com.app.nosatmosphereeffect.service.ColorFillReverseService
@@ -29,7 +34,11 @@ import com.app.nosatmosphereeffect.service.FrostedReverseService
 import com.app.nosatmosphereeffect.service.FrostedService
 import com.app.nosatmosphereeffect.service.HalftoneReverseService
 import com.app.nosatmosphereeffect.service.HalftoneService
+import com.app.nosatmosphereeffect.service.NeonReverseService
+import com.app.nosatmosphereeffect.service.NeonService
 import com.app.nosatmosphereeffect.ui.screens.MainScreen
+import com.app.nosatmosphereeffect.ui.theme.AppearancePreferences
+import com.app.nosatmosphereeffect.ui.theme.AppThemeMode
 import com.app.nosatmosphereeffect.ui.theme.AtmoEngineTheme
 import java.io.File
 
@@ -38,14 +47,17 @@ class MainActivity : ComponentActivity() {
     // --- UI state (observed by Compose) ---
     private var wallpaperActive by mutableStateOf(false)
     private var statusText by mutableStateOf("")
-    private var showBlur by mutableStateOf(false)
     private var isPlaylistModeActive by mutableStateOf(false)
+    private var isThemePlaylistModeActive by mutableStateOf(false)
     private var syncColors by mutableStateOf(true)
-
-    private var dimness by mutableFloatStateOf(0.2f)
-    private var savedDimness by mutableFloatStateOf(0.2f)
-    private var blur by mutableFloatStateOf(200f)
-    private var savedBlur by mutableFloatStateOf(200f)
+    private var expressiveThemeEnabled by mutableStateOf(true)
+    private var themeMode by mutableStateOf(AppThemeMode.SYSTEM)
+    private var pitchBlackEnabled by mutableStateOf(false)
+    private var activeEffectId by mutableStateOf<String?>(null)
+    private var previewBitmap by mutableStateOf<ImageBitmap?>(null)
+    private var skipNextResumeStatusRefresh = false
+    private var titleTapCount = 0
+    private var lastTitleTapTime = 0L
 
     private val pickSingleImage =
         registerForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
@@ -61,26 +73,35 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         initializeSmartDefaults()
+        expressiveThemeEnabled = AppearancePreferences.isExpressiveEnabled(this)
+        themeMode = AppearancePreferences.getThemeMode(this)
+        pitchBlackEnabled = AppearancePreferences.isPitchBlackEnabled(this)
 
         statusText = getString(R.string.status_instruction)
+        checkWallpaperStatus()
+        skipNextResumeStatusRefresh = true
 
         setContent {
-            AtmoEngineTheme {
+            AtmoEngineTheme(
+                expressive = expressiveThemeEnabled,
+                themeMode = themeMode,
+                pitchBlack = pitchBlackEnabled
+            ) {
                 MainScreen(
                     wallpaperActive = wallpaperActive,
                     statusText = statusText,
+                    activeEffectId = activeEffectId,
+                    previewBitmap = previewBitmap,
                     isPlaylistMode = isPlaylistModeActive,
-                    showBlur = showBlur,
-                    dimness = dimness,
-                    dimnessDirty = dimness != savedDimness,
-                    onDimnessChange = { dimness = it },
-                    onApplyDimness = { applyDimnessUpdate() },
-                    blur = blur,
-                    blurDirty = blur != savedBlur,
-                    onBlurChange = { blur = it },
-                    onApplyBlur = { applyBlurUpdate() },
+                    isThemePlaylistMode = isThemePlaylistModeActive,
                     syncColors = syncColors,
                     onSyncColorsChange = { updateSyncColors(it) },
+                    expressiveThemeEnabled = expressiveThemeEnabled,
+                    onExpressiveThemeChange = { updateExpressiveTheme(it) },
+                    themeMode = themeMode,
+                    onThemeModeChange = { updateThemeMode(it) },
+                    pitchBlackEnabled = pitchBlackEnabled,
+                    onPitchBlackChange = { updatePitchBlack(it) },
                     onSetupWallpaper = {
                         startActivity(Intent(this, EffectSelectionActivity::class.java))
                     },
@@ -91,16 +112,26 @@ class MainActivity : ComponentActivity() {
                     },
                     onPickSingleImage = { pickSingleImage.launch("image/*") },
                     onPickMultipleImages = { pickMultipleImages.launch("image/*") },
+                    onPickThemePlaylists = { launchThemePlaylistEditor(editExisting = false) },
                     onEditExistingPlaylist = { launchEditExistingPlaylist() },
-                    onAdvancedSettings = { openAdvancedSettings() }
+                    onAdvancedSettings = { openAdvancedSettings() },
+                    onTitleTap = { handleTitleTap() }
                 )
             }
         }
+
     }
 
     override fun onResume() {
         super.onResume()
-        checkWallpaperStatus()
+        expressiveThemeEnabled = AppearancePreferences.isExpressiveEnabled(this)
+        themeMode = AppearancePreferences.getThemeMode(this)
+        pitchBlackEnabled = AppearancePreferences.isPitchBlackEnabled(this)
+        if (skipNextResumeStatusRefresh) {
+            skipNextResumeStatusRefresh = false
+        } else {
+            checkWallpaperStatus()
+        }
     }
 
     private fun isSamsungDevice(): Boolean =
@@ -122,48 +153,62 @@ class MainActivity : ComponentActivity() {
     private fun checkWallpaperStatus() {
         val activeEffect = getActiveEffectType()
         if (activeEffect != null) {
+            activeEffectId = activeEffect
             wallpaperActive = true
             statusText = "Wallpaper is active. Customize your experience below."
-            loadCurrentDimness()
+            isPlaylistModeActive = PlaylistModeManager.isPlaylistMode(this)
+            isThemePlaylistModeActive =
+                isPlaylistModeActive && PlaylistModeManager.isThemeMode(this)
 
-            showBlur = activeEffect.contains("FROSTED")
-            if (showBlur) loadCurrentBlur()
-
-            // Determine current mode (single vs playlist).
-            val playlistDir = File(filesDir, "playlist")
-            isPlaylistModeActive = false
-            if (playlistDir.exists() && playlistDir.isDirectory) {
-                val files = playlistDir.listFiles { _, name -> name.endsWith(".jpg") }
-                if (!files.isNullOrEmpty() && files.size > 1) isPlaylistModeActive = true
-            }
-
-            // Detect mode change and force safe defaults for the colour sync toggle.
-            val prefs = getSharedPreferences("app_prefs", MODE_PRIVATE)
-            val lastMode = prefs.getString("last_known_wallpaper_mode", "UNKNOWN")
-            val currentMode = if (isPlaylistModeActive) "PLAYLIST" else "SINGLE"
-            if (lastMode != currentMode) {
-                if (isPlaylistModeActive) {
-                    prefs.edit().putBoolean("notify_system_colors", false).apply()
-                    sendConfigUpdate()
-                } else {
-                    prefs.edit().putBoolean("notify_system_colors", true).apply()
-                    sendConfigUpdate()
-                }
-                prefs.edit().putString("last_known_wallpaper_mode", currentMode).apply()
-            }
-
-            syncColors = prefs.getBoolean("notify_system_colors", !isPlaylistModeActive)
+            syncColors = SystemColorSyncPreferences.isEnabled(this)
+            loadWallpaperPreview()
         } else {
+            activeEffectId = null
+            previewBitmap = null
             wallpaperActive = false
+            isPlaylistModeActive = false
+            isThemePlaylistModeActive = false
             statusText = getString(R.string.status_instruction)
         }
     }
 
+    private fun updateExpressiveTheme(enabled: Boolean) {
+        expressiveThemeEnabled = enabled
+        AppearancePreferences.setExpressiveEnabled(this, enabled)
+    }
+
+    private fun updateThemeMode(mode: AppThemeMode) {
+        themeMode = mode
+        AppearancePreferences.setThemeMode(this, mode)
+    }
+
+    private fun updatePitchBlack(enabled: Boolean) {
+        pitchBlackEnabled = enabled
+        AppearancePreferences.setPitchBlackEnabled(this, enabled)
+    }
+
+    private fun loadWallpaperPreview() {
+        val file = File(filesDir, "wallpaper.jpg")
+        if (!file.exists()) {
+            previewBitmap = null
+            return
+        }
+        Thread {
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeFile(file.absolutePath, bounds)
+            var sample = 1
+            while (maxOf(bounds.outWidth, bounds.outHeight) / sample > 2000) sample *= 2
+            val bitmap = BitmapFactory.decodeFile(
+                file.absolutePath,
+                BitmapFactory.Options().apply { inSampleSize = sample }
+            )
+            runOnUiThread { previewBitmap = bitmap?.asImageBitmap() }
+        }.start()
+    }
+
     private fun updateSyncColors(enabled: Boolean) {
         syncColors = enabled
-        getSharedPreferences("app_prefs", MODE_PRIVATE).edit {
-            putBoolean("notify_system_colors", enabled)
-        }
+        SystemColorSyncPreferences.setEnabled(this, enabled)
         sendConfigUpdate()
     }
 
@@ -173,36 +218,19 @@ class MainActivity : ComponentActivity() {
         sendBroadcast(intent)
     }
 
-    private fun defaultDimnessFor(effect: String?): Float =
-        if (!effect.isNullOrEmpty() && effect.contains("HALFTONE")) 0.0f else 0.2f
-
-    private fun loadCurrentDimness() {
-        val prefs = getSharedPreferences("app_prefs", MODE_PRIVATE)
-        val default = defaultDimnessFor(getActiveEffectType())
-        val current = prefs.getFloat("dim_level", default)
-        dimness = current
-        savedDimness = current
-    }
-
-    private fun applyDimnessUpdate() {
-        getSharedPreferences("app_prefs", MODE_PRIVATE).edit { putFloat("dim_level", dimness) }
-        sendConfigUpdate()
-        savedDimness = dimness
-        Toast.makeText(this, "Wallpaper Updated!", Toast.LENGTH_SHORT).show()
-    }
-
-    private fun loadCurrentBlur() {
-        val prefs = getSharedPreferences("app_prefs", MODE_PRIVATE)
-        val current = prefs.getFloat("frosted_blur_radius", 200f)
-        blur = current
-        savedBlur = current
-    }
-
-    private fun applyBlurUpdate() {
-        getSharedPreferences("app_prefs", MODE_PRIVATE).edit { putFloat("frosted_blur_radius", blur) }
-        sendConfigUpdate()
-        savedBlur = blur
-        Toast.makeText(this, "Blur Strength Updated!", Toast.LENGTH_SHORT).show()
+    private fun handleTitleTap() {
+        if (!wallpaperActive) {
+            titleTapCount = 0
+            return
+        }
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (now - lastTitleTapTime > 4_000L) titleTapCount = 0
+        lastTitleTapTime = now
+        titleTapCount++
+        if (titleTapCount >= 7) {
+            titleTapCount = 0
+            startActivity(Intent(this, PaletteDiagnosticsActivity::class.java))
+        }
     }
 
     private fun openAdvancedSettings() {
@@ -226,6 +254,8 @@ class MainActivity : ComponentActivity() {
                 HalftoneReverseService::class.java.name -> "HALFTONE_REVERSE"
                 ColorFillService::class.java.name -> "COLORFILL"
                 ColorFillReverseService::class.java.name -> "COLORFILL_REVERSE"
+                NeonService::class.java.name -> "NEON"
+                NeonReverseService::class.java.name -> "NEON_REVERSE"
                 else -> null
             }
         }
@@ -233,15 +263,25 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun launchEditExistingPlaylist() {
-        val playlistDir = File(filesDir, "playlist")
-        if (!playlistDir.exists()) return
-        val files = playlistDir.listFiles { _, name -> name.endsWith(".jpg") }
-        if (files.isNullOrEmpty()) return
+        if (isThemePlaylistModeActive) {
+            launchThemePlaylistEditor(editExisting = true)
+            return
+        }
+        if (PlaylistModeManager.imageFiles(PlaylistModeManager.standardPlaylistDir(this)).isEmpty()) {
+            return
+        }
 
         val effectId = getActiveEffectType() ?: "ORIGINAL"
         val intent = Intent(this, PlaylistEditorActivity::class.java)
         intent.putExtra("EDIT_EXISTING", true)
         intent.putExtra("EFFECT_ID", effectId)
+        startActivity(intent)
+    }
+
+    private fun launchThemePlaylistEditor(editExisting: Boolean) {
+        val intent = Intent(this, ThemePlaylistEditorActivity::class.java)
+        intent.putExtra("EDIT_EXISTING", editExisting)
+        intent.putExtra("EFFECT_ID", getActiveEffectType() ?: "ORIGINAL")
         startActivity(intent)
     }
 

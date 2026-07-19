@@ -1,7 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.SET_WALLPAPER" />
+    <uses-permission
+        android:name="android.permission.INTERNET"
+        tools:node="remove" />
+    <uses-permission
+        android:name="android.permission.ACCESS_NETWORK_STATE"
+        tools:node="remove" />
 
     <application
         android:allowBackup="true"
@@ -52,6 +59,8 @@
 
         <activity android:name=".activity.MultiImageCropActivity" />
         <activity android:name=".activity.PlaylistEditorActivity"/>
+        <activity android:name=".activity.ThemePlaylistEditorActivity" />
+        <activity android:name=".activity.PaletteDiagnosticsActivity" />
 
         <service
             android:name=".service.AtmosphereService"
@@ -128,6 +137,35 @@
             android:enabled="true"
             android:exported="true"
             android:label="Halftone Print (Reverse) Effect"
+            android:permission="android.permission.BIND_WALLPAPER">
+            <intent-filter>
+                <action android:name="android.service.wallpaper.WallpaperService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.service.wallpaper"
+                android:resource="@xml/wallpaper" />
+        </service>
+
+
+        <service
+            android:name=".service.NeonService"
+            android:enabled="true"
+            android:exported="true"
+            android:label="Canvas Sketch"
+            android:permission="android.permission.BIND_WALLPAPER">
+            <intent-filter>
+                <action android:name="android.service.wallpaper.WallpaperService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.service.wallpaper"
+                android:resource="@xml/wallpaper" />
+        </service>
+
+        <service
+            android:name=".service.NeonReverseService"
+            android:enabled="true"
+            android:exported="true"
+            android:label="Canvas Sketch (Reverse)"
             android:permission="android.permission.BIND_WALLPAPER">
             <intent-filter>
                 <action android:name="android.service.wallpaper.WallpaperService" />

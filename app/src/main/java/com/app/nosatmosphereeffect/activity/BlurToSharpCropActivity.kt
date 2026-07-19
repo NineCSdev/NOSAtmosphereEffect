@@ -22,15 +22,18 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.exifinterface.media.ExifInterface
+import com.app.nosatmosphereeffect.helper.SystemColorSyncPreferences
+import com.app.nosatmosphereeffect.helper.PlaylistModeManager
 import com.app.nosatmosphereeffect.helper.TouchImageView
 import com.app.nosatmosphereeffect.helper.WallpaperFitHelper
 import com.app.nosatmosphereeffect.service.BlurToSharpService
 import com.app.nosatmosphereeffect.service.ColorFillReverseService
 import com.app.nosatmosphereeffect.service.FrostedReverseService
 import com.app.nosatmosphereeffect.service.HalftoneReverseService
+import com.app.nosatmosphereeffect.service.NeonReverseService
 import com.app.nosatmosphereeffect.ui.screens.CropController
 import com.app.nosatmosphereeffect.ui.screens.CropScreen
-import com.app.nosatmosphereeffect.ui.screens.SimpleConfirmDialog
+import com.app.nosatmosphereeffect.ui.screens.WallpaperPreviewDialog
 import com.app.nosatmosphereeffect.ui.theme.AtmoEngineTheme
 import java.io.File
 import java.io.FileOutputStream
@@ -68,11 +71,12 @@ class BlurToSharpCropActivity : ComponentActivity() {
             AtmoEngineTheme {
                 CropScreen(
                     controller = controller,
-                    buttonLabel = "Apply",
+                    buttonLabel = "Preview transition",
                     initialFit = WallpaperFitHelper.MODE_FILL,
                     initialFill = WallpaperFitHelper.FILL_BLACK,
                     onViewCreated = { loadImageInto(uri) },
                     onFitChanged = { f, fl -> controller.setFitMode(f, fl) },
+                    onBack = { finish() },
                     onConfirm = {
                         val cropped = controller.getCroppedBitmap()
                         if (cropped != null) {
@@ -83,19 +87,21 @@ class BlurToSharpCropActivity : ComponentActivity() {
                 )
 
                 if (showApplyConfirm) {
-                    SimpleConfirmDialog(
-                        title = "Apply Wallpaper",
-                        message = "On the next screen, please select:\n\n" +
-                            "Set Wallpaper › Home Screen and Lock Screen.\n\n" +
-                            "(This ensures the lock-screen effect works correctly.)",
-                        confirmLabel = "Set Wallpaper",
-                        dismissLabel = "Cancel",
+                    pendingBitmap?.let { preview ->
+                        WallpaperPreviewDialog(
+                        bitmap = preview,
+                        effectId = effectId,
                         onConfirm = {
                             showApplyConfirm = false
                             pendingBitmap?.let { applyWallpaper(it) }
                         },
-                        onDismiss = { showApplyConfirm = false }
-                    )
+                        onDismiss = {
+                            showApplyConfirm = false
+                            pendingBitmap?.recycle()
+                            pendingBitmap = null
+                        }
+                        )
+                    }
                 }
             }
         }
@@ -214,11 +220,13 @@ class BlurToSharpCropActivity : ComponentActivity() {
 
         Thread {
             try {
+                SystemColorSyncPreferences.isEnabled(this)
                 getSharedPreferences("app_prefs", Context.MODE_PRIVATE).edit().clear().apply()
                 getSharedPreferences("wallpaper_prefs", Context.MODE_PRIVATE).edit().clear().apply()
 
-                val playlistDir = File(filesDir, "playlist")
-                if (playlistDir.exists()) playlistDir.deleteRecursively()
+                PlaylistModeManager.clearStandardCollections(this)
+                PlaylistModeManager.clearThemeCollections(this)
+                PlaylistModeManager.setMode(this, PlaylistModeManager.MODE_SINGLE)
 
                 val nextWallpaper = File(filesDir, "next_wallpaper.jpg")
                 if (nextWallpaper.exists()) nextWallpaper.delete()
@@ -228,7 +236,6 @@ class BlurToSharpCropActivity : ComponentActivity() {
                 WallpaperFitHelper.saveActiveSource(this, sourceBitmap)
                 WallpaperFitHelper.setActiveModes(this, WallpaperFitHelper.MODE_FILL, WallpaperFitHelper.FILL_BLACK)
                 WallpaperFitHelper.setNextModes(this, WallpaperFitHelper.MODE_FILL, WallpaperFitHelper.FILL_BLACK)
-
                 runOnUiThread {
                     val intent = Intent("com.app.nosatmosphereeffect.RELOAD_WALLPAPER")
                     intent.setPackage(packageName)
@@ -261,6 +268,8 @@ class BlurToSharpCropActivity : ComponentActivity() {
                 HalftoneReverseService::class.java
             } else if (effectId == "COLORFILL_REVERSE") {
                 ColorFillReverseService::class.java
+            } else if (effectId == "NEON_REVERSE") {
+                NeonReverseService::class.java
             } else {
                 BlurToSharpService::class.java
             }

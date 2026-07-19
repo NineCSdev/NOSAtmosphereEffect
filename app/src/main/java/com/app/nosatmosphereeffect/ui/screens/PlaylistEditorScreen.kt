@@ -5,9 +5,16 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
 import android.net.Uri
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -27,8 +34,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -39,10 +48,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -50,10 +63,12 @@ import com.app.nosatmosphereeffect.R
 import com.app.nosatmosphereeffect.ui.components.AtmoChip
 import com.app.nosatmosphereeffect.ui.components.AtmoOutlinedButton
 import com.app.nosatmosphereeffect.ui.components.AtmoPrimaryButton
+import com.app.nosatmosphereeffect.ui.components.AtmoSegmentedControl
 import com.app.nosatmosphereeffect.ui.components.AtmoTopBar
-import com.app.nosatmosphereeffect.ui.theme.AtmoPurple
+import com.app.nosatmosphereeffect.ui.theme.LocalAtmoExpressive
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlin.math.absoluteValue
 
 /** Lightweight view of a playlist entry the screen needs in order to render. */
 data class PlaylistEntry(
@@ -64,17 +79,29 @@ data class PlaylistEntry(
 @Composable
 fun PlaylistEditorScreen(
     entries: List<PlaylistEntry>,
+    effectId: String,
+    title: String = "Edit Playlist",
+    playlistTabs: List<String> = emptyList(),
+    playlistCounts: List<Int> = emptyList(),
+    selectedPlaylist: Int = 0,
+    onPlaylistSelected: (Int) -> Unit = {},
+    applyLabel: String = "Apply playlist",
+    applyEnabled: Boolean = entries.isNotEmpty(),
     onEditItem: (Int) -> Unit,
     onDeleteItem: (Int) -> Unit,
     onAddMore: () -> Unit,
     onApply: () -> Unit,
     onBack: () -> Unit
 ) {
+    val pagerState = rememberPagerState(pageCount = { entries.size })
+    LaunchedEffect(selectedPlaylist) {
+        if (entries.isNotEmpty()) pagerState.scrollToPage(0)
+    }
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             AtmoTopBar(
-                title = "Edit Playlist",
+                title = title,
                 backIcon = painterResource(R.drawable.ic_arrow_back),
                 onBack = onBack
             )
@@ -85,6 +112,25 @@ fun PlaylistEditorScreen(
                 .fillMaxSize()
                 .padding(inner)
         ) {
+            if (playlistTabs.isNotEmpty()) {
+                Column(
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(9.dp)
+                ) {
+                    AtmoSegmentedControl(
+                        options = playlistTabs.mapIndexed { index, label ->
+                            "$label ${playlistCounts.getOrElse(index) { 0 }}"
+                        },
+                        selectedIndex = selectedPlaylist.coerceIn(playlistTabs.indices),
+                        onSelected = onPlaylistSelected
+                    )
+                    Text(
+                        if (selectedPlaylist == 0) "Light theme wallpapers" else "Dark theme wallpapers",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
             Box(
                 modifier = Modifier
                     .weight(1f)
@@ -92,9 +138,16 @@ fun PlaylistEditorScreen(
                 contentAlignment = Alignment.Center
             ) {
                 if (entries.isEmpty()) {
-                    EmptyPlaylist()
+                    EmptyPlaylist(
+                        label = if (playlistTabs.isEmpty()) {
+                            "this playlist"
+                        } else if (selectedPlaylist == 0) {
+                            "the light playlist"
+                        } else {
+                            "the dark playlist"
+                        }
+                    )
                 } else {
-                    val pagerState = rememberPagerState(pageCount = { entries.size })
                     HorizontalPager(
                         state = pagerState,
                         contentPadding = PaddingValues(horizontal = 48.dp),
@@ -103,54 +156,77 @@ fun PlaylistEditorScreen(
                     ) { page ->
                         // guard against transient out-of-range during deletions
                         val entry = entries.getOrNull(page) ?: return@HorizontalPager
-                        PlaylistCard(
-                            entry = entry,
-                            onClick = { onEditItem(page) },
-                            onDelete = { onDeleteItem(page) }
-                        )
+                        Box(
+                            Modifier.graphicsLayer {
+                                val pageOffset = (
+                                    (pagerState.currentPage - page) +
+                                        pagerState.currentPageOffsetFraction
+                                    ).absoluteValue.coerceIn(0f, 1f)
+                                val emphasis = 1f - pageOffset
+                                scaleX = 0.94f + emphasis * 0.06f
+                                scaleY = 0.94f + emphasis * 0.06f
+                                alpha = 0.72f + emphasis * 0.28f
+                            }
+                        ) {
+                            PlaylistCard(
+                                entry = entry,
+                                effectId = effectId,
+                                isActive = page == pagerState.currentPage,
+                                onClick = { onEditItem(page) },
+                                onDelete = { onDeleteItem(page) }
+                            )
+                        }
                     }
                 }
             }
 
-            Text(
-                text = "${entries.size} ${if (entries.size == 1) "Image" else "Images"} Selected",
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 8.dp),
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center
-            )
-            Text(
-                text = "Swipe to browse · Tap a card to crop",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 2.dp),
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center
-            )
+            if (entries.isNotEmpty()) {
+                PageIndicator(
+                    count = entries.size,
+                    current = pagerState.currentPage.coerceIn(entries.indices),
+                    modifier = Modifier.padding(top = 10.dp)
+                )
+                Text(
+                    text = "${pagerState.currentPage + 1} of ${entries.size}",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp),
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                )
+            }
 
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .navigationBarsPadding()
-                    .padding(horizontal = 20.dp, vertical = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceContainerLow,
+                shape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp)
             ) {
-                AtmoOutlinedButton(
-                    text = "Add More",
-                    onClick = onAddMore,
-                    accent = true,
-                    icon = painterResource(R.drawable.ic_add),
-                    modifier = Modifier.fillMaxWidth()
-                )
-                AtmoPrimaryButton(
-                    text = "Apply Playlist",
-                    onClick = onApply,
-                    enabled = entries.isNotEmpty(),
-                    modifier = Modifier.fillMaxWidth()
-                )
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .navigationBarsPadding()
+                        .padding(horizontal = 20.dp, vertical = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    androidx.compose.foundation.layout.Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        AtmoOutlinedButton(
+                            text = "Add",
+                            onClick = onAddMore,
+                            accent = true,
+                            icon = painterResource(R.drawable.ic_add),
+                            modifier = Modifier.weight(0.38f)
+                        )
+                        AtmoPrimaryButton(
+                            text = applyLabel,
+                            onClick = onApply,
+                            enabled = applyEnabled,
+                            modifier = Modifier.weight(0.62f)
+                        )
+                    }
+                }
             }
         }
     }
@@ -159,49 +235,64 @@ fun PlaylistEditorScreen(
 @Composable
 private fun PlaylistCard(
     entry: PlaylistEntry,
+    effectId: String,
+    isActive: Boolean,
     onClick: () -> Unit,
     onDelete: () -> Unit
 ) {
     val context = LocalContext.current
+    val expressive = LocalAtmoExpressive.current
+    val haptics = LocalHapticFeedback.current
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (pressed && expressive) 0.975f else 1f,
+        animationSpec = spring(stiffness = 420f, dampingRatio = 0.66f),
+        label = "playlistCardScale"
+    )
     val thumb = rememberThumbnail(context, entry.displayUri)
 
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .aspectRatio(0.62f)
-            .clip(RoundedCornerShape(24.dp))
+            .scale(scale)
+            .clip(RoundedCornerShape(if (expressive) 32.dp else 20.dp))
             .background(MaterialTheme.colorScheme.surfaceContainerHighest)
-            .clickable(onClick = onClick)
+            .clickable(
+                interactionSource = interaction,
+                indication = LocalIndication.current,
+                onClick = {
+                    if (expressive) haptics.performHapticFeedback(HapticFeedbackType.ContextClick)
+                    onClick()
+                }
+            )
     ) {
-        if (thumb != null) {
+        if (thumb != null && isActive) {
+            com.app.nosatmosphereeffect.ui.components.WallpaperTransitionPreview(
+                effectId = effectId,
+                wallpaper = thumb,
+                modifier = Modifier.fillMaxSize()
+            )
+        } else if (thumb != null) {
             Image(
                 bitmap = thumb,
-                contentDescription = "Playlist image",
+                contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize()
             )
         } else {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(color = AtmoPurple, strokeWidth = 2.dp)
+                CircularProgressIndicator(
+                    color = MaterialTheme.colorScheme.primary,
+                    strokeWidth = 2.dp
+                )
             }
         }
 
         if (entry.isEdited) {
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.25f))
-            )
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Icon(
-                    painterResource(R.drawable.ic_check),
-                    contentDescription = null,
-                    tint = AtmoPurple,
-                    modifier = Modifier.size(44.dp)
-                )
-            }
             AtmoChip(
-                text = "Cropped",
+                text = "Edited",
                 modifier = Modifier
                     .align(Alignment.BottomStart)
                     .padding(12.dp)
@@ -209,28 +300,65 @@ private fun PlaylistCard(
         }
 
         // Delete button (top-right)
-        Box(
+        androidx.compose.material3.Surface(
             modifier = Modifier
                 .align(Alignment.TopEnd)
                 .padding(12.dp)
-                .size(40.dp)
-                .clip(CircleShape)
-                .background(Color.Black.copy(alpha = 0.45f))
-                .clickable(onClick = onDelete),
-            contentAlignment = Alignment.Center
+                .size(40.dp),
+            shape = CircleShape,
+            color = Color.Black.copy(alpha = 0.52f)
         ) {
-            Icon(
-                painterResource(R.drawable.ic_delete),
-                contentDescription = "Remove image",
-                tint = MaterialTheme.colorScheme.error,
-                modifier = Modifier.size(22.dp)
+            IconButton(onClick = onDelete) {
+                Icon(
+                    painterResource(R.drawable.ic_delete),
+                    contentDescription = "Remove image",
+                    tint = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.size(21.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun PageIndicator(
+    count: Int,
+    current: Int,
+    modifier: Modifier = Modifier
+) {
+    androidx.compose.foundation.layout.Row(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        repeat(count.coerceAtMost(9)) { index ->
+            val selected = index == current.coerceAtMost(8)
+            val width by animateDpAsState(
+                targetValue = if (selected) 22.dp else 7.dp,
+                animationSpec = spring(stiffness = 420f, dampingRatio = 0.68f),
+                label = "pageIndicatorWidth"
+            )
+            val color by animateColorAsState(
+                targetValue = if (selected) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.outlineVariant
+                },
+                label = "pageIndicatorColor"
+            )
+            Box(
+                Modifier
+                    .padding(horizontal = 3.dp)
+                    .size(width, 7.dp)
+                    .clip(CircleShape)
+                    .background(color)
             )
         }
     }
 }
 
 @Composable
-private fun EmptyPlaylist() {
+private fun EmptyPlaylist(label: String) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier.padding(32.dp)
@@ -250,7 +378,7 @@ private fun EmptyPlaylist() {
         )
         Spacer(Modifier.height(4.dp))
         Text(
-            "Tap \"Add More\" to choose photos for your playlist.",
+            "Tap Add to choose photos for $label.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = androidx.compose.ui.text.style.TextAlign.Center

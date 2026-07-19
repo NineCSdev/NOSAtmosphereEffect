@@ -13,7 +13,10 @@ import java.nio.FloatBuffer
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
 
-class FrostedRenderer(private val context: Context) : GLSurfaceView.Renderer, WallpaperScrollRenderer {
+class FrostedRenderer(
+    private val context: Context,
+    private val previewSource: (() -> Bitmap?)? = null
+) : GLSurfaceView.Renderer, WallpaperScrollRenderer {
 
     // --- Wallpaper scrolling (home-screen parallax) ---
     @Volatile private var scrollOffsetX: Float = 0.5f
@@ -57,7 +60,7 @@ class FrostedRenderer(private val context: Context) : GLSurfaceView.Renderer, Wa
     private var tempTextureHeight: Int = 0
     // -------------------------
 
-    var blurStrength: Float = 0.0f
+    @Volatile var blurStrength: Float = 0.0f
         set(value) {
             field = value
         }
@@ -162,7 +165,7 @@ class FrostedRenderer(private val context: Context) : GLSurfaceView.Renderer, Wa
 
         fittedForWidth = surfaceWidth
         fittedForHeight = surfaceHeight
-        val render = WallpaperFitHelper.loadForRender(context, surfaceWidth, surfaceHeight)
+        val render = WallpaperFitHelper.loadForRender(context, surfaceWidth, surfaceHeight, previewSource)
         val sharpBitmap = render.bitmap
         currentWindowX = render.windowX
 

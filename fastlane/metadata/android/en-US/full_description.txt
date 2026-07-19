@@ -1,15 +1,34 @@
-Bring the distinctive "Atmosphere" transition effect to your device.
+Turn your lock-screen-to-home-screen transition into part of the wallpaper.
 
-Atmo Engine is an open-source live wallpaper engine designed to replicate the dynamic transition found in Nothing OS. When you unlock your device, your wallpaper smoothly shifts from a moody, blurred abstract view to a sharp, clear home screen.
+Atmo Engine is an open-source live wallpaper studio inspired by the Atmosphere effect in Nothing OS. Choose an image, preview the real animation, fine-tune it, and apply it through Android's live wallpaper screen.
 
-Features:
-• Original Atmosphere: Drifting ambient clouds that transition to a sharp view on unlock.
-• Reverse Atmosphere: A deep, moody alternative that fades from clear to atmospheric clouds.
-• Simple Frosted: A clean, uniform frosted glass effect for a minimal look.
-• Playlist Mode: Select multiple wallpapers and have them rotate automatically.
-• Customization: Fine-tune the experience with sliders for blur strength, grain/noise texture, and zoom levels.
+ANIMATED EFFECTS
+• Original and Reverse Atmosphere
+• Simple Frosted and Reverse Frosted
+• Halftone Print and Reverse Halftone
+• Color Fill and Reverse Color Fill
+• Canvas Sketch and Reverse Canvas Sketch
 
-Privacy & Performance:
-• Completely Open Source (MIT License).
-• No Internet Permission required.
-• Efficient battery usage using OpenGL.
+Each effect uses the same renderer in its preview and the live wallpaper, so you can see how your image and transition will look before applying it.
+
+WALLPAPER MODES
+• Single Image for a focused setup
+• Playlist for automatic wallpaper rotation
+• Theme Playlists with separate Light and Dark collections
+
+Theme Playlists switch collections when the device appearance changes, then continue rotating within the active collection at your chosen interval. Every playlist image can keep its own crop, zoom, fit, and scrolling position.
+
+FINE TUNING
+Adjust animation duration, dimness, blur, grain, atmosphere contrast and saturation, halftone detail, Canvas Sketch lines, fingerprint position, image fit, and playlist timing. Recommendations automatically follow the selected effect.
+
+MATERIAL 3 INTERFACE
+Use Material Expressive styling with the device's system color palette, or switch to fixed app colors. Appearance controls include System, Light, and Dark modes plus an optional pitch-black background in dark mode.
+
+OFFLINE-FIRST PRIVACY
+Wallpaper images, crops, sketches, palettes, and playlists are processed and stored on-device. Atmo Engine does not request Internet or network-state permission and contains no developer-operated advertising or analytics.
+
+Canvas Sketch works offline by tracing the complete wallpaper. Optional subject segmentation can isolate a prominent person, character, animal, or object. Its model is downloaded only after you tap Download Subject Model, is installed by Google Play services, and runs on-device afterward.
+
+Sync System Colors publishes a locally extracted wallpaper palette through Android's wallpaper API whenever the active image changes. System-wide color refresh behavior is controlled by the phone manufacturer.
+
+Atmo Engine is released under the MIT License.
