@@ -2,169 +2,216 @@ package com.app.nosatmosphereeffect.helper
 
 import android.content.Context
 import android.graphics.Bitmap
-import com.google.android.gms.common.moduleinstall.ModuleInstall
-import com.google.mlkit.vision.common.InputImage
-import com.google.mlkit.vision.segmentation.subject.SubjectSegmentation
-import com.google.mlkit.vision.segmentation.subject.SubjectSegmenterOptions
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.Rect
+import android.util.Log
+import androidx.core.graphics.createBitmap
+import org.tensorflow.lite.Interpreter
 import java.io.Closeable
-import kotlin.math.max
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
+import java.util.concurrent.Executors
+import java.util.concurrent.RejectedExecutionException
 import kotlin.math.roundToInt
 
-/**
- * Extracts a prominent foreground only when the optional Play services model
- * is already installed. It never initiates a model download.
- */
+/** Runs the bundled U2NetP foreground model without network or Play services. */
 class SubjectMaskExtractor(
     context: Context,
-    private val onResult: (requestId: Long, mask: Bitmap?) -> Unit,
-    private val onModelUnavailable: () -> Unit
+    private val onResult: (requestId: Long, mask: Bitmap?) -> Unit
 ) : Closeable {
 
     private companion object {
-        const val MAX_INPUT_SIDE = 1024
+        const val TAG = "SubjectMaskExtractor"
+        const val MODEL_ASSET = "models/u2netp_320x320.tflite"
+        const val INPUT_SIZE = 320
+        const val THREAD_COUNT = 2
         const val CONFIDENT_FOREGROUND = 0.55f
         const val HIGH_CONFIDENCE = 0.75f
         const val MIN_FOREGROUND_FRACTION = 0.012f
         const val MIN_HIGH_CONFIDENCE_FRACTION = 0.003f
+        const val MIN_RAW_CONFIDENCE = 0.40f
+        const val MIN_CONFIDENCE_RANGE = 0.10f
         const val MASK_LOW = 0.28f
         const val MASK_HIGH = 0.72f
     }
 
-    private val segmenter = SubjectSegmentation.getClient(
-        SubjectSegmenterOptions.Builder()
-            .enableForegroundConfidenceMask()
-            .build()
-    )
-    private val moduleClient = ModuleInstall.getClient(context.applicationContext)
+    private val appContext = context.applicationContext
+    private val worker = Executors.newSingleThreadExecutor { task ->
+        Thread(task, "canvas-subject-segmentation")
+    }
+    private val interpreterLock = Any()
+    private val inputBuffer = ByteBuffer.allocateDirect(INPUT_SIZE * INPUT_SIZE * 3 * 4)
+        .order(ByteOrder.nativeOrder())
+    private val outputBuffer = ByteBuffer.allocateDirect(INPUT_SIZE * INPUT_SIZE * 4)
+        .order(ByteOrder.nativeOrder())
+    private val sourcePixels = IntArray(INPUT_SIZE * INPUT_SIZE)
+    private val confidenceValues = FloatArray(INPUT_SIZE * INPUT_SIZE)
+    private val maskPixels = IntArray(INPUT_SIZE * INPUT_SIZE)
 
     @Volatile private var closed = false
+    private var interpreter: Interpreter? = null
+    private var modelBuffer: ByteBuffer? = null
 
     fun extract(bitmap: Bitmap, requestId: Long) {
         if (closed || bitmap.width <= 0 || bitmap.height <= 0) return
 
-        val inputBitmap = try {
-            makeInputBitmap(bitmap)
-        } catch (_: Exception) {
-            if (!closed) onResult(requestId, null)
+        val inputBitmap = runCatching { makeInputBitmap(bitmap) }.getOrElse {
+            onResult(requestId, null)
             return
         }
 
-        moduleClient.areModulesAvailable(segmenter)
-            .addOnSuccessListener { availability ->
-                when {
-                    closed -> inputBitmap.recycle()
-                    !availability.areModulesAvailable() -> {
-                        inputBitmap.recycle()
-                        onModelUnavailable()
-                        onResult(requestId, null)
-                    }
-                    else -> processInput(inputBitmap, requestId)
-                }
-            }
-            .addOnFailureListener {
-                inputBitmap.recycle()
-                if (!closed) onResult(requestId, null)
-            }
-    }
-
-    private fun processInput(inputBitmap: Bitmap, requestId: Long) {
         try {
-            segmenter.process(InputImage.fromBitmap(inputBitmap, 0))
-                .addOnSuccessListener { result ->
-                    val mask = if (closed) null else runCatching {
-                        val confidence = result.foregroundConfidenceMask ?: return@runCatching null
-                        val count = inputBitmap.width * inputBitmap.height
-                        val values = FloatArray(count)
-                        val buffer = confidence.duplicate()
-                        buffer.rewind()
-                        if (buffer.remaining() < count) return@runCatching null
-
-                        var foregroundCount = 0
-                        var highConfidenceCount = 0
-                        var minX = inputBitmap.width
-                        var minY = inputBitmap.height
-                        var maxX = -1
-                        var maxY = -1
-
-                        for (i in 0 until count) {
-                            val value = buffer.get().takeIf { it.isFinite() }?.coerceIn(0f, 1f) ?: 0f
-                            values[i] = value
-                            if (value >= CONFIDENT_FOREGROUND) {
-                                foregroundCount++
-                                val x = i % inputBitmap.width
-                                val y = i / inputBitmap.width
-                                if (x < minX) minX = x
-                                if (x > maxX) maxX = x
-                                if (y < minY) minY = y
-                                if (y > maxY) maxY = y
-                            }
-                            if (value >= HIGH_CONFIDENCE) highConfidenceCount++
-                        }
-
-                        val foregroundFraction = foregroundCount.toFloat() / count
-                        val highConfidenceFraction = highConfidenceCount.toFloat() / count
-                        val subjectWidth = maxX - minX + 1
-                        val subjectHeight = maxY - minY + 1
-                        val hasUsefulBounds =
-                            subjectWidth >= inputBitmap.width * 0.04f &&
-                                subjectHeight >= inputBitmap.height * 0.04f
-
-                        if (foregroundFraction < MIN_FOREGROUND_FRACTION ||
-                            highConfidenceFraction < MIN_HIGH_CONFIDENCE_FRACTION ||
-                            !hasUsefulBounds
-                        ) {
-                            return@runCatching null
-                        }
-
-                        val pixels = IntArray(count)
-                        for (i in values.indices) {
-                            val t = ((values[i] - MASK_LOW) / (MASK_HIGH - MASK_LOW)).coerceIn(0f, 1f)
-                            val smooth = t * t * (3f - 2f * t)
-                            val gray = (smooth * 255f).roundToInt()
-                            pixels[i] = 0xFF000000.toInt() or
-                                (gray shl 16) or (gray shl 8) or gray
-                        }
-                        Bitmap.createBitmap(
-                            pixels,
-                            inputBitmap.width,
-                            inputBitmap.height,
-                            Bitmap.Config.ARGB_8888
-                        )
-                    }.getOrNull()
-
-                    if (closed) {
-                        mask?.recycle()
-                    } else {
-                        onResult(requestId, mask)
-                    }
-                }
-                .addOnFailureListener {
-                    if (!closed) onResult(requestId, null)
-                }
-                .addOnCompleteListener {
+            worker.execute {
+                val mask = try {
+                    if (closed) null else inferMask(inputBitmap)
+                } catch (error: Exception) {
+                    Log.w(TAG, "Bundled subject segmentation failed", error)
+                    null
+                } finally {
                     inputBitmap.recycle()
                 }
-        } catch (_: Exception) {
+
+                if (closed) {
+                    mask?.recycle()
+                } else {
+                    onResult(requestId, mask)
+                }
+            }
+        } catch (_: RejectedExecutionException) {
             inputBitmap.recycle()
             if (!closed) onResult(requestId, null)
         }
     }
 
-    override fun close() {
-        if (closed) return
-        closed = true
-        segmenter.close()
+    private fun inferMask(inputBitmap: Bitmap): Bitmap? {
+        inputBitmap.getPixels(
+            sourcePixels,
+            0,
+            INPUT_SIZE,
+            0,
+            0,
+            INPUT_SIZE,
+            INPUT_SIZE
+        )
+
+        inputBuffer.clear()
+        for (pixel in sourcePixels) {
+            inputBuffer.putFloat((((pixel shr 16) and 0xFF) / 255f - 0.485f) / 0.229f)
+            inputBuffer.putFloat((((pixel shr 8) and 0xFF) / 255f - 0.456f) / 0.224f)
+            inputBuffer.putFloat(((pixel and 0xFF) / 255f - 0.406f) / 0.225f)
+        }
+        inputBuffer.rewind()
+        outputBuffer.clear()
+
+        synchronized(interpreterLock) {
+            val engine = interpreter ?: createInterpreter().also { interpreter = it }
+            engine.runForMultipleInputsOutputs(
+                arrayOf(inputBuffer),
+                hashMapOf<Int, Any>(0 to outputBuffer)
+            )
+        }
+        outputBuffer.rewind()
+
+        var rawMin = Float.POSITIVE_INFINITY
+        var rawMax = Float.NEGATIVE_INFINITY
+        for (index in confidenceValues.indices) {
+            val value = outputBuffer.float.takeIf { it.isFinite() } ?: 0f
+            confidenceValues[index] = value
+            if (value < rawMin) rawMin = value
+            if (value > rawMax) rawMax = value
+        }
+
+        val range = rawMax - rawMin
+        if (rawMax < MIN_RAW_CONFIDENCE || range < MIN_CONFIDENCE_RANGE) return null
+
+        var foregroundCount = 0
+        var highConfidenceCount = 0
+        var minX = INPUT_SIZE
+        var minY = INPUT_SIZE
+        var maxX = -1
+        var maxY = -1
+
+        for (index in confidenceValues.indices) {
+            val normalized = ((confidenceValues[index] - rawMin) / range).coerceIn(0f, 1f)
+            confidenceValues[index] = normalized
+            if (normalized >= CONFIDENT_FOREGROUND) {
+                foregroundCount++
+                val x = index % INPUT_SIZE
+                val y = index / INPUT_SIZE
+                if (x < minX) minX = x
+                if (x > maxX) maxX = x
+                if (y < minY) minY = y
+                if (y > maxY) maxY = y
+            }
+            if (normalized >= HIGH_CONFIDENCE) highConfidenceCount++
+        }
+
+        val pixelCount = confidenceValues.size
+        val foregroundFraction = foregroundCount.toFloat() / pixelCount
+        val highConfidenceFraction = highConfidenceCount.toFloat() / pixelCount
+        val subjectWidth = maxX - minX + 1
+        val subjectHeight = maxY - minY + 1
+        val hasUsefulBounds =
+            subjectWidth >= INPUT_SIZE * 0.04f && subjectHeight >= INPUT_SIZE * 0.04f
+
+        if (foregroundFraction < MIN_FOREGROUND_FRACTION ||
+            highConfidenceFraction < MIN_HIGH_CONFIDENCE_FRACTION ||
+            !hasUsefulBounds
+        ) {
+            return null
+        }
+
+        for (index in confidenceValues.indices) {
+            val t = ((confidenceValues[index] - MASK_LOW) / (MASK_HIGH - MASK_LOW))
+                .coerceIn(0f, 1f)
+            val smooth = t * t * (3f - 2f * t)
+            val gray = (smooth * 255f).roundToInt()
+            maskPixels[index] = 0xFF000000.toInt() or
+                (gray shl 16) or (gray shl 8) or gray
+        }
+        return Bitmap.createBitmap(
+            maskPixels,
+            INPUT_SIZE,
+            INPUT_SIZE,
+            Bitmap.Config.ARGB_8888
+        )
+    }
+
+    private fun createInterpreter(): Interpreter {
+        val bytes = appContext.assets.open(MODEL_ASSET).use { it.readBytes() }
+        val directBuffer = ByteBuffer.allocateDirect(bytes.size)
+            .order(ByteOrder.nativeOrder())
+            .put(bytes)
+        directBuffer.rewind()
+        modelBuffer = directBuffer
+        return Interpreter(
+            directBuffer,
+            Interpreter.Options()
+                .setNumThreads(THREAD_COUNT)
+                .setUseXNNPACK(true)
+        )
     }
 
     private fun makeInputBitmap(source: Bitmap): Bitmap {
-        val longestSide = max(source.width, source.height)
-        if (longestSide <= MAX_INPUT_SIDE) {
-            return source.copy(Bitmap.Config.ARGB_8888, false)
-        }
+        val target = createBitmap(INPUT_SIZE, INPUT_SIZE, Bitmap.Config.ARGB_8888)
+        Canvas(target).drawBitmap(
+            source,
+            null,
+            Rect(0, 0, INPUT_SIZE, INPUT_SIZE),
+            Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+        )
+        return target
+    }
 
-        val scale = MAX_INPUT_SIDE.toFloat() / longestSide
-        val width = (source.width * scale).roundToInt().coerceAtLeast(1)
-        val height = (source.height * scale).roundToInt().coerceAtLeast(1)
-        return Bitmap.createScaledBitmap(source, width, height, true)
+    override fun close() {
+        if (closed) return
+        closed = true
+        worker.shutdown()
+        synchronized(interpreterLock) {
+            interpreter?.close()
+            interpreter = null
+            modelBuffer = null
+        }
     }
 }

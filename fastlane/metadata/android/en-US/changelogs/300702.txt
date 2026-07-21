@@ -1,0 +1,1 @@
+Atmo Engine 7.0.2 replaces ML Kit with a bundled open-source U2NetP model and a source-built F-Droid-compatible LiteRT runtime. Canvas Sketch subject segmentation now works fully offline with no model download or Google Play services dependency. This release also retains the new Material 3 interface, real effect previews, theme-based playlists, and device palette fixes.

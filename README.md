@@ -50,13 +50,13 @@ Open the app and choose your desired atmosphere style from the selection screen:
 
 #### Canvas Sketch and Subject Segmentation
 
-Canvas Sketch works fully offline without an additional model. In that mode, it traces the complete wallpaper. For wallpapers with a prominent person, character, animal, or object, optional subject segmentation can isolate that subject before drawing the sketch:
+Canvas Sketch is fully offline. It includes the open-source U2NetP foreground model directly in the app, so there is nothing to download and no Google Play services or ML Kit dependency. For wallpapers with a prominent person, character, animal, or object, subject segmentation can isolate that subject before drawing the sketch:
 
 1. Open **Fine Tuning** for Canvas Sketch.
-2. Tap **Download Subject Model**. The model is requested only after this explicit action and is installed by Google Play services.
-3. Turn on **Subject Segmentation** after the model status changes to **Downloaded**.
+2. Turn on **Subject Segmentation**.
+3. Preview or apply the wallpaper normally.
 
-The subject model is downloaded on demand and reused while it remains installed; Google Play services may manage or update system modules later. Segmentation itself runs on-device, and wallpaper image contents are not uploaded. The Atmo Engine APK does not request the `INTERNET` or `ACCESS_NETWORK_STATE` permission; Google Play services handles the optional model download through its own system service and may use Wi-Fi or mobile data according to the device's settings. The rest of the app, including Canvas Sketch without segmentation, remains offline. See the [privacy policy](privacy-policy.md) for ML Kit's limited technical diagnostics disclosure.
+Segmentation runs locally through the F-Droid-compatible LiteRT runtime. If no confident foreground subject is found, Canvas Sketch automatically falls back to sketching the complete wallpaper. Wallpaper image contents and generated masks never leave the device. Atmo Engine does not request the `INTERNET` or `ACCESS_NETWORK_STATE` permission.
 
 ### 2\. Select Image & Playlist Mode
 After selecting an effect, you will be prompted to choose your wallpaper mode:
@@ -102,7 +102,7 @@ Take full control of the animation and look. You can now tweak the following set
 * **Fingerprint Location:** (Color Fill Effects Only) Two sliders to adjust the horizontal and vertical position of effect start place sync with the fingerprint location.
 * **Sketch Detail:** (Canvas Sketch Only) Controls how many wallpaper contours are retained.
 * **Line Thickness:** (Canvas Sketch Only) Adjusts the width of the monochrome sketch lines.
-* **Subject Segmentation:** (Canvas Sketch Only) Optionally limits the sketch to a detected foreground subject after the on-device model has been downloaded.
+* **Subject Segmentation:** (Canvas Sketch Only) Optionally limits the sketch to a detected foreground subject using the bundled offline U2NetP model.
 ### Animation & Behavior
 * **Animation Duration:** Control the total transition duration.
 * **Lock Delay (Anti-Flicker):** Adds a configurable pause before the wallpaper resets when you lock the phone. This prevents the visual glitch where the wallpaper "snaps" back to its initial state before the screen turns fully black.
@@ -141,6 +141,8 @@ I've made a Telegram group for discussing issues and feature suggestions. You ca
 
 This project is built using Kotlin and Gradle.
 
+Canvas Sketch subject segmentation uses the Apache-2.0 U2NetP model and the source-built `tensorflow-lite-fdroid` runtime. No proprietary ML Kit or Google Play services dependency is included. Model and runtime provenance is recorded in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
 1.  Clone the repository.
 2.  Open in the latest stable Android Studio.
 3.  Sync Gradle.
@@ -164,7 +166,7 @@ git clone https://github.com/saad-khan-rind/NOSAtmosphereEffect.git
 
 ## License
 
-This project is open-source and available under the [MIT License](LICENSE).
+This project is open-source and available under the [MIT License](LICENSE). Bundled third-party components retain their respective open-source licenses; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 ## Privacy Policy
 

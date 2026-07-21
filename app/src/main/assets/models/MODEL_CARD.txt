@@ -1,0 +1,17 @@
+Model: U2NetP salient-foreground segmentation
+Bundled file: u2netp_320x320.tflite
+Input: float32 RGB, [1, 320, 320, 3]
+Preprocessing: ImageNet mean and standard deviation normalization
+Output used: float32 foreground confidence, output tensor 0, [1, 320, 320, 1]
+
+Upstream source and weights:
+https://github.com/xuebinqin/U-2-Net
+
+TFLite artifact mirror, pinned revision:
+https://huggingface.co/abhimanyu666/u2nettflite/tree/b0a7a49e3647e971e325a4fb10fc14a620315342
+
+SHA-256:
+558136589a47e97f53944ac3f65ba56f4efb5f6bae8e92b573e7c463d20fdb58
+
+License: Apache License 2.0
+The complete license is stored beside this file as U2NET_LICENSE.txt.

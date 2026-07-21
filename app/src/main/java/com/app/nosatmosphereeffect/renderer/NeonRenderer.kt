@@ -148,8 +148,7 @@ class NeonRenderer(
             takePendingSubjectMask()?.bitmap?.recycle()
         }
 
-        // Enabling must reload the source bitmap for extraction. Re-checking an
-        // already enabled setting also handles a model downloaded moments ago.
+        // Enabling reloads the source bitmap so the bundled model can extract it.
         if (changed || enabled) needsReload = true
     }
 
@@ -238,19 +237,10 @@ class NeonRenderer(
         if (!subjectSegmentationEnabled) return
         val extractor = subjectMaskExtractor ?: SubjectMaskExtractor(
             context,
-            ::onSubjectMaskResult,
-            ::onSubjectModelUnavailable
+            ::onSubjectMaskResult
         ).also { subjectMaskExtractor = it }
         latestSubjectRequest = generation
         extractor.extract(bitmap, generation)
-    }
-
-    private fun onSubjectModelUnavailable() {
-        // Availability can be transient while Play services is loading the
-        // module. Fall back for this renderer without corrupting saved status.
-        subjectSegmentationEnabled = false
-        subjectMaskExtractor?.close()
-        subjectMaskExtractor = null
     }
 
     private fun onSubjectMaskResult(generation: Long, mask: Bitmap?) {

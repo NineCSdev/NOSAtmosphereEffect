@@ -9,8 +9,8 @@ android {
 
     defaultConfig {
         applicationId = "com.saad_khan_rind.atmosphere_effect"
-        versionName = "7.0.1"
-        versionCode = 200701
+        versionName = "7.0.2"
+        versionCode = 200702
     }
 
     flavorDimensions += "apiLevel"
@@ -21,28 +21,32 @@ android {
             dimension = "apiLevel"
             minSdk = 36
             targetSdk = 36
-            versionCode = 200701
+            versionCode = 200702
         }
 
         // Android 15+ (API 35) — this is the build published on Google Play.
         create("v35") {
             dimension = "apiLevel"
             minSdk = 35
-            targetSdk = 35
-            versionCode = 300701
+            targetSdk = 36
+            versionCode = 300702
         }
 
         create("v33") {
             dimension = "apiLevel"
             minSdk = 33
             targetSdk = 33
-            versionCode = 100701
+            versionCode = 100702
         }
 
     }
 
     buildFeatures {
         compose = true
+    }
+
+    androidResources {
+        noCompress += "tflite"
     }
 
     compileOptions {
@@ -76,8 +80,8 @@ kotlin {
 dependencies {
     implementation(libs.androidx.exifinterface)
     implementation(libs.androidx.palette.ktx)
-    implementation(libs.play.services.base)
-    implementation(libs.play.services.mlkit.subject.segmentation)
+    implementation(libs.litert.api)
+    implementation(libs.litert.fdroid)
 
     // --- Jetpack Compose (common to all flavors) ---
     val composeBom = platform(libs.androidx.compose.bom)
