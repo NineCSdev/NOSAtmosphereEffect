@@ -41,6 +41,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import com.app.nosatmosphereeffect.R
+import com.app.nosatmosphereeffect.helper.SubjectModelDelivery
 import com.app.nosatmosphereeffect.helper.SubjectModelPhase
 import com.app.nosatmosphereeffect.helper.SubjectModelState
 import com.app.nosatmosphereeffect.ui.components.AtmoDropdownField
@@ -117,6 +118,7 @@ private enum class FineTuneTab(val label: String) {
 @Composable
 fun AdvancedSettingsScreen(
     config: AdvancedConfig,
+    subjectModelDelivery: SubjectModelDelivery,
     subjectModelState: SubjectModelState,
     onDownloadSubjectModel: () -> Unit,
     onApply: (AdvancedResult) -> Unit,
@@ -147,8 +149,10 @@ fun AdvancedSettingsScreen(
     var scrollEnabled by remember { mutableStateOf(config.scrollEnabled) }
     var infoDialog by remember { mutableStateOf<InfoDialog?>(null) }
 
-    val subjectModelReady = subjectModelState.phase == SubjectModelPhase.READY
-    val subjectModelWorking = subjectModelState.phase in setOf(
+    val bundledSubjectModel = subjectModelDelivery == SubjectModelDelivery.BUNDLED_FOSS
+    val subjectModelReady = bundledSubjectModel ||
+        subjectModelState.phase == SubjectModelPhase.READY
+    val subjectModelWorking = !bundledSubjectModel && subjectModelState.phase in setOf(
         SubjectModelPhase.CHECKING,
         SubjectModelPhase.DOWNLOADING,
         SubjectModelPhase.INSTALLING,
@@ -157,21 +161,30 @@ fun AdvancedSettingsScreen(
     val subjectModelButtonText = when (subjectModelState.phase) {
         SubjectModelPhase.CHECKING -> "Checking model"
         SubjectModelPhase.NOT_DOWNLOADED -> "Download subject model"
-        SubjectModelPhase.DOWNLOADING -> subjectModelState.progressPercent?.let { "Downloading $it%" }
-            ?: "Downloading model"
+        SubjectModelPhase.DOWNLOADING -> subjectModelState.progressPercent?.let {
+            "Downloading $it%"
+        } ?: "Downloading model"
         SubjectModelPhase.INSTALLING -> "Installing model"
         SubjectModelPhase.PAUSED -> "Download paused"
         SubjectModelPhase.READY -> "Subject model downloaded"
         SubjectModelPhase.FAILED -> "Retry model download"
     }
-    val subjectModelStatusText = when (subjectModelState.phase) {
-        SubjectModelPhase.CHECKING -> "Checking Google Play services."
-        SubjectModelPhase.NOT_DOWNLOADED -> "Optional and downloaded only on request."
-        SubjectModelPhase.DOWNLOADING -> "Google Play services is downloading the model."
-        SubjectModelPhase.INSTALLING -> "Completing on-device installation."
-        SubjectModelPhase.PAUSED -> "Waiting for an available connection."
-        SubjectModelPhase.READY -> "Ready for offline, on-device segmentation."
-        SubjectModelPhase.FAILED -> "Download failed. Try again when connected."
+    val subjectModelStatusText = when {
+        bundledSubjectModel ->
+            "Bundled U2NetP model. Open source, on-device, and ready offline."
+        subjectModelState.phase == SubjectModelPhase.CHECKING ->
+            "Checking Google Play services without starting a download."
+        subjectModelState.phase == SubjectModelPhase.NOT_DOWNLOADED ->
+            "Optional. Google Play services downloads it only after you tap the button."
+        subjectModelState.phase == SubjectModelPhase.DOWNLOADING ->
+            "Google Play services is downloading the subject model."
+        subjectModelState.phase == SubjectModelPhase.INSTALLING ->
+            "Completing the on-device model installation."
+        subjectModelState.phase == SubjectModelPhase.PAUSED ->
+            "The download is paused until a connection is available."
+        subjectModelState.phase == SubjectModelPhase.READY ->
+            "Installed and ready for offline, on-device segmentation."
+        else -> "The model check failed. Try again when Google Play services is available."
     }
 
     val result = AdvancedResult(
@@ -281,6 +294,7 @@ fun AdvancedSettingsScreen(
                         onNeonLineWidthChange = { neonLineWidth = it },
                         subjectSegmentationEnabled = subjectSegmentationEnabled,
                         onSubjectSegmentationChange = { subjectSegmentationEnabled = it },
+                        subjectModelDelivery = subjectModelDelivery,
                         subjectModelReady = subjectModelReady,
                         subjectModelWorking = subjectModelWorking,
                         subjectModelButtonText = subjectModelButtonText,
@@ -356,6 +370,7 @@ private fun EffectSettings(
     onNeonLineWidthChange: (Float) -> Unit,
     subjectSegmentationEnabled: Boolean,
     onSubjectSegmentationChange: (Boolean) -> Unit,
+    subjectModelDelivery: SubjectModelDelivery,
     subjectModelReady: Boolean,
     subjectModelWorking: Boolean,
     subjectModelButtonText: String,
@@ -414,36 +429,41 @@ private fun EffectSettings(
                     title = "Subject segmentation",
                     checked = subjectSegmentationEnabled,
                     onCheckedChange = onSubjectSegmentationChange,
-                    enabled = subjectModelReady,
-                    subtitle = if (subjectModelReady) {
-                        "Use the installed model to isolate the foreground."
-                    } else {
-                        "The full wallpaper is sketched until the model is installed."
+                    enabled = subjectModelReady || subjectSegmentationEnabled,
+                    subtitle = when {
+                        !subjectSegmentationEnabled -> "Sketches the complete wallpaper."
+                        subjectModelDelivery == SubjectModelDelivery.BUNDLED_FOSS ->
+                            "Uses the bundled U2NetP model locally to isolate the foreground."
+                        subjectModelReady ->
+                            "Uses the installed ML Kit model locally to isolate the foreground."
+                        else -> "The complete wallpaper is sketched until the model is installed."
                     }
                 )
-                Spacer(Modifier.height(10.dp))
-                AtmoOutlinedButton(
-                    text = subjectModelButtonText,
-                    onClick = onDownloadSubjectModel,
-                    enabled = !subjectModelWorking && !subjectModelReady,
-                    accent = true,
-                    icon = if (!subjectModelWorking && !subjectModelReady) {
-                        painterResource(R.drawable.ic_download)
-                    } else {
-                        null
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                )
-                if (subjectModelWorking) {
+                if (subjectModelDelivery == SubjectModelDelivery.GOOGLE_PLAY_SERVICES) {
                     Spacer(Modifier.height(10.dp))
-                    val percent = subjectModelState.progressPercent
-                    if (percent != null) {
-                        LinearProgressIndicator(
-                            progress = { percent / 100f },
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    } else {
-                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                    AtmoOutlinedButton(
+                        text = subjectModelButtonText,
+                        onClick = onDownloadSubjectModel,
+                        enabled = !subjectModelWorking && !subjectModelReady,
+                        accent = true,
+                        icon = if (!subjectModelWorking && !subjectModelReady) {
+                            painterResource(R.drawable.ic_download)
+                        } else {
+                            null
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    if (subjectModelWorking) {
+                        Spacer(Modifier.height(10.dp))
+                        val percent = subjectModelState.progressPercent
+                        if (percent != null) {
+                            LinearProgressIndicator(
+                                progress = { percent / 100f },
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        } else {
+                            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                        }
                     }
                 }
                 Spacer(Modifier.height(8.dp))

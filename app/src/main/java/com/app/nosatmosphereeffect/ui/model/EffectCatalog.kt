@@ -8,6 +8,14 @@ data class EffectItem(
 )
 
 object EffectCatalog {
+    private val originalFirstEffectIds = setOf(
+        "ORIGINAL",
+        "FROSTED",
+        "HALFTONE",
+        "COLORFILL_REVERSE",
+        "NEON_REVERSE"
+    )
+
     val items = listOf(
         EffectItem(
             "ORIGINAL",
@@ -91,6 +99,8 @@ object EffectCatalog {
     }
 
     fun isReverse(id: String): Boolean = id.endsWith("_REVERSE") || id == "REVERSE"
+
+    fun startsFromOriginalWallpaper(id: String?): Boolean = id in originalFirstEffectIds
 
     fun family(id: String): String = when {
         id.contains("FROSTED") -> "FROSTED"

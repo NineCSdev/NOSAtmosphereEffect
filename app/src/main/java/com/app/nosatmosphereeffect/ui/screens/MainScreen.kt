@@ -13,6 +13,8 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -32,12 +34,18 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.Help
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Brightness6
+import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Collections
 import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Image
+import androidx.compose.material.icons.rounded.Info
+import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Palette
+import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.Wallpaper
@@ -75,6 +83,7 @@ import com.app.nosatmosphereeffect.ui.components.AtmoTonalButton
 import com.app.nosatmosphereeffect.ui.components.SettingSwitchRow
 import com.app.nosatmosphereeffect.ui.components.WallpaperTransitionPreview
 import com.app.nosatmosphereeffect.ui.model.EffectCatalog
+import com.app.nosatmosphereeffect.ui.preview.EffectPreviewSettingsMode
 import com.app.nosatmosphereeffect.ui.theme.AppThemeMode
 import com.app.nosatmosphereeffect.ui.theme.LocalAtmoExpressive
 
@@ -83,6 +92,7 @@ import com.app.nosatmosphereeffect.ui.theme.LocalAtmoExpressive
 fun MainScreen(
     wallpaperActive: Boolean,
     statusText: String,
+    isSamsungDevice: Boolean,
     activeEffectId: String?,
     previewBitmap: ImageBitmap?,
     isPlaylistMode: Boolean,
@@ -106,6 +116,7 @@ fun MainScreen(
 ) {
     var showImageSheet by remember { mutableStateOf(false) }
     var showSettingsSheet by remember { mutableStateOf(false) }
+    var showAdaptiveClockSheet by remember { mutableStateOf(false) }
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -128,6 +139,14 @@ fun MainScreen(
                     }
                 },
                 actions = {
+                    if (isSamsungDevice) {
+                        AliveIconButton(
+                            icon = Icons.AutoMirrored.Rounded.Help,
+                            description = "Samsung adaptive clock setup",
+                            onClick = { showAdaptiveClockSheet = true }
+                        )
+                        Spacer(Modifier.width(8.dp))
+                    }
                     AliveIconButton(
                         icon = Icons.Rounded.Settings,
                         description = "Appearance settings",
@@ -233,6 +252,233 @@ fun MainScreen(
             onDismiss = { showSettingsSheet = false }
         )
     }
+
+    if (showAdaptiveClockSheet) {
+        SamsungAdaptiveClockSheet(
+            wallpaperActive = wallpaperActive,
+            activeEffectId = activeEffectId,
+            isPlaylistMode = isPlaylistMode,
+            onDismiss = { showAdaptiveClockSheet = false }
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SamsungAdaptiveClockSheet(
+    wallpaperActive: Boolean,
+    activeEffectId: String?,
+    isPlaylistMode: Boolean,
+    onDismiss: () -> Unit
+) {
+    val effect = EffectCatalog.find(activeEffectId)
+    val originalFirst = EffectCatalog.startsFromOriginalWallpaper(activeEffectId)
+    val compatible = wallpaperActive && !isPlaylistMode && originalFirst
+    val compatibleEffectNames = remember {
+        EffectCatalog.items
+            .filter { EffectCatalog.startsFromOriginalWallpaper(it.id) }
+            .joinToString { it.title }
+    }
+    val statusTitle: String
+    val statusMessage: String
+    when {
+        !wallpaperActive -> {
+            statusTitle = "Choose a compatible setup"
+            statusMessage = "Use one image and a transition that begins with the unchanged wallpaper."
+        }
+        isPlaylistMode -> {
+            statusTitle = "Single image required"
+            statusMessage = "Samsung adaptive clock setup is not available for playlists yet."
+        }
+        !originalFirst -> {
+            statusTitle = "Change the transition direction"
+            statusMessage = "${effect.title} does not begin with the unchanged wallpaper."
+        }
+        else -> {
+            statusTitle = "Current setup is compatible"
+            statusMessage = "${effect.title} begins with the unchanged wallpaper and uses one image."
+        }
+    }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = MaterialTheme.colorScheme.surfaceContainer,
+        shape = RoundedCornerShape(topStart = 40.dp, topEnd = 40.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .verticalScroll(rememberScrollState())
+                .padding(start = 24.dp, end = 24.dp, bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(18.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Surface(
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    modifier = Modifier.size(46.dp)
+                ) {
+                    Icon(
+                        Icons.Rounded.Schedule,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.padding(11.dp)
+                    )
+                }
+                Spacer(Modifier.width(14.dp))
+                Column {
+                    Text("Adaptive clock", style = MaterialTheme.typography.headlineSmall)
+                    Text(
+                        "Samsung lock screen setup",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            Text(
+                "Keep Samsung's adaptive lock-screen clock while Atmo Engine handles the home-screen transition.",
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            Surface(
+                shape = RoundedCornerShape(24.dp),
+                color = if (compatible) {
+                    MaterialTheme.colorScheme.primaryContainer
+                } else {
+                    MaterialTheme.colorScheme.secondaryContainer
+                }
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 18.dp, vertical = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        if (compatible) Icons.Rounded.CheckCircle else Icons.Rounded.Info,
+                        contentDescription = null,
+                        tint = if (compatible) {
+                            MaterialTheme.colorScheme.onPrimaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.onSecondaryContainer
+                        }
+                    )
+                    Column(Modifier.weight(1f)) {
+                        Text(statusTitle, style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            statusMessage,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+
+            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                AdaptiveClockStep(
+                    number = 1,
+                    icon = Icons.Rounded.Home,
+                    title = "Apply Atmo to the Home screen",
+                    message = "In Android's live wallpaper preview, choose Home screen only."
+                )
+                AdaptiveClockStep(
+                    number = 2,
+                    icon = Icons.Rounded.Lock,
+                    title = "Set the same Lock screen image",
+                    message = "Use Samsung system settings or LockStar and select the exact same image."
+                )
+                AdaptiveClockStep(
+                    number = 3,
+                    icon = Icons.Rounded.Schedule,
+                    title = "Enable Adaptive clock",
+                    message = "Choose Adaptive clock in Samsung's lock screen editor."
+                )
+            }
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+            Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                Text("Compatible effects", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    compatibleEffectNames,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    "Playlist modes are not supported for this setup yet.",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+
+            AtmoPrimaryButton(
+                text = "Got it",
+                onClick = onDismiss,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+    }
+}
+
+@Composable
+private fun AdaptiveClockStep(
+    number: Int,
+    icon: ImageVector,
+    title: String,
+    message: String
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+        verticalAlignment = Alignment.Top
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Surface(
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.tertiaryContainer,
+                modifier = Modifier.size(42.dp)
+            ) {
+                Icon(
+                    icon,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onTertiaryContainer,
+                    modifier = Modifier.padding(10.dp)
+                )
+            }
+            Surface(
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .size(18.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Text(
+                        number.toString(),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onPrimary
+                    )
+                }
+            }
+        }
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .padding(top = 1.dp),
+            verticalArrangement = Arrangement.spacedBy(3.dp)
+        ) {
+            Text(title, style = MaterialTheme.typography.titleMedium)
+            Text(
+                message,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
 }
 
 @Composable
@@ -285,6 +531,7 @@ private fun ActiveWallpaperPanel(
         WallpaperTransitionPreview(
             effectId = effectId,
             wallpaper = previewBitmap,
+            settingsMode = EffectPreviewSettingsMode.SAVED_ACTIVE,
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(0.92f)
@@ -334,6 +581,7 @@ private fun EmptyWallpaperPanel(
         WallpaperTransitionPreview(
             effectId = "ORIGINAL",
             wallpaper = null,
+            settingsMode = EffectPreviewSettingsMode.EFFECT_DEFAULTS,
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(0.92f)

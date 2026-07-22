@@ -90,6 +90,7 @@ class MainActivity : ComponentActivity() {
                 MainScreen(
                     wallpaperActive = wallpaperActive,
                     statusText = statusText,
+                    isSamsungDevice = isSamsungDevice(),
                     activeEffectId = activeEffectId,
                     previewBitmap = previewBitmap,
                     isPlaylistMode = isPlaylistModeActive,

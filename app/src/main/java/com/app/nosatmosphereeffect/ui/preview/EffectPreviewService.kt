@@ -1,6 +1,7 @@
 package com.app.nosatmosphereeffect.ui.preview
 
 import android.content.Context
+import android.content.SharedPreferences
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
@@ -22,6 +23,11 @@ import com.app.nosatmosphereeffect.renderer.NeonRenderer
 import com.app.nosatmosphereeffect.ui.model.EffectCatalog
 import java.util.concurrent.atomic.AtomicBoolean
 
+enum class EffectPreviewSettingsMode {
+    SAVED_ACTIVE,
+    EFFECT_DEFAULTS
+}
+
 /**
  * Owns a small GLES surface backed by the exact renderer used by the live
  * wallpaper. Preview rendering stays in-process and never changes wallpaper
@@ -31,7 +37,9 @@ class EffectPreviewService(
     context: Context,
     private val effectId: String,
     source: Bitmap?,
-    cornerRadiusPx: Float
+    cornerRadiusPx: Float,
+    private val settingsMode: EffectPreviewSettingsMode =
+        EffectPreviewSettingsMode.SAVED_ACTIVE
 ) {
     private val appContext = context.applicationContext
     private val sourceBitmap = source?.copy(Bitmap.Config.ARGB_8888, false)
@@ -111,20 +119,20 @@ class EffectPreviewService(
         val prefs = appContext.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
         return when (effectId) {
             "REVERSE" -> BlurToSharpRenderer(appContext, sourceProvider).apply {
-                dimLevel = prefs.getFloat("dim_level", 0.2f)
-                enableNoise = prefs.getBoolean("enable_noise", false)
-                noiseScale = prefs.getFloat("noise_scale", 2000f)
-                noiseStrength = prefs.getFloat("noise_strength", 0.06f)
-                blobSaturation = prefs.getFloat("blob_saturation", 1f)
-                blobContrast = prefs.getFloat("blob_contrast", 1f)
+                dimLevel = previewFloat(prefs, "dim_level", 0.2f)
+                enableNoise = previewBoolean(prefs, "enable_noise", false)
+                noiseScale = previewFloat(prefs, "noise_scale", 2000f)
+                noiseStrength = previewFloat(prefs, "noise_strength", 0.06f)
+                blobSaturation = previewFloat(prefs, "blob_saturation", 1f)
+                blobContrast = previewFloat(prefs, "blob_contrast", 1f)
             }
 
             "FROSTED", "FROSTED_REVERSE" -> FrostedRenderer(appContext, sourceProvider).apply {
-                dimLevel = prefs.getFloat("dim_level", 0.2f)
-                enableNoise = prefs.getBoolean("enable_noise", false)
-                noiseScale = prefs.getFloat("noise_scale", 2000f)
-                noiseStrength = prefs.getFloat("noise_strength", 0.06f)
-                blurRadius = prefs.getFloat("frosted_blur_radius", 200f)
+                dimLevel = previewFloat(prefs, "dim_level", 0.2f)
+                enableNoise = previewBoolean(prefs, "enable_noise", false)
+                noiseScale = previewFloat(prefs, "noise_scale", 2000f)
+                noiseStrength = previewFloat(prefs, "noise_strength", 0.06f)
+                blurRadius = previewFloat(prefs, "frosted_blur_radius", 200f)
             }
 
             "HALFTONE", "HALFTONE_REVERSE" -> HalftoneRenderer(
@@ -132,9 +140,9 @@ class EffectPreviewService(
                 isReverse = effectId == "HALFTONE_REVERSE",
                 previewSource = sourceProvider
             ).apply {
-                dimLevel = prefs.getFloat("dim_level", 0f)
-                dotSize = prefs.getFloat("halftone_dot_size", 12f)
-                grayscale = prefs.getBoolean("halftone_grayscale", false)
+                dimLevel = previewFloat(prefs, "dim_level", 0f)
+                dotSize = previewFloat(prefs, "halftone_dot_size", 12f)
+                grayscale = previewBoolean(prefs, "halftone_grayscale", false)
             }
 
             "COLORFILL", "COLORFILL_REVERSE" -> ColorFillRenderer(
@@ -142,9 +150,9 @@ class EffectPreviewService(
                 isReverse = effectId == "COLORFILL_REVERSE",
                 previewSource = sourceProvider
             ).apply {
-                dimLevel = prefs.getFloat("dim_level", 0f)
-                originX = prefs.getFloat("origin_x", 0.5f)
-                originY = prefs.getFloat("origin_y", 0.8f)
+                dimLevel = previewFloat(prefs, "dim_level", 0f)
+                originX = previewFloat(prefs, "origin_x", 0.5f)
+                originY = previewFloat(prefs, "origin_y", 0.8f)
             }
 
             "NEON", "NEON_REVERSE" -> NeonRenderer(
@@ -152,30 +160,57 @@ class EffectPreviewService(
                 isReverse = effectId == "NEON_REVERSE",
                 previewSource = sourceProvider
             ).apply {
-                dimLevel = prefs.getFloat("dim_level", 0f)
-                lineWidth = prefs.getFloat("neon_line_width", 1.5f)
-                sensitivity = prefs.getFloat("neon_sensitivity", 0.5f)
+                dimLevel = previewFloat(prefs, "dim_level", 0f)
+                lineWidth = previewFloat(prefs, "neon_line_width", 1.5f)
+                sensitivity = previewFloat(prefs, "neon_sensitivity", 0.5f)
                 configureSubjectSegmentation(
-                    prefs.getBoolean(CanvasSubjectSettings.ENABLED_KEY, false)
+                    previewBoolean(prefs, CanvasSubjectSettings.ENABLED_KEY, false)
                 )
             }
 
             else -> AtmosphereRenderer(appContext, sourceProvider).apply {
-                dimLevel = prefs.getFloat("dim_level", 0.2f)
-                enableNoise = prefs.getBoolean("enable_noise", false)
-                noiseScale = prefs.getFloat("noise_scale", 2000f)
-                noiseStrength = prefs.getFloat("noise_strength", 0.06f)
-                blobSaturation = prefs.getFloat("blob_saturation", 1f)
-                blobContrast = prefs.getFloat("blob_contrast", 1f)
+                dimLevel = previewFloat(prefs, "dim_level", 0.2f)
+                enableNoise = previewBoolean(prefs, "enable_noise", false)
+                noiseScale = previewFloat(prefs, "noise_scale", 2000f)
+                noiseStrength = previewFloat(prefs, "noise_strength", 0.06f)
+                blobSaturation = previewFloat(prefs, "blob_saturation", 1f)
+                blobContrast = previewFloat(prefs, "blob_contrast", 1f)
             }
         }
     }
 
+    private fun previewFloat(
+        preferences: SharedPreferences,
+        key: String,
+        defaultValue: Float
+    ): Float = if (settingsMode == EffectPreviewSettingsMode.SAVED_ACTIVE) {
+        preferences.getFloat(key, defaultValue)
+    } else {
+        defaultValue
+    }
+
+    private fun previewBoolean(
+        preferences: SharedPreferences,
+        key: String,
+        defaultValue: Boolean
+    ): Boolean = if (settingsMode == EffectPreviewSettingsMode.SAVED_ACTIVE) {
+        preferences.getBoolean(key, defaultValue)
+    } else {
+        defaultValue
+    }
+
     companion object {
-        fun durationMillis(context: Context, effectId: String): Int {
+        fun durationMillis(
+            context: Context,
+            effectId: String,
+            settingsMode: EffectPreviewSettingsMode = EffectPreviewSettingsMode.SAVED_ACTIVE
+        ): Int {
+            val fallback = EffectCatalog.recommendedDurationMillis(effectId)
+            if (settingsMode == EffectPreviewSettingsMode.EFFECT_DEFAULTS) {
+                return fallback.coerceIn(150L, 10_000L).toInt()
+            }
             val saved = context.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
                 .getLong("anim_duration", -1L)
-            val fallback = EffectCatalog.recommendedDurationMillis(effectId)
             return (if (saved > 0L) saved else fallback).coerceIn(150L, 10_000L).toInt()
         }
 

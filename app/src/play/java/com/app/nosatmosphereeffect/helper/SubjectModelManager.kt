@@ -9,25 +9,9 @@ import com.google.mlkit.vision.segmentation.subject.SubjectSegmentation
 import com.google.mlkit.vision.segmentation.subject.SubjectSegmenterOptions
 import java.io.Closeable
 
-object CanvasSubjectSettings {
-    const val ENABLED_KEY = "canvas_subject_segmentation"
-    const val MODEL_READY_KEY = "canvas_subject_model_downloaded"
+object SubjectModelBuild {
+    val delivery = SubjectModelDelivery.GOOGLE_PLAY_SERVICES
 }
-
-enum class SubjectModelPhase {
-    CHECKING,
-    NOT_DOWNLOADED,
-    DOWNLOADING,
-    INSTALLING,
-    PAUSED,
-    READY,
-    FAILED
-}
-
-data class SubjectModelState(
-    val phase: SubjectModelPhase,
-    val progressPercent: Int? = null
-)
 
 /** Starts a Google Play services module download only after an explicit tap. */
 class SubjectModelManager(context: Context) : Closeable {
@@ -77,8 +61,7 @@ class SubjectModelManager(context: Context) : Closeable {
                             update.progressInfo?.let { progress ->
                                 val total = progress.totalBytesToDownload
                                 if (total > 0L) {
-                                    ((progress.bytesDownloaded.toDouble() /
-                                        total.toDouble()) * 100.0)
+                                    ((progress.bytesDownloaded.toDouble() / total.toDouble()) * 100.0)
                                         .toInt()
                                         .coerceIn(0, 100)
                                 } else {

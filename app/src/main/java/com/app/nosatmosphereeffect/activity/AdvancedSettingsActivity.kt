@@ -14,6 +14,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.core.content.edit
 import com.app.nosatmosphereeffect.helper.CanvasSubjectSettings
+import com.app.nosatmosphereeffect.helper.SubjectModelBuild
+import com.app.nosatmosphereeffect.helper.SubjectModelDelivery
 import com.app.nosatmosphereeffect.helper.SubjectModelManager
 import com.app.nosatmosphereeffect.helper.SubjectModelPhase
 import com.app.nosatmosphereeffect.helper.SubjectModelState
@@ -65,8 +67,6 @@ class AdvancedSettingsActivity : ComponentActivity() {
         val savedDuration = prefs.getLong("anim_duration", -1L)
         val savedNoiseScale = prefs.getFloat("noise_scale", -1f)
         val savedNoiseStrength = prefs.getFloat("noise_strength", -1f)
-        val subjectModelReady = prefs.getBoolean(CanvasSubjectSettings.MODEL_READY_KEY, false)
-
         val config = AdvancedConfig(
             activeEffectTitle = EffectCatalog.find(activeEffect).title,
             recommendedDurationMs = defaultDuration,
@@ -101,12 +101,19 @@ class AdvancedSettingsActivity : ComponentActivity() {
         )
 
         val initialSubjectModelState = SubjectModelState(
-            if (subjectModelReady) SubjectModelPhase.READY else SubjectModelPhase.CHECKING,
-            if (subjectModelReady) 100 else null
+            phase = if (SubjectModelBuild.delivery == SubjectModelDelivery.BUNDLED_FOSS) {
+                SubjectModelPhase.READY
+            } else {
+                SubjectModelPhase.CHECKING
+            },
+            progressPercent = if (
+                SubjectModelBuild.delivery == SubjectModelDelivery.BUNDLED_FOSS
+            ) 100 else null
         )
         if (isNeon) {
             subjectModelManager = SubjectModelManager(applicationContext)
         }
+
         setContent {
             AtmoEngineTheme {
                 var subjectModelState by remember { mutableStateOf(initialSubjectModelState) }
@@ -126,11 +133,14 @@ class AdvancedSettingsActivity : ComponentActivity() {
                         }
                     }
                 }
-                LaunchedEffect(Unit) {
-                    subjectModelManager?.checkAvailability(updateSubjectModelState)
+                LaunchedEffect(isNeon) {
+                    if (isNeon) {
+                        subjectModelManager?.checkAvailability(updateSubjectModelState)
+                    }
                 }
                 AdvancedSettingsScreen(
                     config = config,
+                    subjectModelDelivery = SubjectModelBuild.delivery,
                     subjectModelState = subjectModelState,
                     onDownloadSubjectModel = {
                         val manager = subjectModelManager
