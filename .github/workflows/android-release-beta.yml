@@ -21,70 +21,152 @@ jobs:
           distribution: 'temurin'
           cache: gradle
 
-      - name: Extract Build Metadata
-        id: meta
+      - name: Extract build metadata
         run: |
-          # Extract Version Name
           VERSION_NAME=$(grep "versionName =" app/build.gradle.kts | awk -F\" '{print $2}')
-          echo "Found Version Name: $VERSION_NAME"
-          echo "VERSION_NAME=$VERSION_NAME" >> $GITHUB_ENV
+          echo "Found version name: $VERSION_NAME"
+          echo "VERSION_NAME=$VERSION_NAME" >> "$GITHUB_ENV"
 
-      - name: Grant execute permission for gradlew
+      - name: Grant execute permission for Gradle
         run: chmod +x gradlew
 
-      - name: Build SDK 36 (High)
-        run: ./gradlew assembleV36Release
+      - name: Build all beta variants
+        run: |
+          ./gradlew \
+            assembleV36PlayRelease \
+            assembleV36FdroidRelease \
+            assembleV33PlayRelease \
+            assembleV33FdroidRelease \
+            bundleV35PlayRelease
 
-      - name: Sign SDK 36 APK
+      - name: Verify model isolation and APK sizes
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          APK_16_MLKIT="app/build/outputs/apk/v36Play/release/app-v36-play-release-unsigned.apk"
+          APK_16_FOSS="app/build/outputs/apk/v36Fdroid/release/app-v36-fdroid-release-unsigned.apk"
+          APK_13_MLKIT="app/build/outputs/apk/v33Play/release/app-v33-play-release-unsigned.apk"
+          APK_13_FOSS="app/build/outputs/apk/v33Fdroid/release/app-v33-fdroid-release-unsigned.apk"
+          AAB_15_MLKIT="app/build/outputs/bundle/v35PlayRelease/app-v35-play-release.aab"
+
+          assert_no_foss_payload() {
+            local archive="$1"
+            local listing="$RUNNER_TEMP/$(basename "$archive").contents"
+            unzip -Z1 "$archive" > "$listing"
+            if grep -Eq '(^|/)assets/models/|libtensorflowlite_jni\.so' "$listing"; then
+              echo "FOSS model/runtime leaked into ML Kit artifact: $archive"
+              exit 1
+            fi
+          }
+
+          assert_has_foss_payload() {
+            local archive="$1"
+            local listing="$RUNNER_TEMP/$(basename "$archive").contents"
+            unzip -Z1 "$archive" > "$listing"
+            grep -Eq '(^|/)assets/models/u2netp_320x320\.tflite$' "$listing"
+            grep -Eq '(^|/)lib/arm64-v8a/libtensorflowlite_jni\.so$' "$listing"
+          }
+
+          assert_no_foss_payload "$APK_16_MLKIT"
+          assert_no_foss_payload "$APK_13_MLKIT"
+          assert_no_foss_payload "$AAB_15_MLKIT"
+          assert_has_foss_payload "$APK_16_FOSS"
+          assert_has_foss_payload "$APK_13_FOSS"
+
+          APK_16_MLKIT_SIZE=$(stat -c%s "$APK_16_MLKIT")
+          APK_16_FOSS_SIZE=$(stat -c%s "$APK_16_FOSS")
+          APK_13_MLKIT_SIZE=$(stat -c%s "$APK_13_MLKIT")
+          APK_13_FOSS_SIZE=$(stat -c%s "$APK_13_FOSS")
+          MAX_MLKIT_APK_SIZE=$((10 * 1024 * 1024))
+
+          if (( APK_16_MLKIT_SIZE >= APK_16_FOSS_SIZE )); then
+            echo "Android 16 ML Kit APK is not smaller than its FOSS APK."
+            exit 1
+          fi
+          if (( APK_13_MLKIT_SIZE >= APK_13_FOSS_SIZE )); then
+            echo "Android 13 ML Kit APK is not smaller than its FOSS APK."
+            exit 1
+          fi
+          if (( APK_16_MLKIT_SIZE >= MAX_MLKIT_APK_SIZE || APK_13_MLKIT_SIZE >= MAX_MLKIT_APK_SIZE )); then
+            echo "An ML Kit APK exceeded the 10 MiB size guard."
+            exit 1
+          fi
+
+          {
+            echo "### Beta artifact sizes"
+            echo '```text'
+            du -h "$APK_16_MLKIT" "$APK_16_FOSS" "$APK_13_MLKIT" "$APK_13_FOSS" "$AAB_15_MLKIT"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Sign Android 16+ ML Kit APK
         uses: ilharp/sign-android-release@v2
-        id: sign_app_36
+        id: sign_16_mlkit
         with:
-          releaseDir: app/build/outputs/apk/v36/release
+          releaseDir: app/build/outputs/apk/v36Play/release
           signingKey: ${{ secrets.SIGNING_KEY }}
           keyAlias: ${{ secrets.ALIAS }}
           keyStorePassword: ${{ secrets.KEY_STORE_PASSWORD }}
           keyPassword: ${{ secrets.KEY_PASSWORD }}
 
-      - name: Rename SDK 36 APK
-        run: |
-          mv "${{ steps.sign_app_36.outputs.signedFile }}" ./app-release-beta-android-16+.apk
-
-      - name: Bundle SDK 35 (Play Store)
-        run: ./gradlew bundleV35Release
-
-      - name: Sign SDK 35 AAB
+      - name: Sign Android 16+ FOSS APK
         uses: ilharp/sign-android-release@v2
-        id: sign_app_35
+        id: sign_16_foss
         with:
-          releaseDir: app/build/outputs/bundle/v35Release
+          releaseDir: app/build/outputs/apk/v36Fdroid/release
           signingKey: ${{ secrets.SIGNING_KEY }}
           keyAlias: ${{ secrets.ALIAS }}
           keyStorePassword: ${{ secrets.KEY_STORE_PASSWORD }}
           keyPassword: ${{ secrets.KEY_PASSWORD }}
 
-      - name: Rename SDK 35 AAB
-        run: |
-          mv "${{ steps.sign_app_35.outputs.signedFile }}" ./app-release-beta-playstore-android-15+.aab
-
-      - name: Build SDK 33 (Legacy)
-        run: ./gradlew assembleV33Release
-
-      - name: Sign SDK 33 APK
+      - name: Sign Android 13+ ML Kit APK
         uses: ilharp/sign-android-release@v2
-        id: sign_app_33
+        id: sign_13_mlkit
         with:
-          releaseDir: app/build/outputs/apk/v33/release
+          releaseDir: app/build/outputs/apk/v33Play/release
           signingKey: ${{ secrets.SIGNING_KEY }}
           keyAlias: ${{ secrets.ALIAS }}
           keyStorePassword: ${{ secrets.KEY_STORE_PASSWORD }}
           keyPassword: ${{ secrets.KEY_PASSWORD }}
 
-      - name: Rename SDK 33 APK
-        run: |
-          mv "${{ steps.sign_app_33.outputs.signedFile }}" ./app-release-beta-android-13+.apk
+      - name: Sign Android 13+ FOSS APK
+        uses: ilharp/sign-android-release@v2
+        id: sign_13_foss
+        with:
+          releaseDir: app/build/outputs/apk/v33Fdroid/release
+          signingKey: ${{ secrets.SIGNING_KEY }}
+          keyAlias: ${{ secrets.ALIAS }}
+          keyStorePassword: ${{ secrets.KEY_STORE_PASSWORD }}
+          keyPassword: ${{ secrets.KEY_PASSWORD }}
 
-      - name: Create Beta Release
-        uses: softprops/action-gh-release@v1
+      - name: Sign Android 15+ Play Store AAB
+        uses: ilharp/sign-android-release@v2
+        id: sign_15_mlkit
+        with:
+          releaseDir: app/build/outputs/bundle/v35PlayRelease
+          signingKey: ${{ secrets.SIGNING_KEY }}
+          keyAlias: ${{ secrets.ALIAS }}
+          keyStorePassword: ${{ secrets.KEY_STORE_PASSWORD }}
+          keyPassword: ${{ secrets.KEY_PASSWORD }}
+
+      - name: Name beta artifacts
+        run: |
+          mv "${{ steps.sign_16_mlkit.outputs.signedFile }}" ./atmo-engine-beta-android-16-plus-mlkit.apk
+          mv "${{ steps.sign_16_foss.outputs.signedFile }}" ./atmo-engine-beta-android-16-plus-foss.apk
+          mv "${{ steps.sign_13_mlkit.outputs.signedFile }}" ./atmo-engine-beta-android-13-plus-mlkit.apk
+          mv "${{ steps.sign_13_foss.outputs.signedFile }}" ./atmo-engine-beta-android-13-plus-foss-fdroid.apk
+          mv "${{ steps.sign_15_mlkit.outputs.signedFile }}" ./atmo-engine-beta-playstore-android-15-plus-mlkit.aab
+          sha256sum \
+            atmo-engine-beta-android-16-plus-mlkit.apk \
+            atmo-engine-beta-android-16-plus-foss.apk \
+            atmo-engine-beta-android-13-plus-mlkit.apk \
+            atmo-engine-beta-android-13-plus-foss-fdroid.apk \
+            atmo-engine-beta-playstore-android-15-plus-mlkit.aab \
+            > SHA256SUMS-beta.txt
+
+      - name: Create beta release
+        uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ env.VERSION_NAME }}-beta.${{ github.run_number }}
           name: Beta v${{ env.VERSION_NAME }} (Build ${{ github.run_number }})
@@ -92,6 +174,9 @@ jobs:
           draft: false
           prerelease: true
           files: |
-            app-release-beta-android-16+.apk
-            app-release-beta-playstore-android-15+.aab
-            app-release-beta-android-13+.apk
+            atmo-engine-beta-android-16-plus-mlkit.apk
+            atmo-engine-beta-android-16-plus-foss.apk
+            atmo-engine-beta-android-13-plus-mlkit.apk
+            atmo-engine-beta-android-13-plus-foss-fdroid.apk
+            atmo-engine-beta-playstore-android-15-plus-mlkit.aab
+            SHA256SUMS-beta.txt

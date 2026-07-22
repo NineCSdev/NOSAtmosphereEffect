@@ -9,11 +9,12 @@ android {
 
     defaultConfig {
         applicationId = "com.saad_khan_rind.atmosphere_effect"
-        versionName = "7.0.1"
-        versionCode = 200701
+        versionName = "7.0.2"
+        versionCode = 500702
     }
 
     flavorDimensions += "apiLevel"
+    flavorDimensions += "distribution"
 
     productFlavors {
 
@@ -21,28 +22,38 @@ android {
             dimension = "apiLevel"
             minSdk = 36
             targetSdk = 36
-            versionCode = 200701
+            versionCode = 500702
         }
 
-        // Android 15+ (API 35) — this is the build published on Google Play.
         create("v35") {
             dimension = "apiLevel"
             minSdk = 35
-            targetSdk = 35
-            versionCode = 300701
+            targetSdk = 36
+            versionCode = 400702
         }
 
         create("v33") {
             dimension = "apiLevel"
             minSdk = 33
             targetSdk = 33
-            versionCode = 100701
+            versionCode = 300702
         }
 
+        create("play") {
+            dimension = "distribution"
+        }
+
+        create("fdroid") {
+            dimension = "distribution"
+        }
     }
 
     buildFeatures {
         compose = true
+    }
+
+    androidResources {
+        noCompress += "tflite"
     }
 
     compileOptions {
@@ -76,8 +87,14 @@ kotlin {
 dependencies {
     implementation(libs.androidx.exifinterface)
     implementation(libs.androidx.palette.ktx)
-    implementation(libs.play.services.base)
-    implementation(libs.play.services.mlkit.subject.segmentation)
+
+    // Google Play builds use the higher-quality optional ML Kit module.
+    "playImplementation"("com.google.android.gms:play-services-base:18.10.0")
+    "playImplementation"("com.google.android.gms:play-services-mlkit-subject-segmentation:16.0.0-beta1")
+
+    // F-Droid builds bundle U2NetP and use the source-built FOSS runtime.
+    "fdroidImplementation"(libs.litert.api)
+    "fdroidImplementation"(libs.litert.fdroid)
 
     // --- Jetpack Compose (common to all flavors) ---
     val composeBom = platform(libs.androidx.compose.bom)
@@ -99,8 +116,7 @@ dependencies {
     "v36Implementation"("androidx.appcompat:appcompat:1.7.1")
     "v36Implementation"("com.google.android.material:material:1.14.0")
 
-    // --- Dependencies for v35 (API 35 / Google Play) ---
-    // These only apply when building the v35 flavor
+    // --- Dependencies for v35 (Android 15+) ---
     "v35Implementation"("androidx.core:core-ktx:1.15.0")
     "v35Implementation"("androidx.lifecycle:lifecycle-service:2.8.7")
     "v35Implementation"("androidx.appcompat:appcompat:1.7.0")

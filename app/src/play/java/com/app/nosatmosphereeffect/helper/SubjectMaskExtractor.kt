@@ -11,13 +11,12 @@ import kotlin.math.max
 import kotlin.math.roundToInt
 
 /**
- * Extracts a prominent foreground only when the optional Play services model
- * is already installed. It never initiates a model download.
+ * Uses the optional Google Play services subject model only when it is already
+ * installed. Model downloads remain an explicit action in Advanced Settings.
  */
 class SubjectMaskExtractor(
     context: Context,
-    private val onResult: (requestId: Long, mask: Bitmap?) -> Unit,
-    private val onModelUnavailable: () -> Unit
+    private val onResult: (requestId: Long, mask: Bitmap?) -> Unit
 ) : Closeable {
 
     private companion object {
@@ -55,7 +54,6 @@ class SubjectMaskExtractor(
                     closed -> inputBitmap.recycle()
                     !availability.areModulesAvailable() -> {
                         inputBitmap.recycle()
-                        onModelUnavailable()
                         onResult(requestId, null)
                     }
                     else -> processInput(inputBitmap, requestId)
@@ -86,13 +84,14 @@ class SubjectMaskExtractor(
                         var maxX = -1
                         var maxY = -1
 
-                        for (i in 0 until count) {
-                            val value = buffer.get().takeIf { it.isFinite() }?.coerceIn(0f, 1f) ?: 0f
-                            values[i] = value
+                        for (index in 0 until count) {
+                            val value = buffer.get().takeIf { it.isFinite() }
+                                ?.coerceIn(0f, 1f) ?: 0f
+                            values[index] = value
                             if (value >= CONFIDENT_FOREGROUND) {
                                 foregroundCount++
-                                val x = i % inputBitmap.width
-                                val y = i / inputBitmap.width
+                                val x = index % inputBitmap.width
+                                val y = index / inputBitmap.width
                                 if (x < minX) minX = x
                                 if (x > maxX) maxX = x
                                 if (y < minY) minY = y
@@ -117,11 +116,12 @@ class SubjectMaskExtractor(
                         }
 
                         val pixels = IntArray(count)
-                        for (i in values.indices) {
-                            val t = ((values[i] - MASK_LOW) / (MASK_HIGH - MASK_LOW)).coerceIn(0f, 1f)
-                            val smooth = t * t * (3f - 2f * t)
+                        for (index in values.indices) {
+                            val value = ((values[index] - MASK_LOW) / (MASK_HIGH - MASK_LOW))
+                                .coerceIn(0f, 1f)
+                            val smooth = value * value * (3f - 2f * value)
                             val gray = (smooth * 255f).roundToInt()
-                            pixels[i] = 0xFF000000.toInt() or
+                            pixels[index] = 0xFF000000.toInt() or
                                 (gray shl 16) or (gray shl 8) or gray
                         }
                         Bitmap.createBitmap(
@@ -150,12 +150,6 @@ class SubjectMaskExtractor(
         }
     }
 
-    override fun close() {
-        if (closed) return
-        closed = true
-        segmenter.close()
-    }
-
     private fun makeInputBitmap(source: Bitmap): Bitmap {
         val longestSide = max(source.width, source.height)
         if (longestSide <= MAX_INPUT_SIDE) {
@@ -166,5 +160,11 @@ class SubjectMaskExtractor(
         val width = (source.width * scale).roundToInt().coerceAtLeast(1)
         val height = (source.height * scale).roundToInt().coerceAtLeast(1)
         return Bitmap.createScaledBitmap(source, width, height, true)
+    }
+
+    override fun close() {
+        if (closed) return
+        closed = true
+        segmenter.close()
     }
 }
