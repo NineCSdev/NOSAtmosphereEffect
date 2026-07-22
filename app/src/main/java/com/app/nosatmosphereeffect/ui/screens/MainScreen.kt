@@ -75,6 +75,7 @@ import com.app.nosatmosphereeffect.ui.components.AtmoTonalButton
 import com.app.nosatmosphereeffect.ui.components.SettingSwitchRow
 import com.app.nosatmosphereeffect.ui.components.WallpaperTransitionPreview
 import com.app.nosatmosphereeffect.ui.model.EffectCatalog
+import com.app.nosatmosphereeffect.ui.preview.EffectPreviewSettingsMode
 import com.app.nosatmosphereeffect.ui.theme.AppThemeMode
 import com.app.nosatmosphereeffect.ui.theme.LocalAtmoExpressive
 
@@ -285,6 +286,7 @@ private fun ActiveWallpaperPanel(
         WallpaperTransitionPreview(
             effectId = effectId,
             wallpaper = previewBitmap,
+            settingsMode = EffectPreviewSettingsMode.SAVED_ACTIVE,
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(0.92f)
@@ -334,6 +336,7 @@ private fun EmptyWallpaperPanel(
         WallpaperTransitionPreview(
             effectId = "ORIGINAL",
             wallpaper = null,
+            settingsMode = EffectPreviewSettingsMode.EFFECT_DEFAULTS,
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(0.92f)

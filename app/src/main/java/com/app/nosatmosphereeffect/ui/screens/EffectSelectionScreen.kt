@@ -69,6 +69,7 @@ import com.app.nosatmosphereeffect.ui.components.AtmoReveal
 import com.app.nosatmosphereeffect.ui.components.AtmoTopBar
 import com.app.nosatmosphereeffect.ui.components.WallpaperTransitionPreview
 import com.app.nosatmosphereeffect.ui.model.EffectItem
+import com.app.nosatmosphereeffect.ui.preview.EffectPreviewSettingsMode
 import com.app.nosatmosphereeffect.ui.theme.LocalAtmoExpressive
 
 @Composable
@@ -140,6 +141,7 @@ fun EffectSelectionScreen(
                             effectId = selected.id,
                             wallpaper = previewBitmap,
                             progress = if (autoPlay) null else manualProgress,
+                            settingsMode = EffectPreviewSettingsMode.EFFECT_DEFAULTS,
                             modifier = Modifier
                                 .padding(horizontal = 20.dp)
                                 .fillMaxWidth()

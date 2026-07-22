@@ -48,6 +48,7 @@ import androidx.lifecycle.repeatOnLifecycle
 import com.app.nosatmosphereeffect.helper.CanvasSubjectSettings
 import com.app.nosatmosphereeffect.ui.model.EffectCatalog
 import com.app.nosatmosphereeffect.ui.preview.EffectPreviewService
+import com.app.nosatmosphereeffect.ui.preview.EffectPreviewSettingsMode
 import com.app.nosatmosphereeffect.ui.theme.LocalAtmoExpressive
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -58,20 +59,26 @@ fun WallpaperTransitionPreview(
     wallpaper: ImageBitmap?,
     modifier: Modifier = Modifier,
     progress: Float? = null,
-    showDeviceChrome: Boolean = true
+    showDeviceChrome: Boolean = true,
+    settingsMode: EffectPreviewSettingsMode = EffectPreviewSettingsMode.SAVED_ACTIVE
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val preferences = remember(context) {
         context.getSharedPreferences("app_prefs", android.content.Context.MODE_PRIVATE)
     }
-    var duration by remember(effectId) { mutableIntStateOf(
-        EffectPreviewService.durationMillis(context, effectId)
+    var duration by remember(effectId, settingsMode) { mutableIntStateOf(
+        EffectPreviewService.durationMillis(context, effectId, settingsMode)
     ) }
-    var configurationVersion by remember(effectId, wallpaper) { mutableIntStateOf(0) }
-    val automaticProgress = remember(effectId, wallpaper) { Animatable(0f) }
+    var configurationVersion by remember(effectId, wallpaper, settingsMode) {
+        mutableIntStateOf(0)
+    }
+    val automaticProgress = remember(effectId, wallpaper, settingsMode) { Animatable(0f) }
 
-    DisposableEffect(preferences, effectId) {
+    DisposableEffect(preferences, effectId, settingsMode) {
+        if (settingsMode != EffectPreviewSettingsMode.SAVED_ACTIVE) {
+            return@DisposableEffect onDispose { }
+        }
         val rendererKeys = setOf(
             "dim_level",
             "enable_noise",
@@ -90,7 +97,7 @@ fun WallpaperTransitionPreview(
         )
         val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
             if (key == null || key == "anim_duration") {
-                duration = EffectPreviewService.durationMillis(context, effectId)
+                duration = EffectPreviewService.durationMillis(context, effectId, settingsMode)
             }
             if (key == null || key in rendererKeys) configurationVersion++
         }
@@ -98,7 +105,7 @@ fun WallpaperTransitionPreview(
         onDispose { preferences.unregisterOnSharedPreferenceChangeListener(listener) }
     }
 
-    LaunchedEffect(effectId, wallpaper, progress, duration) {
+    LaunchedEffect(effectId, wallpaper, progress, duration, settingsMode) {
         if (progress != null) {
             automaticProgress.snapTo(progress.coerceIn(0f, 1f))
             return@LaunchedEffect
@@ -137,6 +144,7 @@ fun WallpaperTransitionPreview(
             wallpaper = wallpaper,
             progress = shownProgress,
             configurationVersion = configurationVersion,
+            settingsMode = settingsMode,
             modifier = Modifier.fillMaxSize()
         )
 
@@ -150,6 +158,7 @@ private fun ProductionEffectSurface(
     wallpaper: ImageBitmap?,
     progress: Float,
     configurationVersion: Int,
+    settingsMode: EffectPreviewSettingsMode,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -159,12 +168,19 @@ private fun ProductionEffectSurface(
         (if (expressive) 28.dp else 16.dp).toPx()
     }
     val source = remember(wallpaper) { wallpaper?.asAndroidBitmap() }
-    val preview = remember(effectId, wallpaper, configurationVersion, expressive) {
+    val preview = remember(
+        effectId,
+        wallpaper,
+        configurationVersion,
+        expressive,
+        settingsMode
+    ) {
         EffectPreviewService(
             context = context,
             effectId = effectId,
             source = source,
-            cornerRadiusPx = radiusPx
+            cornerRadiusPx = radiusPx,
+            settingsMode = settingsMode
         )
     }
 
