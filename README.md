@@ -53,7 +53,7 @@ Open the app and choose your desired atmosphere style from the selection screen:
 Canvas Sketch processes wallpaper pixels on-device. For wallpapers with a prominent person, character, animal, or object, optional subject segmentation can isolate that subject before drawing the sketch. Model delivery depends on the app distribution:
 
 * **Google Play build:** Uses the higher-quality ML Kit subject model supplied by Google Play services. The model is not downloaded automatically by Atmo Engine. Fine Tuning shows its real installed status and provides an explicit **Download subject model** button. After installation, segmentation runs on-device and works offline.
-* **F-Droid build:** Includes the open-source U2NetP model and a source-built FOSS LiteRT runtime in the APK. It is ready immediately, requires no download, and does not depend on ML Kit or Google Play services.
+* **F-Droid build:** Includes the open-source [U2NetP model](https://github.com/xuebinqin/U-2-Net) and a source-built FOSS LiteRT runtime in the APK. It is ready immediately, requires no download, and does not depend on ML Kit or Google Play services.
 
 1. Open **Fine Tuning** for Canvas Sketch.
 2. In the Google Play build, download the optional model if it is not already installed.
@@ -106,7 +106,7 @@ Take full control of the animation and look. You can now tweak the following set
 * **Fingerprint Location:** (Color Fill Effects Only) Two sliders to adjust the horizontal and vertical position of effect start place sync with the fingerprint location.
 * **Sketch Detail:** (Canvas Sketch Only) Controls how many wallpaper contours are retained.
 * **Line Thickness:** (Canvas Sketch Only) Adjusts the width of the monochrome sketch lines.
-* **Subject Segmentation:** (Canvas Sketch Only) Optionally limits the sketch to a detected foreground subject using ML Kit in Google Play builds or bundled U2NetP in F-Droid builds.
+* **Subject Segmentation:** (Canvas Sketch Only) Optionally limits the sketch to a detected foreground subject using ML Kit in Google Play builds or bundled [U2NetP](https://github.com/xuebinqin/U-2-Net) in F-Droid builds.
 ### Animation & Behavior
 * **Animation Duration:** Control the total transition duration.
 * **Lock Delay (Anti-Flicker):** Adds a configurable pause before the wallpaper resets when you lock the phone. This prevents the visual glitch where the wallpaper "snaps" back to its initial state before the screen turns fully black.
@@ -155,9 +155,9 @@ Atmo Engine keeps one shared codebase and combines two flavor dimensions:
 | `v36Play` | Android 16 / API 36 |     API 36 |     `500702` | ML Kit APK |
 | `v36Fdroid` | Android 16 / API 36 |     API 36 |     `500702` | FOSS APK |
 
-The `play` source set contains only the ML Kit implementation and explicit model-download controller. The `fdroid` source set contains only U2NetP, its model files, and the source-built FOSS LiteRT runtime. UI, effects, playlists, palette behavior, and settings remain shared in `main`. Model and runtime provenance is recorded in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+The `play` source set contains only the ML Kit implementation and explicit model-download controller. The `fdroid` source set contains only [U2NetP](https://github.com/xuebinqin/U-2-Net), its model files, and the source-built FOSS LiteRT runtime. UI, effects, playlists, palette behavior, and settings remain shared in `main`. Model and runtime provenance is recorded in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
-Stable and beta release workflows produce exactly five artifacts: Android 16+ ML Kit and FOSS APKs, Android 13+ ML Kit and FOSS APKs, and an Android 15+ ML Kit AAB for Google Play. CI inspects every archive before signing: ML Kit artifacts must not contain the U2NetP model or LiteRT native runtime, both FOSS APKs must contain them, and each ML Kit APK must remain smaller than its matching FOSS APK and below 10 MiB.
+Stable and beta release workflows produce exactly five artifacts: Android 16+ ML Kit and FOSS APKs, Android 13+ ML Kit and FOSS APKs, and an Android 15+ ML Kit AAB for Google Play. CI inspects every archive before signing: ML Kit artifacts must not contain the [U2NetP model](https://github.com/xuebinqin/U-2-Net) or LiteRT native runtime, both FOSS APKs must contain them, and each ML Kit APK must remain smaller than its matching FOSS APK and below 10 MiB.
 
 1.  Clone the repository.
 2.  Open in the latest stable Android Studio.
