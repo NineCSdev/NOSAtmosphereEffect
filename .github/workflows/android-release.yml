@@ -12,10 +12,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           java-version: '17'
           distribution: 'temurin'
@@ -100,63 +100,68 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Sign Android 16+ ML Kit APK
-        uses: ilharp/sign-android-release@v2
-        id: sign_16_mlkit
-        with:
-          releaseDir: app/build/outputs/apk/v36Play/release
-          signingKey: ${{ secrets.SIGNING_KEY }}
-          keyAlias: ${{ secrets.ALIAS }}
-          keyStorePassword: ${{ secrets.KEY_STORE_PASSWORD }}
-          keyPassword: ${{ secrets.KEY_PASSWORD }}
-
-      - name: Sign Android 16+ FOSS APK
-        uses: ilharp/sign-android-release@v2
-        id: sign_16_foss
-        with:
-          releaseDir: app/build/outputs/apk/v36Fdroid/release
-          signingKey: ${{ secrets.SIGNING_KEY }}
-          keyAlias: ${{ secrets.ALIAS }}
-          keyStorePassword: ${{ secrets.KEY_STORE_PASSWORD }}
-          keyPassword: ${{ secrets.KEY_PASSWORD }}
-
-      - name: Sign Android 13+ ML Kit APK
-        uses: ilharp/sign-android-release@v2
-        id: sign_13_mlkit
-        with:
-          releaseDir: app/build/outputs/apk/v33Play/release
-          signingKey: ${{ secrets.SIGNING_KEY }}
-          keyAlias: ${{ secrets.ALIAS }}
-          keyStorePassword: ${{ secrets.KEY_STORE_PASSWORD }}
-          keyPassword: ${{ secrets.KEY_PASSWORD }}
-
-      - name: Sign Android 13+ FOSS APK
-        uses: ilharp/sign-android-release@v2
-        id: sign_13_foss
-        with:
-          releaseDir: app/build/outputs/apk/v33Fdroid/release
-          signingKey: ${{ secrets.SIGNING_KEY }}
-          keyAlias: ${{ secrets.ALIAS }}
-          keyStorePassword: ${{ secrets.KEY_STORE_PASSWORD }}
-          keyPassword: ${{ secrets.KEY_PASSWORD }}
-
-      - name: Sign Android 15+ Play Store AAB
-        uses: ilharp/sign-android-release@v2
-        id: sign_15_mlkit
-        with:
-          releaseDir: app/build/outputs/bundle/v35PlayRelease
-          signingKey: ${{ secrets.SIGNING_KEY }}
-          keyAlias: ${{ secrets.ALIAS }}
-          keyStorePassword: ${{ secrets.KEY_STORE_PASSWORD }}
-          keyPassword: ${{ secrets.KEY_PASSWORD }}
-
-      - name: Name release artifacts
+      - name: Sign and verify release artifacts
+        shell: bash
+        env:
+          SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
+          KEY_ALIAS: ${{ secrets.ALIAS }}
+          KEY_STORE_PASSWORD: ${{ secrets.KEY_STORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
-          mv "${{ steps.sign_16_mlkit.outputs.signedFile }}" ./atmo-engine-android-16-plus-mlkit.apk
-          mv "${{ steps.sign_16_foss.outputs.signedFile }}" ./atmo-engine-android-16-plus-foss.apk
-          mv "${{ steps.sign_13_mlkit.outputs.signedFile }}" ./atmo-engine-android-13-plus-mlkit.apk
-          mv "${{ steps.sign_13_foss.outputs.signedFile }}" ./atmo-engine-android-13-plus-foss-fdroid.apk
-          mv "${{ steps.sign_15_mlkit.outputs.signedFile }}" ./atmo-engine-playstore-android-15-plus-mlkit.aab
+          set -euo pipefail
+
+          KEYSTORE="$RUNNER_TEMP/atmo-release.jks"
+          printf '%s' "$SIGNING_KEY" | base64 --decode > "$KEYSTORE"
+          chmod 600 "$KEYSTORE"
+
+          BUILD_TOOLS_DIR=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d -print | sort -V | tail -n 1)
+          ZIPALIGN="$BUILD_TOOLS_DIR/zipalign"
+          APKSIGNER="$BUILD_TOOLS_DIR/apksigner"
+
+          test -x "$ZIPALIGN"
+          test -x "$APKSIGNER"
+
+          sign_apk() {
+            local source_apk="$1"
+            local output_apk="$2"
+            local aligned_apk="$RUNNER_TEMP/$(basename "$output_apk" .apk)-aligned.apk"
+
+            "$ZIPALIGN" -f -p 4 "$source_apk" "$aligned_apk"
+            "$APKSIGNER" sign \
+              --ks "$KEYSTORE" \
+              --ks-key-alias "$KEY_ALIAS" \
+              --ks-pass env:KEY_STORE_PASSWORD \
+              --key-pass env:KEY_PASSWORD \
+              --v4-signing-enabled false \
+              --out "$output_apk" \
+              "$aligned_apk"
+            "$APKSIGNER" verify --verbose --print-certs "$output_apk"
+          }
+
+          sign_apk \
+            app/build/outputs/apk/v36Play/release/app-v36-play-release-unsigned.apk \
+            atmo-engine-android-16-plus-mlkit.apk
+          sign_apk \
+            app/build/outputs/apk/v36Fdroid/release/app-v36-fdroid-release-unsigned.apk \
+            atmo-engine-android-16-plus-foss.apk
+          sign_apk \
+            app/build/outputs/apk/v33Play/release/app-v33-play-release-unsigned.apk \
+            atmo-engine-android-13-plus-mlkit.apk
+          sign_apk \
+            app/build/outputs/apk/v33Fdroid/release/app-v33-fdroid-release-unsigned.apk \
+            atmo-engine-android-13-plus-foss-fdroid.apk
+
+          cp \
+            app/build/outputs/bundle/v35PlayRelease/app-v35-play-release.aab \
+            atmo-engine-playstore-android-15-plus-mlkit.aab
+          jarsigner \
+            -keystore "$KEYSTORE" \
+            -storepass:env KEY_STORE_PASSWORD \
+            -keypass:env KEY_PASSWORD \
+            atmo-engine-playstore-android-15-plus-mlkit.aab \
+            "$KEY_ALIAS"
+          jarsigner -verify atmo-engine-playstore-android-15-plus-mlkit.aab
+
           sha256sum \
             atmo-engine-android-16-plus-mlkit.apk \
             atmo-engine-android-16-plus-foss.apk \
@@ -166,7 +171,7 @@ jobs:
             > SHA256SUMS.txt
 
       - name: Create release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: v${{ env.VERSION_NAME }}
           name: Release v${{ env.VERSION_NAME }}

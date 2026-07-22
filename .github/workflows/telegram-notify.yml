@@ -13,7 +13,7 @@ jobs:
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Get Release Details
         env:
