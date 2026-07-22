@@ -39,7 +39,7 @@ jobs:
 
           ⬇️ <b>Click to Download:</b>
           • <a href=\"$LINK_16_MLKIT\">Android 16+ (ML Kit)</a>
-          • <a href=\"$LINK_16_FOSS\">Android 16+ (FOSS/offline)</a>
+          • <a href=\"$LINK_16_FOSS\">Android 16+ (FOSS)</a>
           • <a href=\"$LINK_13_MLKIT\">Android 13+ (ML Kit)</a>
           • <a href=\"$LINK_13_FOSS\">Android 13+ (FOSS/F-Droid)</a>"
 
