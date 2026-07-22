@@ -1,1 +1,0 @@
-Atmo Engine 7.0.2 adds Android 16+ releases targeting API 36. The ML Kit build checks the optional model's real installed state and downloads it only after you request it, while the FOSS build bundles U2NetP for offline segmentation. The refreshed Material 3 interface, real previews, theme playlists, and device palette fixes remain included.

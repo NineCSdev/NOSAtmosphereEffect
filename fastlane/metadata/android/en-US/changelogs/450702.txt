@@ -1,1 +1,0 @@
-Atmo Engine 7.0.2 targets API 36 for Google Play while supporting Android 15+. Canvas Sketch restores higher-quality ML Kit subject segmentation with a real installed-status check and an explicit model download. The refreshed Material 3 interface, real effect previews, theme playlists, and device palette fixes remain included.

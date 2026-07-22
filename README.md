@@ -157,6 +157,8 @@ Atmo Engine keeps one shared codebase and combines two flavor dimensions:
 
 The `play` source set contains only the ML Kit implementation and explicit model-download controller. The `fdroid` source set contains only U2NetP, its model files, and the source-built FOSS LiteRT runtime. UI, effects, playlists, palette behavior, and settings remain shared in `main`. Model and runtime provenance is recorded in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
+Stable and beta release workflows produce exactly five artifacts: Android 16+ ML Kit and FOSS APKs, Android 13+ ML Kit and FOSS APKs, and an Android 15+ ML Kit AAB for Google Play. CI inspects every archive before signing: ML Kit artifacts must not contain the U2NetP model or LiteRT native runtime, both FOSS APKs must contain them, and each ML Kit APK must remain smaller than its matching FOSS APK and below 10 MiB.
+
 1.  Clone the repository.
 2.  Open in the latest stable Android Studio.
 3.  Sync Gradle.
