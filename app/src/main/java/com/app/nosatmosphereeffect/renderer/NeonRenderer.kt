@@ -148,7 +148,7 @@ class NeonRenderer(
             takePendingSubjectMask()?.bitmap?.recycle()
         }
 
-        // Enabling reloads the source bitmap so the bundled model can extract it.
+        // Enabling reloads the source bitmap so this build's model can extract it.
         if (changed || enabled) needsReload = true
     }
 

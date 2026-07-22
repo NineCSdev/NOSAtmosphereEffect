@@ -50,13 +50,17 @@ Open the app and choose your desired atmosphere style from the selection screen:
 
 #### Canvas Sketch and Subject Segmentation
 
-Canvas Sketch is fully offline. It includes the open-source U2NetP foreground model directly in the app, so there is nothing to download and no Google Play services or ML Kit dependency. For wallpapers with a prominent person, character, animal, or object, subject segmentation can isolate that subject before drawing the sketch:
+Canvas Sketch processes wallpaper pixels on-device. For wallpapers with a prominent person, character, animal, or object, optional subject segmentation can isolate that subject before drawing the sketch. Model delivery depends on the app distribution:
+
+* **Google Play build:** Uses the higher-quality ML Kit subject model supplied by Google Play services. The model is not downloaded automatically by Atmo Engine. Fine Tuning shows its real installed status and provides an explicit **Download subject model** button. After installation, segmentation runs on-device and works offline.
+* **F-Droid build:** Includes the open-source U2NetP model and a source-built FOSS LiteRT runtime in the APK. It is ready immediately, requires no download, and does not depend on ML Kit or Google Play services.
 
 1. Open **Fine Tuning** for Canvas Sketch.
-2. Turn on **Subject Segmentation**.
-3. Preview or apply the wallpaper normally.
+2. In the Google Play build, download the optional model if it is not already installed.
+3. Turn on **Subject Segmentation**.
+4. Preview or apply the wallpaper normally.
 
-Segmentation runs locally through the F-Droid-compatible LiteRT runtime. If no confident foreground subject is found, Canvas Sketch automatically falls back to sketching the complete wallpaper. Wallpaper image contents and generated masks never leave the device. Atmo Engine does not request the `INTERNET` or `ACCESS_NETWORK_STATE` permission.
+If no confident foreground subject is found, Canvas Sketch automatically falls back to sketching the complete wallpaper. Wallpaper image contents and generated masks never leave the device. Atmo Engine does not request the `INTERNET` or `ACCESS_NETWORK_STATE` permission. In the Google Play build, Google Play services may use its own network access only when the user requests the optional model download.
 
 ### 2\. Select Image & Playlist Mode
 After selecting an effect, you will be prompted to choose your wallpaper mode:
@@ -102,7 +106,7 @@ Take full control of the animation and look. You can now tweak the following set
 * **Fingerprint Location:** (Color Fill Effects Only) Two sliders to adjust the horizontal and vertical position of effect start place sync with the fingerprint location.
 * **Sketch Detail:** (Canvas Sketch Only) Controls how many wallpaper contours are retained.
 * **Line Thickness:** (Canvas Sketch Only) Adjusts the width of the monochrome sketch lines.
-* **Subject Segmentation:** (Canvas Sketch Only) Optionally limits the sketch to a detected foreground subject using the bundled offline U2NetP model.
+* **Subject Segmentation:** (Canvas Sketch Only) Optionally limits the sketch to a detected foreground subject using ML Kit in Google Play builds or bundled U2NetP in F-Droid builds.
 ### Animation & Behavior
 * **Animation Duration:** Control the total transition duration.
 * **Lock Delay (Anti-Flicker):** Adds a configurable pause before the wallpaper resets when you lock the phone. This prevents the visual glitch where the wallpaper "snaps" back to its initial state before the screen turns fully black.
@@ -141,12 +145,34 @@ I've made a Telegram group for discussing issues and feature suggestions. You ca
 
 This project is built using Kotlin and Gradle.
 
-Canvas Sketch subject segmentation uses the Apache-2.0 U2NetP model and the source-built `tensorflow-lite-fdroid` runtime. No proprietary ML Kit or Google Play services dependency is included. Model and runtime provenance is recorded in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+Atmo Engine keeps one shared codebase and combines two flavor dimensions:
+
+| Flavor | Minimum Android | Target SDK | Version code | Intended release |
+| --- | ---: |-----------:|-------------:| --- |
+| `v33Play` | Android 13 / API 33 |     API 33 |     `300702` | ML Kit APK |
+| `v33Fdroid` | Android 13 / API 33 |     API 33 |     `300702` | FOSS APK for F-Droid |
+| `v35Play` | Android 15 / API 35 |     API 36 |     `400702` | Google Play ML Kit AAB |
+| `v36Play` | Android 16 / API 36 |     API 36 |     `500702` | ML Kit APK |
+| `v36Fdroid` | Android 16 / API 36 |     API 36 |     `500702` | FOSS APK |
+
+The `play` source set contains only the ML Kit implementation and explicit model-download controller. The `fdroid` source set contains only U2NetP, its model files, and the source-built FOSS LiteRT runtime. UI, effects, playlists, palette behavior, and settings remain shared in `main`. Model and runtime provenance is recorded in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 1.  Clone the repository.
 2.  Open in the latest stable Android Studio.
 3.  Sync Gradle.
-4.  Build and Run on your device.
+4.  Select the required build variant, or run one of these tasks:
+
+```bash
+./gradlew assembleV33PlayRelease
+./gradlew assembleV33FdroidRelease
+./gradlew bundleV35PlayRelease
+./gradlew assembleV36PlayRelease
+./gradlew assembleV36FdroidRelease
+```
+
+Release signing keys are intentionally not stored in the repository. Configure your Play upload key locally before uploading either AAB; F-Droid builds and signs its own APK.
+
+F-Droid should select both `v33` and `fdroid` in its build metadata. See [FDROID_BUILD.md](FDROID_BUILD.md) for the scanner-safe recipe used to remove the unselected Play-only integration before F-Droid builds.
 
 <!-- end list -->
 

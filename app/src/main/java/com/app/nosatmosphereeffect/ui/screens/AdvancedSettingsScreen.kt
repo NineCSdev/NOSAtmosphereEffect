@@ -24,6 +24,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -40,6 +41,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import com.app.nosatmosphereeffect.R
+import com.app.nosatmosphereeffect.helper.SubjectModelDelivery
+import com.app.nosatmosphereeffect.helper.SubjectModelPhase
+import com.app.nosatmosphereeffect.helper.SubjectModelState
 import com.app.nosatmosphereeffect.ui.components.AtmoDropdownField
 import com.app.nosatmosphereeffect.ui.components.AtmoNumberField
 import com.app.nosatmosphereeffect.ui.components.AtmoOutlinedButton
@@ -114,6 +118,9 @@ private enum class FineTuneTab(val label: String) {
 @Composable
 fun AdvancedSettingsScreen(
     config: AdvancedConfig,
+    subjectModelDelivery: SubjectModelDelivery,
+    subjectModelState: SubjectModelState,
+    onDownloadSubjectModel: () -> Unit,
     onApply: (AdvancedResult) -> Unit,
     onReset: () -> Unit,
     onBack: () -> Unit
@@ -141,6 +148,44 @@ fun AdvancedSettingsScreen(
     var noiseStrength by remember { mutableStateOf(config.noiseStrength) }
     var scrollEnabled by remember { mutableStateOf(config.scrollEnabled) }
     var infoDialog by remember { mutableStateOf<InfoDialog?>(null) }
+
+    val bundledSubjectModel = subjectModelDelivery == SubjectModelDelivery.BUNDLED_FOSS
+    val subjectModelReady = bundledSubjectModel ||
+        subjectModelState.phase == SubjectModelPhase.READY
+    val subjectModelWorking = !bundledSubjectModel && subjectModelState.phase in setOf(
+        SubjectModelPhase.CHECKING,
+        SubjectModelPhase.DOWNLOADING,
+        SubjectModelPhase.INSTALLING,
+        SubjectModelPhase.PAUSED
+    )
+    val subjectModelButtonText = when (subjectModelState.phase) {
+        SubjectModelPhase.CHECKING -> "Checking model"
+        SubjectModelPhase.NOT_DOWNLOADED -> "Download subject model"
+        SubjectModelPhase.DOWNLOADING -> subjectModelState.progressPercent?.let {
+            "Downloading $it%"
+        } ?: "Downloading model"
+        SubjectModelPhase.INSTALLING -> "Installing model"
+        SubjectModelPhase.PAUSED -> "Download paused"
+        SubjectModelPhase.READY -> "Subject model downloaded"
+        SubjectModelPhase.FAILED -> "Retry model download"
+    }
+    val subjectModelStatusText = when {
+        bundledSubjectModel ->
+            "Bundled U2NetP model. Open source, on-device, and ready offline."
+        subjectModelState.phase == SubjectModelPhase.CHECKING ->
+            "Checking Google Play services without starting a download."
+        subjectModelState.phase == SubjectModelPhase.NOT_DOWNLOADED ->
+            "Optional. Google Play services downloads it only after you tap the button."
+        subjectModelState.phase == SubjectModelPhase.DOWNLOADING ->
+            "Google Play services is downloading the subject model."
+        subjectModelState.phase == SubjectModelPhase.INSTALLING ->
+            "Completing the on-device model installation."
+        subjectModelState.phase == SubjectModelPhase.PAUSED ->
+            "The download is paused until a connection is available."
+        subjectModelState.phase == SubjectModelPhase.READY ->
+            "Installed and ready for offline, on-device segmentation."
+        else -> "The model check failed. Try again when Google Play services is available."
+    }
 
     val result = AdvancedResult(
         poll = poll,
@@ -249,6 +294,13 @@ fun AdvancedSettingsScreen(
                         onNeonLineWidthChange = { neonLineWidth = it },
                         subjectSegmentationEnabled = subjectSegmentationEnabled,
                         onSubjectSegmentationChange = { subjectSegmentationEnabled = it },
+                        subjectModelDelivery = subjectModelDelivery,
+                        subjectModelReady = subjectModelReady,
+                        subjectModelWorking = subjectModelWorking,
+                        subjectModelButtonText = subjectModelButtonText,
+                        subjectModelStatusText = subjectModelStatusText,
+                        subjectModelState = subjectModelState,
+                        onDownloadSubjectModel = onDownloadSubjectModel,
                         noiseEnabled = noiseEnabled,
                         onNoiseEnabledChange = { noiseEnabled = it },
                         noiseScale = noiseScale,
@@ -318,6 +370,13 @@ private fun EffectSettings(
     onNeonLineWidthChange: (Float) -> Unit,
     subjectSegmentationEnabled: Boolean,
     onSubjectSegmentationChange: (Boolean) -> Unit,
+    subjectModelDelivery: SubjectModelDelivery,
+    subjectModelReady: Boolean,
+    subjectModelWorking: Boolean,
+    subjectModelButtonText: String,
+    subjectModelStatusText: String,
+    subjectModelState: SubjectModelState,
+    onDownloadSubjectModel: () -> Unit,
     noiseEnabled: Boolean,
     onNoiseEnabledChange: (Boolean) -> Unit,
     noiseScale: String,
@@ -370,15 +429,46 @@ private fun EffectSettings(
                     title = "Subject segmentation",
                     checked = subjectSegmentationEnabled,
                     onCheckedChange = onSubjectSegmentationChange,
-                    subtitle = if (subjectSegmentationEnabled) {
-                        "Uses the bundled U2NetP model locally to isolate the foreground."
-                    } else {
-                        "Sketches the complete wallpaper."
+                    enabled = subjectModelReady || subjectSegmentationEnabled,
+                    subtitle = when {
+                        !subjectSegmentationEnabled -> "Sketches the complete wallpaper."
+                        subjectModelDelivery == SubjectModelDelivery.BUNDLED_FOSS ->
+                            "Uses the bundled U2NetP model locally to isolate the foreground."
+                        subjectModelReady ->
+                            "Uses the installed ML Kit model locally to isolate the foreground."
+                        else -> "The complete wallpaper is sketched until the model is installed."
                     }
                 )
+                if (subjectModelDelivery == SubjectModelDelivery.GOOGLE_PLAY_SERVICES) {
+                    Spacer(Modifier.height(10.dp))
+                    AtmoOutlinedButton(
+                        text = subjectModelButtonText,
+                        onClick = onDownloadSubjectModel,
+                        enabled = !subjectModelWorking && !subjectModelReady,
+                        accent = true,
+                        icon = if (!subjectModelWorking && !subjectModelReady) {
+                            painterResource(R.drawable.ic_download)
+                        } else {
+                            null
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    if (subjectModelWorking) {
+                        Spacer(Modifier.height(10.dp))
+                        val percent = subjectModelState.progressPercent
+                        if (percent != null) {
+                            LinearProgressIndicator(
+                                progress = { percent / 100f },
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        } else {
+                            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                        }
+                    }
+                }
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    "Built in, open source, and fully offline.",
+                    subjectModelStatusText,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

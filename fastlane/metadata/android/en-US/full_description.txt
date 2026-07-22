@@ -27,7 +27,7 @@ Use Material Expressive styling with the device's system color palette, or switc
 OFFLINE-FIRST PRIVACY
 Wallpaper images, crops, sketches, palettes, and playlists are processed and stored on-device. Atmo Engine does not request Internet or network-state permission and contains no developer-operated advertising or analytics.
 
-Canvas Sketch includes an open-source subject model in the app. Optional subject segmentation can isolate a prominent person, character, animal, or object, then falls back to the complete wallpaper when no confident subject is found. It runs fully offline with no model download, ML Kit, or Google Play services dependency.
+Canvas Sketch can optionally isolate a prominent person, character, animal, or object, then falls back to the complete wallpaper when no confident subject is found. Google Play builds use the higher-quality optional ML Kit subject model: Fine Tuning checks its installed state and downloads it through Google Play services only after you tap the download button. After installation, processing is on-device and works offline. F-Droid builds instead bundle the open-source U2NetP model and need no model download or Google Play services.
 
 Sync System Colors publishes a locally extracted wallpaper palette through Android's wallpaper API whenever the active image changes. System-wide color refresh behavior is controlled by the phone manufacturer.
 

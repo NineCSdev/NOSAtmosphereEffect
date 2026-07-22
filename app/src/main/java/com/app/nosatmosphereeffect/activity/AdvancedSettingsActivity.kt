@@ -7,8 +7,18 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.core.content.edit
 import com.app.nosatmosphereeffect.helper.CanvasSubjectSettings
+import com.app.nosatmosphereeffect.helper.SubjectModelBuild
+import com.app.nosatmosphereeffect.helper.SubjectModelDelivery
+import com.app.nosatmosphereeffect.helper.SubjectModelManager
+import com.app.nosatmosphereeffect.helper.SubjectModelPhase
+import com.app.nosatmosphereeffect.helper.SubjectModelState
 import com.app.nosatmosphereeffect.helper.WallpaperFitHelper
 import com.app.nosatmosphereeffect.ui.screens.AdvancedConfig
 import com.app.nosatmosphereeffect.ui.screens.AdvancedResult
@@ -17,6 +27,8 @@ import com.app.nosatmosphereeffect.ui.model.EffectCatalog
 import com.app.nosatmosphereeffect.ui.theme.AtmoEngineTheme
 
 class AdvancedSettingsActivity : ComponentActivity() {
+
+    private var subjectModelManager: SubjectModelManager? = null
 
     private val rotationOptions = listOf(
         "Every Lock (Instant)", "1 Minute", "15 Minutes",
@@ -88,10 +100,55 @@ class AdvancedSettingsActivity : ComponentActivity() {
             scrollEnabled = WallpaperFitHelper.isScrollEnabled(this)
         )
 
+        val initialSubjectModelState = SubjectModelState(
+            phase = if (SubjectModelBuild.delivery == SubjectModelDelivery.BUNDLED_FOSS) {
+                SubjectModelPhase.READY
+            } else {
+                SubjectModelPhase.CHECKING
+            },
+            progressPercent = if (
+                SubjectModelBuild.delivery == SubjectModelDelivery.BUNDLED_FOSS
+            ) 100 else null
+        )
+        if (isNeon) {
+            subjectModelManager = SubjectModelManager(applicationContext)
+        }
+
         setContent {
             AtmoEngineTheme {
+                var subjectModelState by remember { mutableStateOf(initialSubjectModelState) }
+                val updateSubjectModelState: (SubjectModelState) -> Unit = remember {
+                    { state ->
+                        runOnUiThread {
+                            subjectModelState = state
+                            when (state.phase) {
+                                SubjectModelPhase.READY -> prefs.edit {
+                                    putBoolean(CanvasSubjectSettings.MODEL_READY_KEY, true)
+                                }
+                                SubjectModelPhase.NOT_DOWNLOADED -> prefs.edit {
+                                    putBoolean(CanvasSubjectSettings.MODEL_READY_KEY, false)
+                                }
+                                else -> Unit
+                            }
+                        }
+                    }
+                }
+                LaunchedEffect(isNeon) {
+                    if (isNeon) {
+                        subjectModelManager?.checkAvailability(updateSubjectModelState)
+                    }
+                }
                 AdvancedSettingsScreen(
                     config = config,
+                    subjectModelDelivery = SubjectModelBuild.delivery,
+                    subjectModelState = subjectModelState,
+                    onDownloadSubjectModel = {
+                        val manager = subjectModelManager
+                            ?: SubjectModelManager(applicationContext).also {
+                                subjectModelManager = it
+                            }
+                        manager.download(updateSubjectModelState)
+                    },
                     onApply = { result ->
                         applySettings(result, prefs, wpPrefs, defaultPoll, defaultDelay, defaultDuration)
                     },
@@ -174,6 +231,12 @@ class AdvancedSettingsActivity : ComponentActivity() {
             remove(CanvasSubjectSettings.ENABLED_KEY)
         }
         sendUpdateBroadcast()
+    }
+
+    override fun onDestroy() {
+        subjectModelManager?.close()
+        subjectModelManager = null
+        super.onDestroy()
     }
 
     private fun sendUpdateBroadcast() {
