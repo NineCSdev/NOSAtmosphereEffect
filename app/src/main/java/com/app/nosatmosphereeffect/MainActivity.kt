@@ -3,10 +3,10 @@ package com.app.nosatmosphereeffect
 import android.app.WallpaperManager
 import android.content.ClipData
 import android.content.Intent
-import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -24,27 +24,23 @@ import com.app.nosatmosphereeffect.activity.EffectSelectionActivity
 import com.app.nosatmosphereeffect.activity.PaletteDiagnosticsActivity
 import com.app.nosatmosphereeffect.activity.PlaylistEditorActivity
 import com.app.nosatmosphereeffect.activity.ThemePlaylistEditorActivity
+import com.app.nosatmosphereeffect.activity.WallpaperEffectServices
 import com.app.nosatmosphereeffect.helper.PlaylistModeManager
 import com.app.nosatmosphereeffect.helper.SystemColorSyncPreferences
-import com.app.nosatmosphereeffect.service.AtmosphereService
-import com.app.nosatmosphereeffect.service.BlurToSharpService
-import com.app.nosatmosphereeffect.service.ColorFillReverseService
-import com.app.nosatmosphereeffect.service.ColorFillService
-import com.app.nosatmosphereeffect.service.FrostedReverseService
-import com.app.nosatmosphereeffect.service.FrostedService
-import com.app.nosatmosphereeffect.service.HalftoneReverseService
-import com.app.nosatmosphereeffect.service.HalftoneService
-import com.app.nosatmosphereeffect.service.NeonReverseService
-import com.app.nosatmosphereeffect.service.NeonService
+import com.app.nosatmosphereeffect.image.BitmapDecoder
+import com.app.nosatmosphereeffect.ui.model.EffectCatalog
 import com.app.nosatmosphereeffect.ui.screens.MainScreen
 import com.app.nosatmosphereeffect.ui.theme.AppearancePreferences
 import com.app.nosatmosphereeffect.ui.theme.AppThemeMode
 import com.app.nosatmosphereeffect.ui.theme.AtmoEngineTheme
 import java.io.File
+import java.io.IOException
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
 
 class MainActivity : ComponentActivity() {
 
-    // --- UI state (observed by Compose) ---
+    private val ioExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     private var wallpaperActive by mutableStateOf(false)
     private var statusText by mutableStateOf("")
     private var isPlaylistModeActive by mutableStateOf(false)
@@ -135,6 +131,11 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onDestroy() {
+        ioExecutor.shutdownNow()
+        super.onDestroy()
+    }
+
     private fun isSamsungDevice(): Boolean =
         Build.MANUFACTURER.equals("samsung", ignoreCase = true)
 
@@ -194,17 +195,28 @@ class MainActivity : ComponentActivity() {
             previewBitmap = null
             return
         }
-        Thread {
-            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            BitmapFactory.decodeFile(file.absolutePath, bounds)
-            var sample = 1
-            while (maxOf(bounds.outWidth, bounds.outHeight) / sample > 2000) sample *= 2
-            val bitmap = BitmapFactory.decodeFile(
-                file.absolutePath,
-                BitmapFactory.Options().apply { inSampleSize = sample }
-            )
-            runOnUiThread { previewBitmap = bitmap?.asImageBitmap() }
-        }.start()
+        ioExecutor.execute {
+            try {
+                val bitmap = BitmapDecoder.decodePreview(file)
+                runOnUiThread {
+                    if (isDestroyed) {
+                        bitmap.recycle()
+                    } else {
+                        previewBitmap = bitmap.asImageBitmap()
+                    }
+                }
+            } catch (error: IOException) {
+                Log.w(TAG, "Wallpaper preview could not be loaded", error)
+                runOnUiThread {
+                    if (!isDestroyed) previewBitmap = null
+                }
+            } catch (error: RuntimeException) {
+                Log.e(TAG, "Unexpected wallpaper preview failure", error)
+                runOnUiThread {
+                    if (!isDestroyed) previewBitmap = null
+                }
+            }
+        }
     }
 
     private fun updateSyncColors(enabled: Boolean) {
@@ -245,22 +257,8 @@ class MainActivity : ComponentActivity() {
     private fun getActiveEffectType(): String? {
         val wm = WallpaperManager.getInstance(this)
         val info = wm.wallpaperInfo ?: return null
-        if (info.packageName == packageName) {
-            return when (info.component.className) {
-                AtmosphereService::class.java.name -> "ORIGINAL"
-                BlurToSharpService::class.java.name -> "REVERSE"
-                FrostedService::class.java.name -> "FROSTED"
-                FrostedReverseService::class.java.name -> "FROSTED_REVERSE"
-                HalftoneService::class.java.name -> "HALFTONE"
-                HalftoneReverseService::class.java.name -> "HALFTONE_REVERSE"
-                ColorFillService::class.java.name -> "COLORFILL"
-                ColorFillReverseService::class.java.name -> "COLORFILL_REVERSE"
-                NeonService::class.java.name -> "NEON"
-                NeonReverseService::class.java.name -> "NEON_REVERSE"
-                else -> null
-            }
-        }
-        return null
+        if (info.packageName != packageName) return null
+        return WallpaperEffectServices.effectIdForService(info.component.className)
     }
 
     private fun launchEditExistingPlaylist() {
@@ -288,7 +286,7 @@ class MainActivity : ComponentActivity() {
 
     private fun launchCropActivity(uri: Uri) {
         val effectId = getActiveEffectType() ?: "ORIGINAL"
-        val intent = if (effectId.contains("REVERSE")) {
+        val intent = if (EffectCatalog.isReverse(effectId)) {
             Intent(this, BlurToSharpCropActivity::class.java)
         } else {
             Intent(this, CropActivity::class.java)
@@ -310,5 +308,9 @@ class MainActivity : ComponentActivity() {
         intent.putParcelableArrayListExtra("IMAGE_URIS", uris)
         intent.putExtra("EFFECT_ID", effectId)
         startActivity(intent)
+    }
+
+    private companion object {
+        const val TAG = "MainActivity"
     }
 }

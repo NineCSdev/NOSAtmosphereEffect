@@ -174,7 +174,7 @@ Stable and beta release workflows produce exactly five artifacts: Android 16+ ML
 
 Release signing keys are intentionally not stored in the repository. Configure your Play upload key locally before uploading either AAB; F-Droid builds and signs its own APK.
 
-F-Droid should select both `v33` and `fdroid` in its build metadata. See [FDROID_BUILD.md](FDROID_BUILD.md) for the scanner-safe recipe used to remove the unselected Play-only integration before F-Droid builds.
+F-Droid should select both `v33` and `fdroid` in its build metadata.
 
 <!-- end list -->
 

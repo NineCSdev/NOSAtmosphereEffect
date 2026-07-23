@@ -56,7 +56,10 @@ class SubjectMaskExtractor(
     fun extract(bitmap: Bitmap, requestId: Long) {
         if (closed || bitmap.width <= 0 || bitmap.height <= 0) return
 
-        val inputBitmap = runCatching { makeInputBitmap(bitmap) }.getOrElse {
+        val inputBitmap = try {
+            makeInputBitmap(bitmap)
+        } catch (error: Exception) {
+            Log.w(TAG, "Could not prepare an image for subject segmentation", error)
             onResult(requestId, null)
             return
         }
@@ -78,7 +81,8 @@ class SubjectMaskExtractor(
                     onResult(requestId, mask)
                 }
             }
-        } catch (_: RejectedExecutionException) {
+        } catch (error: RejectedExecutionException) {
+            Log.w(TAG, "Subject-segmentation request was rejected", error)
             inputBitmap.recycle()
             if (!closed) onResult(requestId, null)
         }

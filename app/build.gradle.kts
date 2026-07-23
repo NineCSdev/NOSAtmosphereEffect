@@ -9,8 +9,8 @@ android {
 
     defaultConfig {
         applicationId = "com.saad_khan_rind.atmosphere_effect"
-        versionName = "7.0.2"
-        versionCode = 500702
+        versionName = "7.0.3"
+        versionCode = 500703
     }
 
     flavorDimensions += "apiLevel"
@@ -22,21 +22,21 @@ android {
             dimension = "apiLevel"
             minSdk = 36
             targetSdk = 36
-            versionCode = 500702
+            versionCode = 500703
         }
 
         create("v35") {
             dimension = "apiLevel"
             minSdk = 35
             targetSdk = 36
-            versionCode = 400702
+            versionCode = 400703
         }
 
         create("v33") {
             dimension = "apiLevel"
             minSdk = 33
             targetSdk = 33
-            versionCode = 300702
+            versionCode = 300703
         }
 
         create("play") {
@@ -87,6 +87,7 @@ kotlin {
 dependencies {
     implementation(libs.androidx.exifinterface)
     implementation(libs.androidx.palette.ktx)
+    testImplementation(libs.junit)
 
     // Google Play builds use the higher-quality optional ML Kit module.
     "playImplementation"("com.google.android.gms:play-services-base:18.10.0")
@@ -96,7 +97,6 @@ dependencies {
     "fdroidImplementation"(libs.litert.api)
     "fdroidImplementation"(libs.litert.fdroid)
 
-    // --- Jetpack Compose (common to all flavors) ---
     val composeBom = platform(libs.androidx.compose.bom)
     implementation(composeBom)
     implementation(libs.androidx.compose.animation)
@@ -109,21 +109,16 @@ dependencies {
     implementation(libs.androidx.activity.compose)
     debugImplementation(libs.androidx.ui.tooling)
 
-    // --- Dependencies for v36 (API 36) ---
-    // Latest stable AndroidX and Material Components releases.
     "v36Implementation"("androidx.core:core-ktx:1.19.0")
     "v36Implementation"("androidx.lifecycle:lifecycle-service:2.11.0")
     "v36Implementation"("androidx.appcompat:appcompat:1.7.1")
     "v36Implementation"("com.google.android.material:material:1.14.0")
 
-    // --- Dependencies for v35 (Android 15+) ---
     "v35Implementation"("androidx.core:core-ktx:1.15.0")
     "v35Implementation"("androidx.lifecycle:lifecycle-service:2.8.7")
     "v35Implementation"("androidx.appcompat:appcompat:1.7.0")
     "v35Implementation"("com.google.android.material:material:1.12.0")
 
-    // --- Dependencies for v33 (API 33) ---
-    // These only apply when building the v33 flavor
     "v33Implementation"("androidx.core:core-ktx:1.12.0")
     "v33Implementation"("androidx.lifecycle:lifecycle-service:2.6.2")
     "v33Implementation"("androidx.appcompat:appcompat:1.6.1")

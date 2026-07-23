@@ -2,9 +2,8 @@ package com.app.nosatmosphereeffect.ui.screens
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
-import android.graphics.Matrix
 import android.net.Uri
+import android.util.Log
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -60,6 +59,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.app.nosatmosphereeffect.R
+import com.app.nosatmosphereeffect.image.BitmapDecoder
 import com.app.nosatmosphereeffect.ui.components.AtmoChip
 import com.app.nosatmosphereeffect.ui.components.AtmoOutlinedButton
 import com.app.nosatmosphereeffect.ui.components.AtmoPrimaryButton
@@ -70,7 +70,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlin.math.absoluteValue
 
-/** Lightweight view of a playlist entry the screen needs in order to render. */
 data class PlaylistEntry(
     val displayUri: Uri,
     val isEdited: Boolean
@@ -154,7 +153,7 @@ fun PlaylistEditorScreen(
                         pageSpacing = 16.dp,
                         modifier = Modifier.fillMaxWidth()
                     ) { page ->
-                        // guard against transient out-of-range during deletions
+                        // Pager state can briefly outlive an entry removed during composition.
                         val entry = entries.getOrNull(page) ?: return@HorizontalPager
                         Box(
                             Modifier.graphicsLayer {
@@ -299,7 +298,6 @@ private fun PlaylistCard(
             )
         }
 
-        // Delete button (top-right)
         androidx.compose.material3.Surface(
             modifier = Modifier
                 .align(Alignment.TopEnd)
@@ -386,10 +384,6 @@ private fun EmptyPlaylist(label: String) {
     }
 }
 
-/* -------------------------------------------------------------------------- */
-/*  Thumbnail loading (off the main thread, EXIF-aware)                        */
-/* -------------------------------------------------------------------------- */
-
 @Composable
 private fun rememberThumbnail(
     context: Context,
@@ -407,60 +401,9 @@ private fun rememberThumbnail(
 
 private fun decodeThumbnail(context: Context, uri: Uri): Bitmap? {
     return try {
-        val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        context.contentResolver.openInputStream(uri)?.use {
-            BitmapFactory.decodeStream(it, null, options)
-        }
-        options.inSampleSize = calculateInSampleSize(options, 400, 600)
-        options.inJustDecodeBounds = false
-
-        val bmp = context.contentResolver.openInputStream(uri)?.use {
-            BitmapFactory.decodeStream(it, null, options)
-        } ?: return null
-
-        applyExifRotation(context, uri, bmp)
-    } catch (e: Exception) {
+        BitmapDecoder.decodeUri(context, uri, maxDimension = 600)
+    } catch (error: Exception) {
+        Log.w("PlaylistEditorScreen", "Could not create a thumbnail for $uri", error)
         null
     }
-}
-
-private fun applyExifRotation(context: Context, uri: Uri, bitmap: Bitmap): Bitmap {
-    return try {
-        val orientation = context.contentResolver.openInputStream(uri)?.use { stream ->
-            androidx.exifinterface.media.ExifInterface(stream).getAttributeInt(
-                androidx.exifinterface.media.ExifInterface.TAG_ORIENTATION,
-                androidx.exifinterface.media.ExifInterface.ORIENTATION_NORMAL
-            )
-        } ?: return bitmap
-
-        val rotation = when (orientation) {
-            androidx.exifinterface.media.ExifInterface.ORIENTATION_ROTATE_90 -> 90f
-            androidx.exifinterface.media.ExifInterface.ORIENTATION_ROTATE_180 -> 180f
-            androidx.exifinterface.media.ExifInterface.ORIENTATION_ROTATE_270 -> 270f
-            else -> 0f
-        }
-        if (rotation == 0f) return bitmap
-        val matrix = Matrix().apply { postRotate(rotation) }
-        Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
-    } catch (e: Exception) {
-        bitmap
-    }
-}
-
-private fun calculateInSampleSize(
-    options: BitmapFactory.Options,
-    reqWidth: Int,
-    reqHeight: Int
-): Int {
-    val height = options.outHeight
-    val width = options.outWidth
-    var inSampleSize = 1
-    if (height > reqHeight || width > reqWidth) {
-        val halfHeight = height / 2
-        val halfWidth = width / 2
-        while ((halfHeight / inSampleSize) >= reqHeight && (halfWidth / inSampleSize) >= reqWidth) {
-            inSampleSize *= 2
-        }
-    }
-    return inSampleSize
 }

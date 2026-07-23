@@ -120,7 +120,6 @@ fun CropScreen(
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.surface)
     ) {
-        // --- The interop crop surface ------------------------------------
         AndroidView(
             modifier = Modifier.fillMaxSize(),
             factory = { ctx ->
@@ -140,7 +139,6 @@ fun CropScreen(
             }
         )
 
-        // --- Center framing guides ---------------------------------------
         Box(
             Modifier
                 .align(Alignment.Center)

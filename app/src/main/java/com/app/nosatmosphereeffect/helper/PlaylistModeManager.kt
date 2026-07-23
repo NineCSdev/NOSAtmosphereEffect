@@ -2,7 +2,7 @@ package com.app.nosatmosphereeffect.helper
 
 import android.content.Context
 import android.content.res.Configuration
-import androidx.core.content.edit
+import com.app.nosatmosphereeffect.storage.FileTransactions
 import java.io.File
 
 /** Owns the on-disk collections and mode flag shared by every wallpaper effect. */
@@ -33,13 +33,6 @@ object PlaylistModeManager {
                 hasImages(File(context.filesDir, DARK_PLAYLIST_DIR)) -> MODE_THEME
             hasImages(File(context.filesDir, STANDARD_PLAYLIST_DIR)) -> MODE_STANDARD
             else -> MODE_SINGLE
-        }
-    }
-
-    fun setMode(context: Context, mode: String) {
-        require(mode in setOf(MODE_SINGLE, MODE_STANDARD, MODE_THEME))
-        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit {
-            putString(KEY_MODE, mode)
         }
     }
 
@@ -87,23 +80,27 @@ object PlaylistModeManager {
     fun darkPlaylistDir(context: Context) = File(context.filesDir, DARK_PLAYLIST_DIR)
 
     fun clearStandardCollections(context: Context) {
-        standardPlaylistDir(context).deleteRecursively()
-        File(context.filesDir, STANDARD_ORIGINALS_DIR).deleteRecursively()
+        FileTransactions.deleteRecursively(standardPlaylistDir(context))
+        FileTransactions.deleteRecursively(File(context.filesDir, STANDARD_ORIGINALS_DIR))
     }
 
     fun clearThemeCollections(context: Context) {
-        lightPlaylistDir(context).deleteRecursively()
-        darkPlaylistDir(context).deleteRecursively()
-        File(context.filesDir, LIGHT_ORIGINALS_DIR).deleteRecursively()
-        File(context.filesDir, DARK_ORIGINALS_DIR).deleteRecursively()
+        FileTransactions.deleteRecursively(lightPlaylistDir(context))
+        FileTransactions.deleteRecursively(darkPlaylistDir(context))
+        FileTransactions.deleteRecursively(File(context.filesDir, LIGHT_ORIGINALS_DIR))
+        FileTransactions.deleteRecursively(File(context.filesDir, DARK_ORIGINALS_DIR))
     }
 
     fun imageFiles(directory: File): List<File> {
-        return directory.listFiles { file ->
-            file.isFile && file.name.startsWith("wallpaper_") && file.name.endsWith(".jpg")
-        }?.sortedBy { file ->
-            file.nameWithoutExtension.substringAfterLast('_').toIntOrNull() ?: Int.MAX_VALUE
-        }.orEmpty()
+        return directory.listFiles()
+            ?.mapNotNull { file ->
+                if (!file.isFile) return@mapNotNull null
+                val index = PlaylistFilePolicy.index(file.name) ?: return@mapNotNull null
+                index to file
+            }
+            ?.sortedBy { (index, _) -> index }
+            ?.map { (_, file) -> file }
+            .orEmpty()
     }
 
     private fun hasImages(directory: File): Boolean = imageFiles(directory).isNotEmpty()

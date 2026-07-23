@@ -63,7 +63,6 @@ import com.app.nosatmosphereeffect.ui.theme.LocalAtmoExpressive
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 
-/** A simple two-action confirmation dialog themed to match Atmo Engine. */
 @Composable
 fun SimpleConfirmDialog(
     title: String,
@@ -229,10 +228,6 @@ fun WallpaperPreviewDialog(
     }
 }
 
-/**
- * Full-screen blocking overlay with a spinner + message. Drawn on top of the
- * current screen while a long-running task (e.g. building a playlist) runs.
- */
 @Composable
 fun ProcessingOverlay(message: String) {
     val noRipple = remember { MutableInteractionSource() }

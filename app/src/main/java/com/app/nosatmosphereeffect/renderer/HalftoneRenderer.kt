@@ -20,17 +20,14 @@ class HalftoneRenderer(
     private val previewSource: (() -> Bitmap?)? = null
 ) : GLSurfaceView.Renderer, WallpaperScrollRenderer {
 
-    // --- Wallpaper scrolling (home-screen parallax) ---
     @Volatile private var scrollOffsetX: Float = 0.5f
-    private var currentWindowX: Float = 1f   // visible width fraction of current texture
-    private var nextWindowX: Float = 1f      // ...of the queued (transition) texture
+    private var currentWindowX: Float = 1f
+    private var nextWindowX: Float = 1f
 
     override fun setWallpaperOffset(xOffset: Float) {
         scrollOffsetX = xOffset.coerceIn(0f, 1f)
     }
-    // ---------------------------------------------------
 
-    // --- RAM Optimized Ring Buffer Logic ---
     private class TextureSet {
         var sharpId = 0
         var width = 0
@@ -53,12 +50,10 @@ class HalftoneRenderer(
     private var programId: Int = 0
     private var aspectRatio: Float = 1.0f
 
-    // --- DISPLAY FIT: actual surface size + the size the textures were fitted for ---
     @Volatile private var surfaceWidth: Int = 0
     @Volatile private var surfaceHeight: Int = 0
     private var fittedForWidth: Int = -1
     private var fittedForHeight: Int = -1
-    // --------------------------------------------------------------------------------
 
     private val vertices = floatArrayOf(
         -1f, -1f,  0f, 1f,
@@ -118,14 +113,13 @@ class HalftoneRenderer(
 
     private fun processPlaylistTransition() {
         val raw = pendingPlaylistBitmap ?: return
-        // Fit the incoming image to the current surface (display settings + foldables + scroll)
         val render = WallpaperFitHelper.fitForRender(context, raw, surfaceWidth, surfaceHeight)
         val bitmap = render.bitmap
         nextWindowX = render.windowX
         fittedForWidth = surfaceWidth
         fittedForHeight = surfaceHeight
 
-        // RAM FIX & PIXEL BUG FIX: Overwrite the existing nextSet.sharpId using texSubImage2D
+        // Reuse the queued texture ID across playlist transitions.
         nextSet.sharpId = uploadTexture(bitmap, nextSet.sharpId, nextSet.width, nextSet.height)
 
         nextSet.width = bitmap.width
@@ -133,7 +127,6 @@ class HalftoneRenderer(
 
         bitmap.recycle()
 
-        // SWAP! Old current becomes next
         val temp = currentSet
         currentSet = nextSet
         nextSet = temp
