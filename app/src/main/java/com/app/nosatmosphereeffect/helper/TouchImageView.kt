@@ -40,27 +40,22 @@ class TouchImageView @JvmOverloads constructor(
     private var matrixCurrent = Matrix()
     private var mode = 0 // 0=NONE, 1=DRAG, 2=ZOOM
 
-    // Zoom variables
     private var saveScale = 1f
     private var minScale = 1f
     private var maxScale = 5f
 
-    // View dimensions
     private var viewWidth = 0f
     private var viewHeight = 0f
 
-    // Target dimensions (Physical Screen 1:1 size)
     private var targetWidth = 0
     private var targetHeight = 0
 
-    // Image dimensions (of the bitmap currently being drawn)
     private var origWidth = 0f
     private var origHeight = 0f
 
-    // Fit-mode preview state
-    private var sourceBitmap: Bitmap? = null     // original image as provided
-    private var displayBitmap: Bitmap? = null    // bitmap actually drawn (rotated for ROTATE_FIT)
-    private var rotatedBitmap: Bitmap? = null     // cached rotated copy for ROTATE_FIT
+    private var sourceBitmap: Bitmap? = null
+    private var displayBitmap: Bitmap? = null
+    private var rotatedBitmap: Bitmap? = null
     private var fitMode: String = WallpaperFitHelper.MODE_FILL
     private var fillMode: String = WallpaperFitHelper.FILL_BLACK
     private val drawPaint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
@@ -81,7 +76,6 @@ class TouchImageView @JvmOverloads constructor(
         scaleType = ScaleType.MATRIX
         imageMatrix = matrixCurrent
 
-        // --- 1. CAPTURE REAL SCREEN SIZE ---
         val windowManager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
         val metrics = windowManager.currentWindowMetrics
         targetWidth = metrics.bounds.width()
@@ -132,7 +126,7 @@ class TouchImageView @JvmOverloads constructor(
 
             imageMatrix = matrixCurrent
             invalidate()
-            true // Consumed
+            true
         }
     }
 
@@ -144,7 +138,6 @@ class TouchImageView @JvmOverloads constructor(
         }
     }
 
-    // --- 2. SETUP IMAGE TO FILL SCREEN RESOLUTION ---
     fun setInitialImage(bitmap: Bitmap, savedMatrixValues: FloatArray? = null) {
         super.setImageBitmap(bitmap)
         sourceBitmap = bitmap
@@ -152,14 +145,12 @@ class TouchImageView @JvmOverloads constructor(
         rotatedBitmap = null
         origWidth = bitmap.width.toFloat()
         origHeight = bitmap.height.toFloat()
-        pendingSavedMatrix = savedMatrixValues
+        pendingSavedMatrix = MatrixStatePolicy.copyIfValid(savedMatrixValues)
 
         post {
-            // We use the view's actual layout size for bounds checking
             viewWidth = width.toFloat()
             viewHeight = height.toFloat()
 
-            // Set up the display bitmap + scale bounds for the current mode.
             updateDisplayForMode(resetPlacement = pendingSavedMatrix == null)
 
             pendingSavedMatrix?.let { restoreMatrix(it) }
@@ -250,7 +241,6 @@ class TouchImageView @JvmOverloads constructor(
     }
 
     override fun onDraw(canvas: Canvas) {
-        // Draw the fit-mode preview ourselves instead of the default ImageView drawing.
         renderComposite(canvas)
     }
 
@@ -286,7 +276,6 @@ class TouchImageView @JvmOverloads constructor(
         }
     }
 
-    // --- BOUNDS CHECKING LOGIC ---
     private fun fixTrans() {
         matrixCurrent.getValues(m)
         val transX = m[Matrix.MTRANS_X]
@@ -321,7 +310,6 @@ class TouchImageView @JvmOverloads constructor(
         return if (contentSize <= viewSize) 0f else delta
     }
 
-    // --- SCALE LISTENER (Pinch to Zoom) ---
     private inner class ScaleListener : ScaleGestureDetector.SimpleOnScaleGestureListener() {
         override fun onScaleBegin(detector: ScaleGestureDetector): Boolean {
             mode = 2

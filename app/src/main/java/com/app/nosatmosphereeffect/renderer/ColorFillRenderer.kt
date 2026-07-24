@@ -23,7 +23,6 @@ class ColorFillRenderer(
     private val previewSource: (() -> Bitmap?)? = null
 ) : GLSurfaceView.Renderer, WallpaperScrollRenderer {
 
-    // --- Wallpaper scrolling (home-screen parallax) ---
     @Volatile private var scrollOffsetX: Float = 0.5f
     private var currentWindowX: Float = 1f
     private var nextWindowX: Float = 1f
@@ -31,9 +30,7 @@ class ColorFillRenderer(
     override fun setWallpaperOffset(xOffset: Float) {
         scrollOffsetX = xOffset.coerceIn(0f, 1f)
     }
-    // ---------------------------------------------------
 
-    // --- RAM Optimized Ring Buffer Logic ---
     private class TextureSet {
         var sharpId = 0
         var width = 0
@@ -50,20 +47,17 @@ class ColorFillRenderer(
     @Volatile var dimLevel: Float = 0.0f
     @Volatile private var needsReload: Boolean = false
 
-    // User-adjustable fingerprint origin coordinates (0.0 to 1.0)
-    // Default is bottom center.
+    // The shader expects normalized fingerprint-origin coordinates.
     @Volatile var originX: Float = 0.5f
     @Volatile var originY: Float = 0.8f
 
     private var programId: Int = 0
     private var aspectRatio: Float = 1.0f
 
-    // --- DISPLAY FIT: actual surface size + the size the textures were fitted for ---
     @Volatile private var surfaceWidth: Int = 0
     @Volatile private var surfaceHeight: Int = 0
     private var fittedForWidth: Int = -1
     private var fittedForHeight: Int = -1
-    // --------------------------------------------------------------------------------
 
     private val vertices = floatArrayOf(
         -1f, -1f,  0f, 1f,
@@ -124,14 +118,13 @@ class ColorFillRenderer(
 
     private fun processPlaylistTransition() {
         val raw = pendingPlaylistBitmap ?: return
-        // Fit the incoming image to the current surface (display settings + foldables + scroll)
         val render = WallpaperFitHelper.fitForRender(context, raw, surfaceWidth, surfaceHeight)
         val bitmap = render.bitmap
         nextWindowX = render.windowX
         fittedForWidth = surfaceWidth
         fittedForHeight = surfaceHeight
 
-        // RAM FIX & PIXEL BUG FIX: Overwrite the existing nextSet.sharpId instead of deleting it
+        // Reuse the queued texture ID across playlist transitions.
         nextSet.sharpId = uploadTexture(bitmap, nextSet.sharpId, nextSet.width, nextSet.height)
 
         nextSet.width = bitmap.width
@@ -139,7 +132,6 @@ class ColorFillRenderer(
 
         bitmap.recycle()
 
-        // Swap Pointers
         val temp = currentSet
         currentSet = nextSet
         nextSet = temp
@@ -177,7 +169,6 @@ class ColorFillRenderer(
         GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
         GLES30.glUseProgram(programId)
 
-        // Pass Uniforms
         GLES30.glUniform1f(GLES30.glGetUniformLocation(programId, "uAspectRatio"), aspectRatio)
         GLES30.glUniform1f(GLES30.glGetUniformLocation(programId, "uBlurStrength"), blurStrength)
         GLES30.glUniform1f(GLES30.glGetUniformLocation(programId, "uDimLevel"), dimLevel)
@@ -187,12 +178,10 @@ class ColorFillRenderer(
         GLES30.glUniform1f(GLES30.glGetUniformLocation(programId, "uScrollOffsetX"), scrollOffsetX)
         GLES30.glUniform1f(GLES30.glGetUniformLocation(programId, "uScrollWindowX"), currentWindowX)
 
-        // Bind Texture
         GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
         GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, currentSet.sharpId)
         GLES30.glUniform1i(GLES30.glGetUniformLocation(programId, "uTextureSharp"), 0)
 
-        // Draw Quad
         val aPosLoc = GLES30.glGetAttribLocation(programId, "aPosition")
         val aTexLoc = GLES30.glGetAttribLocation(programId, "aTexCoord")
 

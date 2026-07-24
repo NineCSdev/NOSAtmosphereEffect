@@ -80,10 +80,6 @@ import java.util.Locale
 import kotlinx.coroutines.delay
 import kotlin.math.roundToInt
 
-/* -------------------------------------------------------------------------- */
-/*  Buttons                                                                    */
-/* -------------------------------------------------------------------------- */
-
 @Composable
 fun AtmoReveal(
     modifier: Modifier = Modifier,
@@ -272,11 +268,6 @@ fun AtmoTextButton(
     }
 }
 
-/* -------------------------------------------------------------------------- */
-/*  Cards / sections                                                           */
-/* -------------------------------------------------------------------------- */
-
-/** A bordered, slightly-elevated surface used to group related settings. */
 @Composable
 fun AtmoCard(
     modifier: Modifier = Modifier,
@@ -340,10 +331,6 @@ fun SectionHeader(title: String, modifier: Modifier = Modifier) {
         modifier = modifier
     )
 }
-
-/* -------------------------------------------------------------------------- */
-/*  Sliders                                                                    */
-/* -------------------------------------------------------------------------- */
 
 /**
  * Label + live value + a clean (tick-free) slider. [step], when > 0, snaps the
@@ -425,10 +412,6 @@ private fun defaultFormat(value: Float, step: Float): String =
         step >= 0.1f -> String.format(Locale.ROOT, "%.1f", value)
         else -> String.format(Locale.ROOT, "%.2f", value)
     }
-
-/* -------------------------------------------------------------------------- */
-/*  Switch row                                                                 */
-/* -------------------------------------------------------------------------- */
 
 @Composable
 fun SettingSwitchRow(
@@ -512,10 +495,6 @@ fun SettingSwitchRow(
     }
 }
 
-/* -------------------------------------------------------------------------- */
-/*  Dropdown                                                                   */
-/* -------------------------------------------------------------------------- */
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AtmoDropdownField(
@@ -577,10 +556,6 @@ fun AtmoDropdownField(
         }
     }
 }
-
-/* -------------------------------------------------------------------------- */
-/*  Number field (with optional info action)                                   */
-/* -------------------------------------------------------------------------- */
 
 @Composable
 fun AtmoNumberField(
@@ -649,10 +624,6 @@ private fun atmoFieldColors() = TextFieldDefaults.colors(
     errorIndicatorColor = MaterialTheme.colorScheme.error
 )
 
-/* -------------------------------------------------------------------------- */
-/*  Top app bar                                                                */
-/* -------------------------------------------------------------------------- */
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AtmoTopBar(
@@ -691,10 +662,6 @@ fun AtmoTopBar(
         modifier = modifier
     )
 }
-
-/* -------------------------------------------------------------------------- */
-/*  Small pill / chip                                                          */
-/* -------------------------------------------------------------------------- */
 
 @Composable
 fun AtmoSegmentedControl(
@@ -790,15 +757,6 @@ fun AtmoChip(text: String, modifier: Modifier = Modifier) {
     }
 }
 
-/* -------------------------------------------------------------------------- */
-/*  Dialog selection row                                                       */
-/* -------------------------------------------------------------------------- */
-
-/**
- * A tappable option row used inside selection dialogs (e.g. choose single vs
- * playlist). Renders a bold title with an optional supporting line, wrapped in
- * a subtle rounded surface for a clear, touch-friendly target.
- */
 @Composable
 fun AtmoDialogRow(
     title: String,
@@ -853,7 +811,6 @@ fun AtmoDialogRow(
     }
 }
 
-/** Reusable no-op interaction source factory to avoid re-allocations in lists. */
 @Composable
 fun rememberNoRippleInteraction(): MutableInteractionSource =
     remember { MutableInteractionSource() }

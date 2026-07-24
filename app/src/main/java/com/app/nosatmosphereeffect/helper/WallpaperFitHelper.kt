@@ -9,11 +9,11 @@ import android.graphics.Color
 import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Shader
+import android.util.Log
 import androidx.exifinterface.media.ExifInterface
+import com.app.nosatmosphereeffect.storage.FileTransactions
 import java.io.File
-import java.io.FileOutputStream
-import kotlin.math.max
-import kotlin.math.min
+import java.io.IOException
 
 /**
  * Central helper for fitting wallpaper images to the *actual* surface they are
@@ -39,6 +39,7 @@ import kotlin.math.min
  * new wallpaper, but the user's fit preference should survive that.
  */
 object WallpaperFitHelper {
+    private const val TAG = "WallpaperFitHelper"
 
     const val PREFS_NAME = "display_prefs"
 
@@ -63,13 +64,11 @@ object WallpaperFitHelper {
     // be ~3x screen width) while still giving a generous, stock-like pan range.
     private const val MAX_SCROLL_WIDTH_FACTOR = 2.0f
 
-    // Fit modes
-    const val MODE_FILL = "FILL"             // Center-crop, fills the screen (default, original behavior)
-    const val MODE_FIT = "FIT"               // Whole image visible, bars filled per fill mode
-    const val MODE_STRETCH = "STRETCH"       // Distort to fill the screen exactly
-    const val MODE_ROTATE_FIT = "ROTATE_FIT" // Rotate 90° on orientation mismatch, then fit
+    const val MODE_FILL = "FILL"
+    const val MODE_FIT = "FIT"
+    const val MODE_STRETCH = "STRETCH"
+    const val MODE_ROTATE_FIT = "ROTATE_FIT"
 
-    // Empty-space fill modes (used by FIT / ROTATE_FIT)
     const val FILL_BLACK = "BLACK"
     const val FILL_REPEAT = "REPEAT"
     const val FILL_MIRROR = "MIRROR"
@@ -79,12 +78,7 @@ object WallpaperFitHelper {
     const val ACTIVE_SOURCE_FILE = "wallpaper_src.jpg"
     const val NEXT_SOURCE_FILE = "next_wallpaper_src.jpg"
 
-    private const val PLAYLIST_ORIGINALS_DIR = "playlist_originals"
     private const val MAX_DECODE_DIM = 4096
-
-    // ------------------------------------------------------------------
-    // Preferences
-    // ------------------------------------------------------------------
 
     private fun prefs(context: Context) =
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -103,51 +97,47 @@ object WallpaperFitHelper {
 
     /** Sets the display mode for the active wallpaper (single-image crop, and the first playlist image). */
     fun setActiveModes(context: Context, fitMode: String, fillMode: String) {
-        prefs(context).edit()
-            .putString(KEY_ACTIVE_FIT, fitMode)
-            .putString(KEY_ACTIVE_FILL, fillMode)
-            .apply()
+        if (
+            !prefs(context).edit()
+                .putString(KEY_ACTIVE_FIT, fitMode)
+                .putString(KEY_ACTIVE_FILL, fillMode)
+                .commit()
+        ) {
+            throw IOException("Could not persist active wallpaper display modes")
+        }
     }
 
     /** Sets the display mode for the queued next wallpaper (the next playlist image to rotate in). */
     fun setNextModes(context: Context, fitMode: String, fillMode: String) {
-        prefs(context).edit()
-            .putString(KEY_NEXT_FIT, fitMode)
-            .putString(KEY_NEXT_FILL, fillMode)
-            .apply()
+        if (
+            !prefs(context).edit()
+                .putString(KEY_NEXT_FIT, fitMode)
+                .putString(KEY_NEXT_FILL, fillMode)
+                .commit()
+        ) {
+            throw IOException("Could not persist queued wallpaper display modes")
+        }
     }
 
     /**
-     * Promotes the queued next mode to the active slot. Mirrors [promoteNextSource]
-     * and MUST run before the renderer is handed the next bitmap, so the incoming
-     * image is fitted with the correct (now active) mode.
+     * Promotes the queued next mode before the renderer receives the new bitmap.
      */
     fun promoteNextMode(context: Context) {
         val p = prefs(context)
         val fit = p.getString(KEY_NEXT_FIT, MODE_FILL) ?: MODE_FILL
         val fill = p.getString(KEY_NEXT_FILL, FILL_BLACK) ?: FILL_BLACK
-        p.edit()
-            .putString(KEY_ACTIVE_FIT, fit)
-            .putString(KEY_ACTIVE_FILL, fill)
-            .apply()
-    }
-
-    /**
-     * Sets the NEXT slot's render mode. With WYSIWYG baking, each playlist image's
-     * chosen fit mode is already baked into its wallpaper_N.jpg, so the renderer
-     * always displays it as-is (Fill). The per-image mode still lives in
-     * metadata.json for restoring the editor's chooser.
-     */
-    fun stageNextModeFromPlaylist(context: Context, playlistFileName: String) {
-        setNextModes(context, MODE_FILL, FILL_BLACK)
+        if (
+            !p.edit()
+                .putString(KEY_ACTIVE_FIT, fit)
+                .putString(KEY_ACTIVE_FILL, fill)
+                .commit()
+        ) {
+            throw IOException("Could not promote queued wallpaper display modes")
+        }
     }
 
     /** Modes other than plain screen-fill want the un-cropped source image. */
     fun needsSourceImage(mode: String): Boolean = mode != MODE_FILL
-
-    // ------------------------------------------------------------------
-    // Wallpaper scrolling (home-screen parallax)
-    // ------------------------------------------------------------------
 
     fun isScrollEnabled(context: Context): Boolean =
         prefs(context).getBoolean(KEY_SCROLL_ENABLED, false)
@@ -235,25 +225,22 @@ object WallpaperFitHelper {
      * screen-fill and reports windowX = 1.0.
      */
     private fun makeScrollBitmap(source: Bitmap, surfaceW: Int, surfaceH: Int): RenderImage {
-        val sw = source.width.toFloat()
-        val sh = source.height.toFloat()
-        if (sw <= 0f || sh <= 0f) {
+        if (source.width <= 0 || source.height <= 0) {
             return RenderImage(fitBitmap(source, surfaceW, surfaceH, MODE_FILL, FILL_BLACK), 1.0f)
         }
 
-        // Scale so the image exactly fills the screen height.
-        val scale = surfaceH / sh
-        val scaledW = sw * scale
-
-        // Not wider than the screen -> no horizontal slack; behave like Fill.
-        if (scaledW <= surfaceW + 0.5f) {
+        val layout = ImageFitPolicy.scrollLayout(
+            sourceWidth = source.width,
+            sourceHeight = source.height,
+            surfaceWidth = surfaceW,
+            surfaceHeight = surfaceH,
+            maxWidthFactor = MAX_SCROLL_WIDTH_FACTOR
+        )
+        if (layout == null) {
             return RenderImage(fitBitmap(source, surfaceW, surfaceH, MODE_FILL, FILL_BLACK), 1.0f)
         }
 
-        // Clamp the canvas width to keep texture memory bounded.
-        val maxW = surfaceW * MAX_SCROLL_WIDTH_FACTOR
-        val canvasW = min(scaledW, maxW)
-        val outW = canvasW.toInt().coerceAtLeast(surfaceW)
+        val outW = layout.canvasWidth
         val outH = surfaceH
 
         val output = Bitmap.createBitmap(outW, outH, Bitmap.Config.ARGB_8888)
@@ -261,21 +248,14 @@ object WallpaperFitHelper {
         canvas.drawColor(Color.BLACK)
         val paint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
 
-        // Centre the (possibly clamped) image horizontally; top-aligned vertically
-        // since it already fills the height exactly.
         val matrix = Matrix()
-        matrix.setScale(scale, scale)
-        matrix.postTranslate((outW - scaledW) / 2f, 0f)
+        matrix.setScale(layout.scale, layout.scale)
+        matrix.postTranslate(layout.translateX, 0f)
         canvas.drawBitmap(source, matrix, paint)
         source.recycle()
 
-        val windowX = (surfaceW.toFloat() / outW.toFloat()).coerceIn(0.05f, 1.0f)
-        return RenderImage(output, windowX)
+        return RenderImage(output, layout.visibleWidthFraction)
     }
-
-    // ------------------------------------------------------------------
-    // Loading + fitting (used by the renderers)
-    // ------------------------------------------------------------------
 
     /**
      * Loads the active wallpaper and fits it to the given surface size using
@@ -346,9 +326,7 @@ object WallpaperFitHelper {
         var working = source
         var rotatedCopy = false
         if (mode == MODE_ROTATE_FIT) {
-            val sourceIsLandscape = source.width > source.height
-            val targetIsLandscape = targetW > targetH
-            if (sourceIsLandscape != targetIsLandscape) {
+            if (ImageFitPolicy.shouldRotate(source.width, source.height, targetW, targetH)) {
                 val rotate = Matrix().apply { postRotate(90f) }
                 val rotated = Bitmap.createBitmap(source, 0, 0, source.width, source.height, rotate, true)
                 if (rotated != source) {
@@ -364,27 +342,23 @@ object WallpaperFitHelper {
 
         val paint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
 
-        val bw = working.width.toFloat()
-        val bh = working.height.toFloat()
         val tw = targetW.toFloat()
         val th = targetH.toFloat()
-
-        val matrix = Matrix()
-        when (mode) {
-            MODE_STRETCH -> {
-                matrix.setScale(tw / bw, th / bh)
-            }
-            MODE_FILL -> {
-                val scale = max(tw / bw, th / bh)
-                matrix.setScale(scale, scale)
-                matrix.postTranslate((tw - bw * scale) / 2f, (th - bh * scale) / 2f)
-            }
-            else -> { // MODE_FIT and MODE_ROTATE_FIT: whole image visible, centered
-                val scale = min(tw / bw, th / bh)
-                matrix.setScale(scale, scale)
-                matrix.postTranslate((tw - bw * scale) / 2f, (th - bh * scale) / 2f)
-            }
+        val fitMode = when (mode) {
+            MODE_STRETCH -> ImageFitMode.STRETCH
+            MODE_FILL -> ImageFitMode.FILL
+            else -> ImageFitMode.FIT
         }
+        val transform = ImageFitPolicy.transform(
+            sourceWidth = working.width,
+            sourceHeight = working.height,
+            targetWidth = targetW,
+            targetHeight = targetH,
+            mode = fitMode
+        )
+        val matrix = Matrix()
+        matrix.setScale(transform.scaleX, transform.scaleY)
+        matrix.postTranslate(transform.translateX, transform.translateY)
 
         val letterboxed = (mode == MODE_FIT || mode == MODE_ROTATE_FIT)
         if (letterboxed && fillMode != FILL_BLACK) {
@@ -404,37 +378,8 @@ object WallpaperFitHelper {
         return output
     }
 
-    // ------------------------------------------------------------------
-    // Source-image bookkeeping (used by activities and services)
-    // ------------------------------------------------------------------
-
-    /**
-     * Saves the un-cropped source of the active wallpaper. Passing null
-     * removes any stale source so fit modes fall back to the crop.
-     */
-    fun saveActiveSource(context: Context, bitmap: Bitmap?) {
-        try {
-            val file = File(context.filesDir, ACTIVE_SOURCE_FILE)
-            if (bitmap == null) {
-                if (file.exists()) file.delete()
-                return
-            }
-            FileOutputStream(file).use { out ->
-                bitmap.compress(Bitmap.CompressFormat.JPEG, 95, out)
-                out.flush()
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-    }
-
     fun deleteNextSource(filesDir: File) {
-        try {
-            val file = File(filesDir, NEXT_SOURCE_FILE)
-            if (file.exists()) file.delete()
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
+        FileTransactions.deleteRecursively(File(filesDir, NEXT_SOURCE_FILE))
     }
 
     /**
@@ -443,37 +388,15 @@ object WallpaperFitHelper {
      * next-wallpaper source. If no original exists, any stale staged source
      * is removed so the rotation falls back to the cropped image.
      */
-    fun stageNextSource(filesDir: File, playlistFileName: String) {
-        stageNextSource(filesDir, playlistFileName, PLAYLIST_ORIGINALS_DIR)
-    }
-
     fun stageNextSource(
         filesDir: File,
         playlistFileName: String,
         originalsDirectoryName: String
-    ) {
-        copyPlaylistOriginalTo(
+    ): Boolean {
+        return copyPlaylistOriginalTo(
             filesDir,
             playlistFileName,
             NEXT_SOURCE_FILE,
-            originalsDirectoryName
-        )
-    }
-
-    /** Same as [stageNextSource] but for the active wallpaper source. */
-    fun stageActiveSourceFromPlaylist(filesDir: File, playlistFileName: String) {
-        stageActiveSourceFromPlaylist(filesDir, playlistFileName, PLAYLIST_ORIGINALS_DIR)
-    }
-
-    fun stageActiveSourceFromPlaylist(
-        filesDir: File,
-        playlistFileName: String,
-        originalsDirectoryName: String
-    ) {
-        copyPlaylistOriginalTo(
-            filesDir,
-            playlistFileName,
-            ACTIVE_SOURCE_FILE,
             originalsDirectoryName
         )
     }
@@ -483,17 +406,51 @@ object WallpaperFitHelper {
         playlistFileName: String,
         destName: String,
         originalsDirectoryName: String
-    ) {
+    ): Boolean {
+        val destination = File(filesDir, destName)
+        val original = findPlaylistOriginal(
+            filesDir,
+            playlistFileName,
+            originalsDirectoryName
+        )
+        if (original == null) {
+            FileTransactions.deleteRecursively(destination)
+            return false
+        }
+        copyFileAtomically(original, destination)
+        return true
+    }
+
+    @Throws(IOException::class)
+    private fun copyFileAtomically(source: File, destination: File) {
+        val directory = destination.parentFile
+            ?: throw IOException("Destination has no parent directory")
+        if (!directory.isDirectory && !directory.mkdirs()) {
+            throw IOException("Could not create ${directory.absolutePath}")
+        }
+
+        val temporary = File.createTempFile("${destination.name}.", ".tmp", directory)
+        var moved = false
         try {
-            val dest = File(filesDir, destName)
-            val original = findPlaylistOriginal(filesDir, playlistFileName, originalsDirectoryName)
-            if (original != null) {
-                original.copyTo(dest, overwrite = true)
-            } else if (dest.exists()) {
-                dest.delete()
+            source.inputStream().use { input ->
+                temporary.outputStream().use { output ->
+                    input.copyTo(output)
+                    output.flush()
+                    output.fd.sync()
+                }
             }
-        } catch (e: Exception) {
-            e.printStackTrace()
+            FileTransactions.moveReplacing(temporary, destination)
+            moved = true
+        } finally {
+            if (!moved && temporary.exists()) {
+                try {
+                    FileTransactions.deleteRecursively(temporary)
+                } catch (cleanupError: IOException) {
+                    Log.w(TAG, "Could not remove temporary source ${temporary.absolutePath}", cleanupError)
+                } catch (cleanupError: SecurityException) {
+                    Log.w(TAG, "Could not access temporary source ${temporary.absolutePath}", cleanupError)
+                }
+            }
         }
     }
 
@@ -509,22 +466,6 @@ object WallpaperFitHelper {
             .toIntOrNull() ?: return null
         val file = File(File(filesDir, originalsDirectoryName), "original_$index.jpg")
         return if (file.exists()) file else null
-    }
-
-    /**
-     * Promotes the staged next-wallpaper source to the active source. Called
-     * by the rotation logic right after next_wallpaper.jpg is renamed to
-     * wallpaper.jpg so both files stay in sync.
-     */
-    fun promoteNextSource(filesDir: File) {
-        try {
-            val next = File(filesDir, NEXT_SOURCE_FILE)
-            val active = File(filesDir, ACTIVE_SOURCE_FILE)
-            if (active.exists()) active.delete()
-            if (next.exists()) next.renameTo(active)
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
     }
 
     /**
@@ -547,17 +488,13 @@ object WallpaperFitHelper {
         return BitmapFactory.decodeFile(nextFile.absolutePath)
     }
 
-    // ------------------------------------------------------------------
-    // Decoding
-    // ------------------------------------------------------------------
-
     /**
      * Memory-safe decode of a file: downsamples to [maxDim] and applies EXIF
      * rotation. Playlist originals are raw copies of the picked images, so
      * they can be huge and carry EXIF orientation.
      */
     fun decodeFileSampled(file: File, maxDim: Int = MAX_DECODE_DIM): Bitmap? {
-        try {
+        return try {
             val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
             BitmapFactory.decodeFile(file.absolutePath, bounds)
             if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
@@ -567,27 +504,25 @@ object WallpaperFitHelper {
                 inPreferredConfig = Bitmap.Config.ARGB_8888
             }
             val raw = BitmapFactory.decodeFile(file.absolutePath, options) ?: return null
-            return applyExifRotation(file, raw)
-        } catch (e: Exception) {
-            e.printStackTrace()
-            return null
+            applyExifRotation(file, raw)
+        } catch (error: IOException) {
+            Log.w(TAG, "Could not decode ${file.absolutePath}", error)
+            null
+        } catch (error: SecurityException) {
+            Log.w(TAG, "Storage access was denied while decoding ${file.absolutePath}", error)
+            null
+        } catch (error: RuntimeException) {
+            Log.w(TAG, "Invalid wallpaper image at ${file.absolutePath}", error)
+            null
         }
     }
 
     private fun calculateInSampleSize(options: BitmapFactory.Options, maxDim: Int): Int {
-        val largest = max(options.outWidth, options.outHeight)
-        var inSampleSize = 1
-        if (largest > maxDim) {
-            val factor = largest.toFloat() / maxDim.toFloat()
-            while (inSampleSize < factor) {
-                inSampleSize *= 2
-            }
-        }
-        return inSampleSize
+        return ImageSampling.sampleSize(options.outWidth, options.outHeight, maxDim)
     }
 
     private fun applyExifRotation(file: File, bitmap: Bitmap): Bitmap {
-        try {
+        return try {
             val exif = ExifInterface(file.absolutePath)
             val orientation = exif.getAttributeInt(
                 ExifInterface.TAG_ORIENTATION,
@@ -604,9 +539,13 @@ object WallpaperFitHelper {
             val matrix = Matrix().apply { postRotate(rotation) }
             val rotated = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
             if (rotated != bitmap) bitmap.recycle()
-            return rotated
-        } catch (e: Exception) {
-            return bitmap
+            rotated
+        } catch (error: IOException) {
+            Log.w(TAG, "Could not read orientation metadata from ${file.absolutePath}", error)
+            bitmap
+        } catch (error: RuntimeException) {
+            Log.w(TAG, "Could not rotate ${file.absolutePath}", error)
+            bitmap
         }
     }
 }

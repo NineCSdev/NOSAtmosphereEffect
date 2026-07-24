@@ -45,7 +45,10 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
+import com.app.nosatmosphereeffect.helper.AtmosphereGlassPolicy
 import com.app.nosatmosphereeffect.helper.CanvasSubjectSettings
+import com.app.nosatmosphereeffect.helper.GlassEffectPolicy
+import com.app.nosatmosphereeffect.helper.SubjectIsolationPolicy
 import com.app.nosatmosphereeffect.ui.model.EffectCatalog
 import com.app.nosatmosphereeffect.ui.preview.EffectPreviewService
 import com.app.nosatmosphereeffect.ui.preview.EffectPreviewSettingsMode
@@ -60,7 +63,8 @@ fun WallpaperTransitionPreview(
     modifier: Modifier = Modifier,
     progress: Float? = null,
     showDeviceChrome: Boolean = true,
-    settingsMode: EffectPreviewSettingsMode = EffectPreviewSettingsMode.SAVED_ACTIVE
+    settingsMode: EffectPreviewSettingsMode = EffectPreviewSettingsMode.SAVED_ACTIVE,
+    atmosphereGlassEnabledOverride: Boolean? = null
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -70,10 +74,22 @@ fun WallpaperTransitionPreview(
     var duration by remember(effectId, settingsMode) { mutableIntStateOf(
         EffectPreviewService.durationMillis(context, effectId, settingsMode)
     ) }
-    var configurationVersion by remember(effectId, wallpaper, settingsMode) {
+    var configurationVersion by remember(
+        effectId,
+        wallpaper,
+        settingsMode,
+        atmosphereGlassEnabledOverride
+    ) {
         mutableIntStateOf(0)
     }
-    val automaticProgress = remember(effectId, wallpaper, settingsMode) { Animatable(0f) }
+    val automaticProgress = remember(
+        effectId,
+        wallpaper,
+        settingsMode,
+        atmosphereGlassEnabledOverride
+    ) {
+        Animatable(0f)
+    }
 
     DisposableEffect(preferences, effectId, settingsMode) {
         if (settingsMode != EffectPreviewSettingsMode.SAVED_ACTIVE) {
@@ -93,6 +109,12 @@ fun WallpaperTransitionPreview(
             "origin_y",
             "neon_line_width",
             "neon_sensitivity",
+            GlassEffectPolicy.LINE_COUNT_KEY,
+            GlassEffectPolicy.LINE_THICKNESS_KEY,
+            GlassEffectPolicy.TRANSITION_STYLE_KEY,
+            GlassEffectPolicy.BACKGROUND_ONLY_KEY,
+            AtmosphereGlassPolicy.ENABLED_KEY,
+            SubjectIsolationPolicy.HALFTONE_BACKGROUND_ONLY_KEY,
             CanvasSubjectSettings.ENABLED_KEY
         )
         val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
@@ -105,7 +127,14 @@ fun WallpaperTransitionPreview(
         onDispose { preferences.unregisterOnSharedPreferenceChangeListener(listener) }
     }
 
-    LaunchedEffect(effectId, wallpaper, progress, duration, settingsMode) {
+    LaunchedEffect(
+        effectId,
+        wallpaper,
+        progress,
+        duration,
+        settingsMode,
+        atmosphereGlassEnabledOverride
+    ) {
         if (progress != null) {
             automaticProgress.snapTo(progress.coerceIn(0f, 1f))
             return@LaunchedEffect
@@ -145,6 +174,8 @@ fun WallpaperTransitionPreview(
             progress = shownProgress,
             configurationVersion = configurationVersion,
             settingsMode = settingsMode,
+            atmosphereGlassEnabledOverride =
+                atmosphereGlassEnabledOverride,
             modifier = Modifier.fillMaxSize()
         )
 
@@ -159,6 +190,7 @@ private fun ProductionEffectSurface(
     progress: Float,
     configurationVersion: Int,
     settingsMode: EffectPreviewSettingsMode,
+    atmosphereGlassEnabledOverride: Boolean?,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -173,14 +205,17 @@ private fun ProductionEffectSurface(
         wallpaper,
         configurationVersion,
         expressive,
-        settingsMode
+        settingsMode,
+        atmosphereGlassEnabledOverride
     ) {
         EffectPreviewService(
             context = context,
             effectId = effectId,
             source = source,
             cornerRadiusPx = radiusPx,
-            settingsMode = settingsMode
+            settingsMode = settingsMode,
+            atmosphereGlassEnabledOverride =
+                atmosphereGlassEnabledOverride
         )
     }
 

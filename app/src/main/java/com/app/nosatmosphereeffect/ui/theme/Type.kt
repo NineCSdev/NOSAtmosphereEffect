@@ -6,10 +6,6 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 
-/**
- * Typography tuned for a calm, slightly technical wallpaper-tool feel:
- * tight, confident display weights for headers and comfortable body text.
- */
 val AtmoTypography = Typography(
     displaySmall = TextStyle(
         fontFamily = FontFamily.Default,

@@ -2,6 +2,7 @@
 in vec4 aPosition;
 in vec2 aTexCoord;
 out vec2 vTexCoord;
+out vec2 vEffectCoord;
 
 // Horizontal wallpaper scrolling (home-screen parallax). The defaults are
 // identity (full-width window, zero offset), so any draw that does NOT set
@@ -15,4 +16,6 @@ void main() {
     float win = uScrollWindowX <= 0.0 ? 1.0 : uScrollWindowX;
     float u = uScrollOffsetX * (1.0 - win) + aTexCoord.x * win;
     vTexCoord = vec2(u, aTexCoord.y);
+    // Keep the glass ribs anchored to the physical screen while the photo pans.
+    vEffectCoord = aTexCoord;
 }

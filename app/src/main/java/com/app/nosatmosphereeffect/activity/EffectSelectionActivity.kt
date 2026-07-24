@@ -1,12 +1,11 @@
 package com.app.nosatmosphereeffect.activity
 
-import android.app.WallpaperManager
 import android.content.ClipData
-import android.content.ComponentName
 import android.content.Intent
-import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Bundle
+import android.util.Log
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -17,30 +16,23 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
-import com.app.nosatmosphereeffect.service.AtmosphereService
-import com.app.nosatmosphereeffect.service.BlurToSharpService
-import com.app.nosatmosphereeffect.service.ColorFillReverseService
-import com.app.nosatmosphereeffect.service.ColorFillService
-import com.app.nosatmosphereeffect.service.FrostedReverseService
-import com.app.nosatmosphereeffect.service.FrostedService
-import com.app.nosatmosphereeffect.service.HalftoneReverseService
-import com.app.nosatmosphereeffect.service.HalftoneService
-import com.app.nosatmosphereeffect.service.NeonReverseService
-import com.app.nosatmosphereeffect.service.NeonService
+import com.app.nosatmosphereeffect.image.BitmapDecoder
 import com.app.nosatmosphereeffect.ui.screens.EffectSelectionScreen
 import com.app.nosatmosphereeffect.ui.screens.WallpaperModeSheet
 import com.app.nosatmosphereeffect.ui.model.EffectCatalog
 import com.app.nosatmosphereeffect.ui.model.EffectItem
 import com.app.nosatmosphereeffect.ui.theme.AtmoEngineTheme
 import java.io.File
+import java.io.IOException
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
 
 class EffectSelectionActivity : ComponentActivity() {
 
+    private val ioExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     private var selectedEffectId: String = "ORIGINAL"
     private var previewBitmap by mutableStateOf<ImageBitmap?>(null)
 
-    // Image(s) handed to us by another app via the system Share sheet (null for the
-    // normal in-app flow, where the user picks images after choosing an effect).
     private var sharedUris: ArrayList<Uri>? = null
 
     private val pickSingleImage =
@@ -59,9 +51,6 @@ class EffectSelectionActivity : ComponentActivity() {
 
         val isUpdateOnly = intent.getBooleanExtra("UPDATE_EFFECT_ONLY", false)
 
-        // Launched from another app's Share sheet? Capture the image(s) up front.
-        // A share never carries UPDATE_EFFECT_ONLY, so the share and picker paths
-        // below are mutually exclusive.
         sharedUris = extractSharedUris()
         val isShare = sharedUris != null
         loadCurrentWallpaperPreview()
@@ -77,9 +66,6 @@ class EffectSelectionActivity : ComponentActivity() {
                     onEffectClick = { item ->
                         selectedEffectId = item.id
                         when {
-                            // Shared image(s): straight to crop/playlist. The number of
-                            // images shared decides single vs. playlist, so there is no
-                            // mode dialog and no picker step.
                             isShare -> {
                                 val uris = sharedUris!!
                                 if (uris.size == 1) launchCropActivity(uris[0])
@@ -108,28 +94,32 @@ class EffectSelectionActivity : ComponentActivity() {
         }
     }
 
+    override fun onDestroy() {
+        ioExecutor.shutdownNow()
+        super.onDestroy()
+    }
+
     private fun loadCurrentWallpaperPreview() {
         val file = File(filesDir, "wallpaper.jpg")
         if (!file.exists()) return
-        Thread {
-            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            BitmapFactory.decodeFile(file.absolutePath, bounds)
-            var sample = 1
-            while (maxOf(bounds.outWidth, bounds.outHeight) / sample > 2000) sample *= 2
-            val bitmap = BitmapFactory.decodeFile(
-                file.absolutePath,
-                BitmapFactory.Options().apply { inSampleSize = sample }
-            )
-            runOnUiThread { previewBitmap = bitmap?.asImageBitmap() }
-        }.start()
+        ioExecutor.execute {
+            try {
+                val bitmap = BitmapDecoder.decodePreview(file)
+                runOnUiThread {
+                    if (isDestroyed) {
+                        bitmap.recycle()
+                    } else {
+                        previewBitmap = bitmap.asImageBitmap()
+                    }
+                }
+            } catch (error: IOException) {
+                Log.w(TAG, "Current wallpaper preview could not be loaded", error)
+            } catch (error: RuntimeException) {
+                Log.e(TAG, "Unexpected wallpaper preview failure", error)
+            }
+        }
     }
 
-    /**
-     * Returns the image URI(s) if this activity was opened from the system Share
-     * sheet (ACTION_SEND / ACTION_SEND_MULTIPLE with an image MIME), otherwise null.
-     * The read grant that came with the share intent is re-granted to the crop /
-     * playlist activity via FLAG_GRANT_READ_URI_PERMISSION when we forward it.
-     */
     private fun extractSharedUris(): ArrayList<Uri>? {
         val type = intent.type
         if (type == null || !type.startsWith("image/")) return null
@@ -147,7 +137,7 @@ class EffectSelectionActivity : ComponentActivity() {
     }
 
     private fun launchCropActivity(uri: Uri) {
-        val intent = if (selectedEffectId.contains("REVERSE")) {
+        val intent = if (EffectCatalog.isReverse(selectedEffectId)) {
             Intent(this, BlurToSharpCropActivity::class.java)
         } else {
             Intent(this, CropActivity::class.java)
@@ -182,25 +172,18 @@ class EffectSelectionActivity : ComponentActivity() {
     }
 
     private fun applyEffectDirectly(effectId: String) {
-        val serviceClass = when (effectId) {
-            "ORIGINAL" -> AtmosphereService::class.java
-            "REVERSE" -> BlurToSharpService::class.java
-            "FROSTED" -> FrostedService::class.java
-            "FROSTED_REVERSE" -> FrostedReverseService::class.java
-            "HALFTONE" -> HalftoneService::class.java
-            "HALFTONE_REVERSE" -> HalftoneReverseService::class.java
-            "COLORFILL" -> ColorFillService::class.java
-            "COLORFILL_REVERSE" -> ColorFillReverseService::class.java
-            "NEON" -> NeonService::class.java
-            "NEON_REVERSE" -> NeonReverseService::class.java
-            else -> AtmosphereService::class.java
+        if (WallpaperEffectServices.launchPicker(this, effectId)) {
+            finish()
+        } else {
+            Toast.makeText(
+                this,
+                "No live wallpaper picker is available on this device.",
+                Toast.LENGTH_LONG
+            ).show()
         }
-        val intent = Intent(WallpaperManager.ACTION_CHANGE_LIVE_WALLPAPER)
-        intent.putExtra(
-            WallpaperManager.EXTRA_LIVE_WALLPAPER_COMPONENT,
-            ComponentName(this, serviceClass)
-        )
-        startActivity(intent)
-        finish()
+    }
+
+    private companion object {
+        const val TAG = "EffectSelection"
     }
 }

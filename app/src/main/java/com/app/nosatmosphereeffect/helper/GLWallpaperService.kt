@@ -7,6 +7,7 @@ import android.opengl.GLSurfaceView
 import android.os.Handler
 import android.os.Looper
 import android.service.wallpaper.WallpaperService
+import android.util.Log
 import android.view.SurfaceHolder
 import java.io.File
 import java.util.concurrent.Executors
@@ -32,8 +33,11 @@ abstract class GLWallpaperService : WallpaperService() {
     open inner class GLEngine : Engine() {
         private var glSurfaceView: WallpaperGLSurfaceView? = null
         private var activeRenderer: GLSurfaceView.Renderer? = null
+        private val rendererLifecycle = RendererLifecycleGate()
         private val pauseHandler = Handler(Looper.getMainLooper())
-        private val pauseRunnable = Runnable { glSurfaceView?.onPause() }
+        private val pauseRunnable = Runnable {
+            dispatchToRenderer("pausing the OpenGL surface") { it.onPause() }
+        }
         private val systemColorHandler = Handler(Looper.getMainLooper())
         private val systemColorExecutor = Executors.newSingleThreadExecutor()
         private var cachedSystemColors: WallpaperColors? = null
@@ -47,6 +51,7 @@ abstract class GLWallpaperService : WallpaperService() {
 
         override fun onCreate(surfaceHolder: SurfaceHolder) {
             super.onCreate(surfaceHolder)
+            rendererLifecycle.reset()
             surfaceHolder.setFormat(PixelFormat.OPAQUE)
             glSurfaceView = WallpaperGLSurfaceView(this@GLWallpaperService)
             // Ask the launcher to deliver horizontal offset callbacks (used for
@@ -56,13 +61,17 @@ abstract class GLWallpaperService : WallpaperService() {
         }
 
         fun setRenderer(renderer: GLSurfaceView.Renderer) {
+            val surface = checkNotNull(glSurfaceView) {
+                "The OpenGL surface is unavailable"
+            }
+            surface.setRenderer(renderer)
+            surface.renderMode = GLSurfaceView.RENDERMODE_WHEN_DIRTY
             activeRenderer = renderer
-            glSurfaceView?.setRenderer(renderer)
-            glSurfaceView?.renderMode = GLSurfaceView.RENDERMODE_WHEN_DIRTY
+            rendererLifecycle.markRendererAttached()
         }
 
         fun requestRender() {
-            glSurfaceView?.requestRender()
+            dispatchToRenderer("requesting a frame") { it.requestRender() }
         }
 
         /**
@@ -246,8 +255,7 @@ abstract class GLWallpaperService : WallpaperService() {
             val r = activeRenderer
             if (r is WallpaperScrollRenderer) {
                 r.setWallpaperOffset(xOffset)
-                // Dirty-mode renderer: nudge it to redraw at the new offset.
-                glSurfaceView?.requestRender()
+                requestRender()
             }
         }
 
@@ -255,44 +263,67 @@ abstract class GLWallpaperService : WallpaperService() {
             super.onVisibilityChanged(visible)
             if (visible) {
                 pauseHandler.removeCallbacks(pauseRunnable)
-                glSurfaceView?.onResume()
+                dispatchToRenderer("resuming the OpenGL surface") { it.onResume() }
             } else {
-                // Draw one more frame in the renderer's current state, then pause a few
-                // frames later instead of immediately. Pausing the GL thread the instant
-                // we go invisible leaves a stale frame latched in the surface, which the
-                // compositor flashes on the next wake. Present a fresh frame first.
-                glSurfaceView?.requestRender()
+                requestRender()
                 pauseHandler.removeCallbacks(pauseRunnable)
                 pauseHandler.postDelayed(pauseRunnable, 80L)
             }
         }
 
         override fun onDestroy() {
-            super.onDestroy()
             engineDestroyed = true
             colorRequestVersion++
             pauseHandler.removeCallbacks(pauseRunnable)
             systemColorHandler.removeCallbacks(publishSystemColors)
             systemColorExecutor.shutdownNow()
-            glSurfaceView?.onPause()
+            val surface = glSurfaceView
+            dispatchToRenderer("pausing the destroyed OpenGL surface") { it.onPause() }
+            rendererLifecycle.markDestroyed()
+            try {
+                surface?.destroy()
+            } catch (failure: RuntimeException) {
+                Log.e(TAG, "Unable to stop the destroyed OpenGL surface", failure)
+            } finally {
+                activeRenderer = null
+                glSurfaceView = null
+                super.onDestroy()
+            }
         }
 
         override fun onSurfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
             super.onSurfaceChanged(holder, format, width, height)
-            glSurfaceView?.surfaceChanged(holder, format, width, height)
+            dispatchToRenderer("handling an OpenGL surface change") {
+                it.surfaceChanged(holder, format, width, height)
+            }
         }
 
         override fun onSurfaceCreated(holder: SurfaceHolder) {
             super.onSurfaceCreated(holder)
-            glSurfaceView?.surfaceCreated(holder)
+            dispatchToRenderer("creating the OpenGL surface") { it.surfaceCreated(holder) }
         }
 
         override fun onSurfaceDestroyed(holder: SurfaceHolder) {
             super.onSurfaceDestroyed(holder)
-            glSurfaceView?.surfaceDestroyed(holder)
+            dispatchToRenderer("destroying the OpenGL surface") { it.surfaceDestroyed(holder) }
+        }
+
+        private inline fun dispatchToRenderer(
+            operation: String,
+            action: (WallpaperGLSurfaceView) -> Unit
+        ) {
+            if (!rendererLifecycle.canDispatchToRenderer()) return
+            val surface = glSurfaceView ?: return
+            try {
+                action(surface)
+            } catch (failure: RuntimeException) {
+                Log.e(TAG, "OpenGL lifecycle failure while $operation", failure)
+            }
         }
 
         inner class WallpaperGLSurfaceView(context: Context) : GLSurfaceView(context) {
+            private var destroyStarted = false
+
             init {
                 setEGLConfigChooser(8, 8, 8, 0, 16, 0)
                 setEGLContextClientVersion(3)
@@ -302,8 +333,20 @@ abstract class GLWallpaperService : WallpaperService() {
             override fun getHolder(): SurfaceHolder {
                 return this@GLEngine.surfaceHolder
             }
+
+            fun destroy() {
+                onDetachedFromWindow()
+            }
+
+            override fun onDetachedFromWindow() {
+                if (destroyStarted) return
+                destroyStarted = true
+                super.onDetachedFromWindow()
+            }
         }
     }
 
-    abstract fun getRenderer(): GLSurfaceView.Renderer
+    private companion object {
+        const val TAG = "GLWallpaperService"
+    }
 }

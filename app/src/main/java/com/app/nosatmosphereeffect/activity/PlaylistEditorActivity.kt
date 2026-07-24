@@ -1,74 +1,65 @@
 package com.app.nosatmosphereeffect.activity
 
-import android.app.WallpaperManager
-import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
-import android.graphics.Matrix
 import android.net.Uri
 import android.os.Bundle
+import android.util.Log
 import android.view.WindowManager
 import android.widget.Toast
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.activity.ComponentActivity
+import androidx.activity.viewModels
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshots.SnapshotStateList
-import androidx.compose.runtime.mutableStateListOf
 import androidx.core.view.WindowCompat
-import androidx.exifinterface.media.ExifInterface
-import com.app.nosatmosphereeffect.helper.SystemColorSyncPreferences
+import com.app.nosatmosphereeffect.helper.AtmosphereGlassPolicy
+import com.app.nosatmosphereeffect.helper.MatrixStatePolicy
 import com.app.nosatmosphereeffect.helper.PlaylistModeManager
+import com.app.nosatmosphereeffect.helper.SystemColorSyncPreferences
 import com.app.nosatmosphereeffect.helper.WallpaperFitHelper
-import com.app.nosatmosphereeffect.service.AtmosphereService
-import com.app.nosatmosphereeffect.service.BlurToSharpService
-import com.app.nosatmosphereeffect.service.ColorFillReverseService
-import com.app.nosatmosphereeffect.service.ColorFillService
-import com.app.nosatmosphereeffect.service.FrostedReverseService
-import com.app.nosatmosphereeffect.service.FrostedService
-import com.app.nosatmosphereeffect.service.HalftoneReverseService
-import com.app.nosatmosphereeffect.service.HalftoneService
-import com.app.nosatmosphereeffect.service.NeonReverseService
-import com.app.nosatmosphereeffect.service.NeonService
+import com.app.nosatmosphereeffect.storage.FileTransactions
+import com.app.nosatmosphereeffect.storage.PlaylistCollectionStore
+import com.app.nosatmosphereeffect.storage.PlaylistImageSource
+import com.app.nosatmosphereeffect.storage.SharedPreferencesTransactions
+import com.app.nosatmosphereeffect.storage.WallpaperStorageCoordinator
 import com.app.nosatmosphereeffect.ui.screens.PlaylistEditorScreen
 import com.app.nosatmosphereeffect.ui.screens.PlaylistEntry
 import com.app.nosatmosphereeffect.ui.screens.ProcessingOverlay
 import com.app.nosatmosphereeffect.ui.screens.SimpleConfirmDialog
+import com.app.nosatmosphereeffect.ui.model.EffectCatalog
 import com.app.nosatmosphereeffect.ui.theme.AtmoEngineTheme
 import java.io.File
-import java.io.FileOutputStream
-import kotlin.math.max
-import kotlin.math.min
+import java.io.IOException
+import java.nio.file.Files
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
+import java.util.UUID
 import org.json.JSONArray
-import org.json.JSONObject
+import org.json.JSONException
+
+private typealias PlaylistItem = PlaylistDraftItem
 
 class PlaylistEditorActivity : ComponentActivity() {
 
-    private val playlistItems = mutableStateListOf<PlaylistItem>()
+    private val ioExecutor: ExecutorService = Executors.newSingleThreadExecutor()
+    private val draftState: StandardPlaylistDraftState by viewModels()
+    private val playlistItems get() = draftState.items
     private var effectId: String = "ORIGINAL"
     private var editingPosition = -1
-
-    // True when we entered via "Edit Playlist" on an already-applied playlist.
-    // In that case applying keeps the user's advanced settings (see applyPlaylist);
-    // a brand-new playlist starts fresh.
     private var isEditExisting = false
 
     private var showApplyConfirm by mutableStateOf(false)
-    private var isProcessing by mutableStateOf(false)
-
-    data class PlaylistItem(
-        val originalUri: Uri,
-        var isEdited: Boolean = false,
-        var editedFilePath: String? = null,
-        var matrixState: FloatArray? = null,
-        var fitMode: String = WallpaperFitHelper.MODE_FILL,
-        var fillMode: String = WallpaperFitHelper.FILL_BLACK
-    )
+    private var isProcessing
+        get() = draftState.isProcessing
+        set(value) {
+            draftState.isProcessing = value
+        }
 
     private val pickMultipleImages =
         registerForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris: List<Uri> ->
@@ -82,19 +73,26 @@ class PlaylistEditorActivity : ComponentActivity() {
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
             if (result.resultCode == RESULT_OK) {
                 val resultUriString = result.data?.getStringExtra("CROPPED_IMAGE_PATH")
-                val matrixState = result.data?.getFloatArrayExtra("MATRIX_STATE")
+                val matrixState = MatrixStatePolicy.copyIfValid(
+                    result.data?.getFloatArrayExtra("MATRIX_STATE")
+                )
                 val fitMode = result.data?.getStringExtra("FIT_MODE")
                 val fillMode = result.data?.getStringExtra("FILL_MODE")
 
-                if (resultUriString != null && editingPosition != -1 && editingPosition < playlistItems.size) {
-                    // Replace with a copy so Compose observes the change and recomposes.
-                    playlistItems[editingPosition] = playlistItems[editingPosition].copy(
+                if (resultUriString != null && editingPosition in playlistItems.indices) {
+                    val previous = playlistItems[editingPosition]
+                    playlistItems[editingPosition] = previous.copy(
                         isEdited = true,
                         editedFilePath = resultUriString,
                         matrixState = matrixState,
                         fitMode = fitMode ?: WallpaperFitHelper.MODE_FILL,
                         fillMode = fillMode ?: WallpaperFitHelper.FILL_BLACK
                     )
+                    if (previous.editedFilePath != resultUriString) {
+                        deleteCachedEdit(previous.editedFilePath)
+                    }
+                } else {
+                    deleteCachedEdit(resultUriString)
                 }
             }
         }
@@ -107,13 +105,35 @@ class PlaylistEditorActivity : ComponentActivity() {
             WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
 
         effectId = intent.getStringExtra("EFFECT_ID") ?: "ORIGINAL"
-
         isEditExisting = intent.getBooleanExtra("EDIT_EXISTING", false)
-        if (isEditExisting) {
-            loadExistingPlaylist()
-        } else {
-            val uris = intent.getParcelableArrayListExtra("IMAGE_URIS", Uri::class.java)
-            uris?.forEach { playlistItems.add(PlaylistItem(it)) }
+        if (!draftState.initialized) {
+            val restoredAtmosphereGlass =
+                if (savedInstanceState?.containsKey(STATE_ATMOSPHERE_GLASS) == true) {
+                    savedInstanceState.getBoolean(STATE_ATMOSPHERE_GLASS)
+                } else {
+                    null
+                }
+            draftState.atmosphereGlassEnabled =
+                AtmosphereGlassPolicy.resolveEnabled(
+                    effectId,
+                    restoredAtmosphereGlass
+                        ?: if (isEditExisting) readStoredAtmosphereGlass() else false
+                )
+            val restored = PlaylistDraftStateCodec.decode(
+                savedInstanceState?.getParcelableArrayList(
+                    STATE_ITEMS,
+                    Bundle::class.java
+                )
+            )
+            if (restored != null) {
+                playlistItems.addAll(restored)
+            } else if (isEditExisting) {
+                loadExistingPlaylist()
+            } else {
+                val uris = intent.getParcelableArrayListExtra("IMAGE_URIS", Uri::class.java)
+                uris?.forEach { playlistItems.add(PlaylistItem(it)) }
+            }
+            draftState.initialized = true
         }
 
         if (savedInstanceState != null) {
@@ -122,8 +142,30 @@ class PlaylistEditorActivity : ComponentActivity() {
 
         setContent {
             AtmoEngineTheme {
+                BackHandler(enabled = isProcessing) {}
+                LaunchedEffect(draftState.applyCompleted, draftState.applyError) {
+                    when {
+                        draftState.applyCompleted -> showSuccessfulApply()
+                        draftState.applyError != null -> {
+                            val message = draftState.applyError
+                            draftState.applyError = null
+                            Toast.makeText(
+                                this@PlaylistEditorActivity,
+                                message,
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
+                    }
+                }
                 PlaylistEditorScreen(
                     effectId = effectId,
+                    showAtmosphereGlassOption =
+                        EffectCatalog.supportsAtmosphereGlass(effectId),
+                    atmosphereGlassEnabled = draftState.atmosphereGlassEnabled,
+                    onAtmosphereGlassEnabledChange = { enabled ->
+                        draftState.atmosphereGlassEnabled =
+                            AtmosphereGlassPolicy.resolveEnabled(effectId, enabled)
+                    },
                     entries = playlistItems.map { item ->
                         val displayUri = if (item.isEdited && item.editedFilePath != null) {
                             Uri.parse("file://${item.editedFilePath}")
@@ -137,7 +179,9 @@ class PlaylistEditorActivity : ComponentActivity() {
                         launchEditActivity(playlistItems[pos])
                     },
                     onDeleteItem = { pos ->
-                        if (pos in playlistItems.indices) playlistItems.removeAt(pos)
+                        if (pos in playlistItems.indices) {
+                            deleteCachedEdit(playlistItems.removeAt(pos).editedFilePath)
+                        }
                     },
                     onAddMore = { pickMultipleImages.launch("image/*") },
                     onApply = { showApplyDialog() },
@@ -170,6 +214,26 @@ class PlaylistEditorActivity : ComponentActivity() {
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
         outState.putInt("EDITING_POS", editingPosition)
+        outState.putBoolean(
+            STATE_ATMOSPHERE_GLASS,
+            draftState.atmosphereGlassEnabled
+        )
+        outState.putParcelableArrayList(
+            STATE_ITEMS,
+            PlaylistDraftStateCodec.encode(playlistItems)
+        )
+    }
+
+    override fun onDestroy() {
+        if (isChangingConfigurations) {
+            ioExecutor.shutdown()
+        } else {
+            ioExecutor.shutdownNow()
+        }
+        if (isFinishing && !isChangingConfigurations) {
+            playlistItems.forEach { item -> deleteCachedEdit(item.editedFilePath) }
+        }
+        super.onDestroy()
     }
 
     private fun launchEditActivity(item: PlaylistItem) {
@@ -178,7 +242,6 @@ class PlaylistEditorActivity : ComponentActivity() {
         if (item.matrixState != null) {
             intent.putExtra("MATRIX_STATE", item.matrixState)
         }
-        // Restore this image's previously chosen fit mode.
         intent.putExtra("INITIAL_FIT_MODE", item.fitMode)
         intent.putExtra("INITIAL_FILL_MODE", item.fillMode)
         editImageLauncher.launch(intent)
@@ -186,246 +249,249 @@ class PlaylistEditorActivity : ComponentActivity() {
 
     private fun applyPlaylist() {
         isProcessing = true
+        draftState.applyCompleted = false
+        draftState.applyError = null
+        val items = playlistItems.map { item ->
+            item.copy(matrixState = item.matrixState?.copyOf())
+        }
+        val atmosphereGlassEnabled = AtmosphereGlassPolicy.resolveEnabled(
+            effectId,
+            draftState.atmosphereGlassEnabled
+        )
+        val bounds = windowManager.currentWindowMetrics.bounds
 
-        Thread {
+        ioExecutor.execute {
             try {
-                // 1. USE A TEMPORARY FOLDER INSTEAD OF DELETING THE ACTIVE ONE YET
-                val tempDir = File(filesDir, "playlist_temp")
-                if (tempDir.exists()) tempDir.deleteRecursively()
-                tempDir.mkdirs()
-
-                val tempOriginalsDir = File(filesDir, "playlist_originals_temp")
-                if (tempOriginalsDir.exists()) tempOriginalsDir.deleteRecursively()
-                tempOriginalsDir.mkdirs()
-
-                // 2. CLEANUP STALE SINGLE-IMAGE DATA (Important!)
-                val nextWallpaper = File(filesDir, "next_wallpaper.jpg")
-                if (nextWallpaper.exists()) nextWallpaper.delete()
-                WallpaperFitHelper.deleteNextSource(filesDir)
-
-                val metaArray = JSONArray()
-
-                // 3. Process each item
-                playlistItems.forEachIndexed { index, item ->
-                    val destFile = File(tempDir, "wallpaper_$index.jpg")
-                    val origFile = File(tempOriginalsDir, "original_$index.jpg")
-
-                    try {
-                        contentResolver.openInputStream(item.originalUri)?.use { input ->
-                            FileOutputStream(origFile).use { output ->
-                                input.copyTo(output)
-                            }
-                        }
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                    }
-
-                    if (item.isEdited && item.editedFilePath != null) {
-                        val srcEdited = File(item.editedFilePath!!)
-                        if (srcEdited.exists() && srcEdited.absolutePath != destFile.absolutePath) {
-                            srcEdited.copyTo(destFile, overwrite = true)
-                        }
-                    } else {
-                        val bitmap = decodeCenterCropBitmap(item.originalUri)
-                        if (bitmap != null) {
-                            FileOutputStream(destFile).use { out ->
-                                bitmap.compress(Bitmap.CompressFormat.JPEG, 100, out)
-                            }
-                        }
-                    }
-
-                    val metaObj = JSONObject()
-                    metaObj.put("original", "original_$index.jpg")
-                    metaObj.put("isEdited", item.isEdited)
-                    metaObj.put("fitMode", item.fitMode)
-                    metaObj.put("fillMode", item.fillMode)
-                    if (item.matrixState != null) {
-                        val matrixJson = JSONArray()
-                        item.matrixState!!.forEach { matrixJson.put(it.toDouble()) }
-                        metaObj.put("matrix", matrixJson)
-                    }
-                    metaArray.put(metaObj)
-                }
-
-                File(tempDir, "metadata.json").writeText(metaArray.toString())
-
-                // 4. SWAP THE FOLDERS SAFELY
-                val playlistDir = File(filesDir, "playlist")
-                if (playlistDir.exists()) playlistDir.deleteRecursively()
-                tempDir.renameTo(playlistDir)
-
-                val originalsDir = File(filesDir, "playlist_originals")
-                if (originalsDir.exists()) originalsDir.deleteRecursively()
-                tempOriginalsDir.renameTo(originalsDir)
-                PlaylistModeManager.clearThemeCollections(this@PlaylistEditorActivity)
-
-                // 5. Set Main Wallpaper
-                val firstFile = File(playlistDir, "wallpaper_0.jpg")
-                val activeWallpaper = File(filesDir, "wallpaper.jpg")
-                if (firstFile.exists()) {
-                    firstFile.copyTo(activeWallpaper, overwrite = true)
-                    // Un-cropped original kept for foldable re-fit of Fill images.
-                    WallpaperFitHelper.stageActiveSourceFromPlaylist(filesDir, firstFile.name)
-                    // Each image's chosen fit mode is baked into its wallpaper_N.jpg, so
-                    // the renderer just displays it (Fill). The per-image mode lives in
-                    // metadata.json so re-editing can restore the chooser + preview.
-                    WallpaperFitHelper.setActiveModes(
-                        this@PlaylistEditorActivity,
-                        WallpaperFitHelper.MODE_FILL,
-                        WallpaperFitHelper.FILL_BLACK
+                WallpaperStorageCoordinator.runExclusive {
+                    val fileTransactions = mutableListOf<FileTransactions.ReplacementTransaction>()
+                    val preferenceSnapshots = SharedPreferencesTransactions.snapshot(
+                        listOf(
+                            getSharedPreferences(APP_PREFERENCES, Context.MODE_PRIVATE),
+                            getSharedPreferences(WALLPAPER_PREFERENCES, Context.MODE_PRIVATE),
+                            getSharedPreferences(
+                                WallpaperFitHelper.PREFS_NAME,
+                                Context.MODE_PRIVATE
+                            )
+                        )
                     )
-                }
+                    var preferencesTouched = false
+                    try {
+                        fileTransactions +=
+                            persistPlaylist(items, bounds.width(), bounds.height())
 
-                // 6. RESET PREFERENCES FOR A FRESH START.
-                //
-                // Editing an EXISTING playlist only tweaks the images — the effect and
-                // mode are unchanged — so we KEEP the user's advanced settings (dim/
-                // brightness, blur, colour sync, all fine-tuning in app_prefs) and their
-                // rotation interval. Every other entry point (new playlist, changing
-                // effect, single <-> playlist) still wipes everything, because those
-                // genuinely begin a new configuration.
-                //
-                // Runtime rotation pointers are always re-seeded below because the
-                // underlying wallpaper_N.jpg files have just been rewritten.
-                val wallpaperPrefs = getSharedPreferences("wallpaper_prefs", Context.MODE_PRIVATE)
-                val preservedRotation =
-                    if (isEditExisting) {
-                        wallpaperPrefs.getLong("rotation_interval_minutes", 0L).coerceAtLeast(0L)
-                    } else {
-                        null
+                        val playlistDir = PlaylistModeManager.standardPlaylistDir(this)
+                        fileTransactions += PlaylistCollectionStore.beginActivatingFirst(
+                            this,
+                            playlistDir,
+                            File(filesDir, PlaylistModeManager.STANDARD_ORIGINALS_DIR),
+                            File(filesDir, WallpaperFitHelper.ACTIVE_WALLPAPER_FILE),
+                            File(filesDir, WallpaperFitHelper.ACTIVE_SOURCE_FILE)
+                        )
+                        preferencesTouched = true
+                        WallpaperFitHelper.setActiveModes(
+                            this,
+                            WallpaperFitHelper.MODE_FILL,
+                            WallpaperFitHelper.FILL_BLACK
+                        )
+                        resetPreferences(atmosphereGlassEnabled)
+                        FileTransactions.commitAll(fileTransactions)
+                    } catch (failure: Exception) {
+                        FileTransactions.rollbackAll(fileTransactions, failure)
+                        if (preferencesTouched) {
+                            SharedPreferencesTransactions.restoreAll(
+                                preferenceSnapshots,
+                                failure
+                            )
+                        }
+                        throw failure
                     }
+                    cleanupObsoleteThemeData()
+                }
 
-                SystemColorSyncPreferences.isEnabled(this@PlaylistEditorActivity)
-                wallpaperPrefs.edit().clear().apply()
-                if (!isEditExisting) {
-                    getSharedPreferences("app_prefs", Context.MODE_PRIVATE).edit().clear().apply()
+                runOnUiThread {
+                    isProcessing = false
+                    draftState.applyCompleted = true
                 }
-                if (preservedRotation != null) {
-                    wallpaperPrefs.edit().putLong("rotation_interval_minutes", preservedRotation).apply()
-                }
-                PlaylistModeManager.setMode(
-                    this@PlaylistEditorActivity,
-                    PlaylistModeManager.MODE_STANDARD
+            } catch (error: IOException) {
+                reportApplyFailure(
+                    "Unable to persist playlist",
+                    error,
+                    "The playlist could not be saved. Check available storage and try again."
                 )
-
-                wallpaperPrefs.edit()
-                    .putString("last_playlist_image", "wallpaper_0.jpg")
-                    .putLong("last_rotation_timestamp", System.currentTimeMillis())
-                    .apply()
-
-                runOnUiThread {
-                    isProcessing = false
-                    Toast.makeText(this, "Setup complete! Now lock and unlock the screen to activate.", Toast.LENGTH_LONG).show()
-                    val intent = Intent("com.app.nosatmosphereeffect.RELOAD_WALLPAPER")
-                    intent.setPackage(packageName)
-                    sendBroadcast(intent)
-                    // Proceed to "Reapply" by showing the preview screen
-                    activateService()
-                }
-            } catch (e: Exception) {
-                runOnUiThread {
-                    isProcessing = false
-                    Toast.makeText(this, "Error: ${e.message}", Toast.LENGTH_LONG).show()
-                }
+            } catch (error: SecurityException) {
+                reportApplyFailure(
+                    "Playlist image permission was rejected",
+                    error,
+                    "Atmo Engine no longer has permission to read one of the images."
+                )
+            } catch (error: JSONException) {
+                reportApplyFailure(
+                    "Unable to create playlist metadata",
+                    error,
+                    "The playlist metadata could not be created."
+                )
+            } catch (error: RuntimeException) {
+                reportApplyFailure(
+                    "Unexpected playlist apply failure",
+                    error,
+                    "The playlist could not be prepared."
+                )
             }
-        }.start()
-    }
-
-    private fun decodeCenterCropBitmap(uri: Uri): Bitmap? {
-        val metrics = windowManager.currentWindowMetrics.bounds
-        val reqW = metrics.width()
-        val reqH = metrics.height()
-
-        val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, options) }
-
-        options.inSampleSize = calculateInSampleSize(options, reqW, reqH)
-        options.inJustDecodeBounds = false
-
-        var bitmap = contentResolver.openInputStream(uri)?.use {
-            BitmapFactory.decodeStream(it, null, options)
-        } ?: return null
-
-        bitmap = handleExifRotation(this, uri, bitmap)
-
-        val bitmapRatio = bitmap.width.toFloat() / bitmap.height.toFloat()
-        val screenRatio = reqW.toFloat() / reqH.toFloat()
-
-        val matrix = Matrix()
-        val scale: Float
-        if (bitmapRatio > screenRatio) {
-            scale = reqH.toFloat() / bitmap.height.toFloat()
-        } else {
-            scale = reqW.toFloat() / bitmap.width.toFloat()
         }
-
-        matrix.setScale(scale, scale)
-        val scaledBitmap = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
-
-        val x = max(0, (scaledBitmap.width - reqW) / 2)
-        val y = max(0, (scaledBitmap.height - reqH) / 2)
-        val finalW = min(reqW, scaledBitmap.width - x)
-        val finalH = min(reqH, scaledBitmap.height - y)
-
-        return Bitmap.createBitmap(scaledBitmap, x, y, finalW, finalH)
     }
 
-    private fun handleExifRotation(context: Context, uri: Uri, bitmap: Bitmap): Bitmap {
+    private fun persistPlaylist(
+        items: List<PlaylistItem>,
+        width: Int,
+        height: Int
+    ): FileTransactions.ReplacementTransaction {
+        if (items.isEmpty()) throw IOException("Playlist is empty")
+        if (width <= 0 || height <= 0) throw IOException("Display dimensions are unavailable")
+
+        val token = UUID.randomUUID().toString()
+        val stagedImages = File(filesDir, ".playlist-$token.staged")
+        val stagedOriginals = File(filesDir, ".playlist-originals-$token.staged")
         try {
-            val input = context.contentResolver.openInputStream(uri) ?: return bitmap
-            val exif = ExifInterface(input)
-            val orientation = exif.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
-            input.close()
-
-            val rotation = when (orientation) {
-                ExifInterface.ORIENTATION_ROTATE_90 -> 90f
-                ExifInterface.ORIENTATION_ROTATE_180 -> 180f
-                ExifInterface.ORIENTATION_ROTATE_270 -> 270f
-                else -> 0f
-            }
-            if (rotation == 0f) return bitmap
-            val matrix = Matrix().apply { postRotate(rotation) }
-            return Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
-        } catch (e: Exception) {
-            return bitmap
+            PlaylistCollectionStore.stage(
+                context = this,
+                items = items.map { item ->
+                    PlaylistImageSource(
+                        originalUri = item.originalUri,
+                        isEdited = item.isEdited,
+                        editedFilePath = item.editedFilePath,
+                        matrixState = item.matrixState,
+                        fitMode = item.fitMode,
+                        fillMode = item.fillMode
+                    )
+                },
+                stagedImages = stagedImages,
+                stagedOriginals = stagedOriginals,
+                targetWidth = width,
+                targetHeight = height
+            )
+            return FileTransactions.beginReplacingDirectories(
+                listOf(
+                    stagedImages to PlaylistModeManager.standardPlaylistDir(this),
+                    stagedOriginals to File(
+                        filesDir,
+                        PlaylistModeManager.STANDARD_ORIGINALS_DIR
+                    )
+                )
+            )
+        } catch (failure: Exception) {
+            cleanupStaging(stagedImages, failure)
+            cleanupStaging(stagedOriginals, failure)
+            throw failure
         }
     }
 
-    private fun calculateInSampleSize(options: BitmapFactory.Options, reqWidth: Int, reqHeight: Int): Int {
-        val (height: Int, width: Int) = options.run { outHeight to outWidth }
-        var inSampleSize = 1
-        if (height > reqHeight || width > reqWidth) {
-            val halfHeight: Int = height / 2
-            val halfWidth: Int = width / 2
-            while ((halfHeight / inSampleSize) >= reqHeight && (halfWidth / inSampleSize) >= reqWidth) {
-                inSampleSize *= 2
+    private fun resetPreferences(atmosphereGlassEnabled: Boolean) {
+        val wallpaperPreferences =
+            getSharedPreferences(WALLPAPER_PREFERENCES, Context.MODE_PRIVATE)
+        val preservedRotation = if (isEditExisting) {
+            wallpaperPreferences.getLong(KEY_ROTATION_INTERVAL, 0L).coerceAtLeast(0L)
+        } else {
+            null
+        }
+
+        SystemColorSyncPreferences.isEnabled(this)
+        val appPreferencesEditor =
+            getSharedPreferences(APP_PREFERENCES, Context.MODE_PRIVATE).edit()
+        if (!isEditExisting) {
+            appPreferencesEditor.clear()
+        }
+        if (
+            !appPreferencesEditor
+                .putBoolean(
+                    AtmosphereGlassPolicy.ENABLED_KEY,
+                    atmosphereGlassEnabled
+                )
+                .commit()
+        ) {
+            throw IOException("Could not persist effect preferences")
+        }
+
+        val editor = wallpaperPreferences.edit()
+            .clear()
+            .putString(PlaylistModeManager.KEY_MODE, PlaylistModeManager.MODE_STANDARD)
+            .putString(KEY_LAST_PLAYLIST_IMAGE, "wallpaper_0.jpg")
+            .putLong(KEY_LAST_ROTATION, System.currentTimeMillis())
+        if (preservedRotation != null) {
+            editor.putLong(KEY_ROTATION_INTERVAL, preservedRotation)
+        }
+        if (!editor.commit()) {
+            throw IOException("Could not initialize playlist preferences")
+        }
+    }
+
+    private fun cleanupStaging(directory: File, failure: Throwable) {
+        try {
+            FileTransactions.deleteRecursively(directory)
+        } catch (cleanupError: Exception) {
+            failure.addSuppressed(cleanupError)
+        }
+    }
+
+    private fun cleanupObsoleteThemeData() {
+        val tasks = listOf<() -> Unit>(
+            { PlaylistModeManager.clearThemeCollections(this) },
+            {
+                Files.deleteIfExists(
+                    File(filesDir, WallpaperFitHelper.NEXT_WALLPAPER_FILE).toPath()
+                )
+            },
+            { WallpaperFitHelper.deleteNextSource(filesDir) }
+        )
+        tasks.forEach { cleanup ->
+            try {
+                cleanup()
+            } catch (error: Exception) {
+                Log.w(TAG, "Playlist is active, but obsolete theme data remains", error)
             }
         }
-        return inSampleSize
+    }
+
+    private fun reportApplyFailure(
+        logMessage: String,
+        error: Throwable,
+        userMessage: String
+    ) {
+        Log.e(TAG, logMessage, error)
+        runOnUiThread {
+            isProcessing = false
+            draftState.applyError = userMessage
+        }
+    }
+
+    private fun showSuccessfulApply() {
+        if (!draftState.applyCompleted) return
+        draftState.applyCompleted = false
+        Toast.makeText(
+            this,
+            "Setup complete. Select Home screen and Lock screen next.",
+            Toast.LENGTH_LONG
+        ).show()
+        sendBroadcast(Intent(ACTION_RELOAD_WALLPAPER).setPackage(packageName))
+        activateService()
+    }
+
+    private fun deleteCachedEdit(path: String?) {
+        try {
+            PlaylistDraftCache.delete(this, path)
+        } catch (error: Exception) {
+            Log.w(TAG, "Could not remove a temporary playlist edit", error)
+        }
     }
 
     private fun activateService() {
-        try {
-            val serviceClass = when (effectId) {
-                "ORIGINAL" -> AtmosphereService::class.java
-                "REVERSE" -> BlurToSharpService::class.java
-                "FROSTED" -> FrostedService::class.java
-                "FROSTED_REVERSE" -> FrostedReverseService::class.java
-                "HALFTONE" -> HalftoneService::class.java
-                "HALFTONE_REVERSE" -> HalftoneReverseService::class.java
-                "COLORFILL" -> ColorFillService::class.java
-                "COLORFILL_REVERSE" -> ColorFillReverseService::class.java
-                "NEON" -> NeonService::class.java
-                "NEON_REVERSE" -> NeonReverseService::class.java
-                else -> AtmosphereService::class.java
-            }
-            val intent = Intent(WallpaperManager.ACTION_CHANGE_LIVE_WALLPAPER)
-            intent.putExtra(WallpaperManager.EXTRA_LIVE_WALLPAPER_COMPONENT, ComponentName(this, serviceClass))
-            startActivity(intent)
-        } catch (e: Exception) {
-            startActivity(Intent(WallpaperManager.ACTION_LIVE_WALLPAPER_CHOOSER))
-        } finally {
+        if (WallpaperEffectServices.launchPicker(this, effectId)) {
             finish()
+        } else {
+            Toast.makeText(
+                this,
+                "No live wallpaper picker is available on this device.",
+                Toast.LENGTH_LONG
+            ).show()
         }
     }
 
@@ -434,55 +500,74 @@ class PlaylistEditorActivity : ComponentActivity() {
     }
 
     private fun loadExistingPlaylist() {
-        val playlistDir = File(filesDir, "playlist")
-        val originalsDir = File(filesDir, "playlist_originals")
+        val playlistDir = PlaylistModeManager.standardPlaylistDir(this)
+        val originalsDir = File(filesDir, PlaylistModeManager.STANDARD_ORIGINALS_DIR)
         val metaFile = File(playlistDir, "metadata.json")
 
-        if (metaFile.exists()) {
-            try {
-                val jsonStr = metaFile.readText()
-                val jsonArray = JSONArray(jsonStr)
-                for (i in 0 until jsonArray.length()) {
-                    val obj = jsonArray.getJSONObject(i)
-                    val origName = obj.getString("original")
-                    val isEdited = obj.getBoolean("isEdited")
+        if (!metaFile.isFile) {
+            loadLegacyPlaylist(playlistDir)
+            return
+        }
 
-                    val origFile = File(originalsDir, origName)
-                    val originalUri = Uri.parse("file://${origFile.absolutePath}")
-
-                    var editedPath: String? = null
-                    if (isEdited) {
-                        editedPath = File(playlistDir, "wallpaper_$i.jpg").absolutePath
+        try {
+            val metadata = JSONArray(metaFile.readText())
+            repeat(metadata.length()) { index ->
+                val item = metadata.getJSONObject(index)
+                val wallpaper = File(playlistDir, "wallpaper_$index.jpg")
+                val original = File(originalsDir, item.getString("original"))
+                val source = when {
+                    original.isFile -> original
+                    wallpaper.isFile -> wallpaper
+                    else -> {
+                        Log.w(TAG, "Skipping playlist entry $index because its files are missing")
+                        return@repeat
                     }
-
-                    var matrixState: FloatArray? = null
-                    if (obj.has("matrix")) {
-                        val matrixArray = obj.getJSONArray("matrix")
-                        matrixState = FloatArray(matrixArray.length())
-                        for (j in 0 until matrixArray.length()) {
-                            matrixState[j] = matrixArray.getDouble(j).toFloat()
-                        }
+                }
+                val savedEdited = item.optBoolean("isEdited", false) && wallpaper.isFile
+                val matrix = item.optJSONArray("matrix")?.let { values ->
+                    FloatArray(values.length()) { position ->
+                        values.getDouble(position).toFloat()
                     }
-
-                    val fitMode = obj.optString("fitMode", WallpaperFitHelper.MODE_FILL)
-                        .ifEmpty { WallpaperFitHelper.MODE_FILL }
-                    val fillMode = obj.optString("fillMode", WallpaperFitHelper.FILL_BLACK)
-                        .ifEmpty { WallpaperFitHelper.FILL_BLACK }
-
-                    playlistItems.add(PlaylistItem(originalUri, isEdited, editedPath, matrixState, fitMode, fillMode))
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
+                }?.takeIf(MatrixStatePolicy::isValid)
+                playlistItems += PlaylistItem(
+                    originalUri = Uri.fromFile(source),
+                    isEdited = savedEdited,
+                    editedFilePath = wallpaper.takeIf { savedEdited }?.absolutePath,
+                    matrixState = matrix,
+                    fitMode = item.optString(
+                        "fitMode",
+                        WallpaperFitHelper.MODE_FILL
+                    ).ifEmpty { WallpaperFitHelper.MODE_FILL },
+                    fillMode = item.optString(
+                        "fillMode",
+                        WallpaperFitHelper.FILL_BLACK
+                    ).ifEmpty { WallpaperFitHelper.FILL_BLACK }
+                )
             }
-        } else {
-            // Fallback for older playlists created before this update
-            val files = playlistDir.listFiles { _, name -> name.endsWith(".jpg") }
-            if (!files.isNullOrEmpty()) {
-                files.sortBy { it.nameWithoutExtension.substringAfter('_').toIntOrNull() ?: 0 }
-                files.forEach { file ->
-                    playlistItems.add(PlaylistItem(Uri.parse("file://${file.absolutePath}")))
-                }
-            }
+            if (playlistItems.isEmpty()) loadLegacyPlaylist(playlistDir)
+        } catch (error: IOException) {
+            recoverFromMetadataFailure(playlistDir, error)
+        } catch (error: JSONException) {
+            recoverFromMetadataFailure(playlistDir, error)
+        } catch (error: RuntimeException) {
+            recoverFromMetadataFailure(playlistDir, error)
+        }
+    }
+
+    private fun recoverFromMetadataFailure(playlistDir: File, error: Throwable) {
+        Log.e(TAG, "Stored playlist metadata is invalid; loading images without edits", error)
+        playlistItems.clear()
+        loadLegacyPlaylist(playlistDir)
+        Toast.makeText(
+            this,
+            "Some saved crop details could not be restored.",
+            Toast.LENGTH_LONG
+        ).show()
+    }
+
+    private fun loadLegacyPlaylist(playlistDir: File) {
+        PlaylistModeManager.imageFiles(playlistDir).forEach { file ->
+            playlistItems += PlaylistItem(Uri.fromFile(file))
         }
     }
 
@@ -492,5 +577,28 @@ class PlaylistEditorActivity : ComponentActivity() {
         } else {
             applyPlaylist()
         }
+    }
+
+    private fun readStoredAtmosphereGlass(): Boolean {
+        return try {
+            getSharedPreferences(APP_PREFERENCES, Context.MODE_PRIVATE)
+                .getBoolean(AtmosphereGlassPolicy.ENABLED_KEY, false)
+        } catch (error: ClassCastException) {
+            Log.w(TAG, "Stored Atmosphere glass option has the wrong type", error)
+            false
+        }
+    }
+
+    private companion object {
+        const val TAG = "PlaylistEditor"
+        const val APP_PREFERENCES = "app_prefs"
+        const val WALLPAPER_PREFERENCES = "wallpaper_prefs"
+        const val KEY_ROTATION_INTERVAL = "rotation_interval_minutes"
+        const val KEY_LAST_PLAYLIST_IMAGE = "last_playlist_image"
+        const val KEY_LAST_ROTATION = "last_rotation_timestamp"
+        const val STATE_ITEMS = "playlist_items"
+        const val STATE_ATMOSPHERE_GLASS = "playlist_atmosphere_glass"
+        const val ACTION_RELOAD_WALLPAPER =
+            "com.app.nosatmosphereeffect.RELOAD_WALLPAPER"
     }
 }

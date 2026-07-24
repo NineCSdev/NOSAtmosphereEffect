@@ -40,6 +40,7 @@ class SubjectMaskExtractor(
     private val worker = Executors.newSingleThreadExecutor { task ->
         Thread(task, "canvas-subject-segmentation")
     }
+    private val closeLock = Any()
     private val interpreterLock = Any()
     private val inputBuffer = ByteBuffer.allocateDirect(INPUT_SIZE * INPUT_SIZE * 3 * 4)
         .order(ByteOrder.nativeOrder())
@@ -56,8 +57,11 @@ class SubjectMaskExtractor(
     fun extract(bitmap: Bitmap, requestId: Long) {
         if (closed || bitmap.width <= 0 || bitmap.height <= 0) return
 
-        val inputBitmap = runCatching { makeInputBitmap(bitmap) }.getOrElse {
-            onResult(requestId, null)
+        val inputBitmap = try {
+            makeInputBitmap(bitmap)
+        } catch (error: Exception) {
+            Log.w(TAG, "Could not prepare an image for subject segmentation", error)
+            if (!closed) onResult(requestId, null)
             return
         }
 
@@ -78,7 +82,8 @@ class SubjectMaskExtractor(
                     onResult(requestId, mask)
                 }
             }
-        } catch (_: RejectedExecutionException) {
+        } catch (error: RejectedExecutionException) {
+            Log.w(TAG, "Subject-segmentation request was rejected", error)
             inputBitmap.recycle()
             if (!closed) onResult(requestId, null)
         }
@@ -105,6 +110,7 @@ class SubjectMaskExtractor(
         outputBuffer.clear()
 
         synchronized(interpreterLock) {
+            if (closed) return null
             val engine = interpreter ?: createInterpreter().also { interpreter = it }
             engine.runForMultipleInputsOutputs(
                 arrayOf(inputBuffer),
@@ -205,13 +211,35 @@ class SubjectMaskExtractor(
     }
 
     override fun close() {
-        if (closed) return
-        closed = true
-        worker.shutdown()
+        val shouldClose = synchronized(closeLock) {
+            if (closed) {
+                false
+            } else {
+                closed = true
+                true
+            }
+        }
+        if (!shouldClose) return
+
+        try {
+            worker.execute(::closeInterpreter)
+        } catch (error: RejectedExecutionException) {
+            Log.w(TAG, "Subject-segmentation cleanup was rejected", error)
+        } finally {
+            worker.shutdown()
+        }
+    }
+
+    private fun closeInterpreter() {
         synchronized(interpreterLock) {
-            interpreter?.close()
-            interpreter = null
-            modelBuffer = null
+            try {
+                interpreter?.close()
+            } catch (error: RuntimeException) {
+                Log.w(TAG, "Could not close the subject-segmentation interpreter", error)
+            } finally {
+                interpreter = null
+                modelBuffer = null
+            }
         }
     }
 }
