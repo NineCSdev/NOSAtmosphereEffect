@@ -66,6 +66,8 @@ data class AdvancedConfig(
     val showNeon: Boolean,
     val showFrosted: Boolean,
     val showGlass: Boolean,
+    val showAtmosphereGlassToggle: Boolean,
+    val atmosphereGlassEnabled: Boolean,
     val glassReverse: Boolean,
     val showNoiseSwitch: Boolean,
     val showBlob: Boolean,
@@ -114,6 +116,7 @@ data class AdvancedResult(
     val contrast: Float,
     val neonSensitivity: Float,
     val neonLineWidth: Float,
+    val atmosphereGlassEnabled: Boolean,
     val glassLineCount: Int,
     val glassLineThickness: Float,
     val glassTransitionStyle: GlassTransitionStyle,
@@ -155,6 +158,9 @@ fun AdvancedSettingsScreen(
     var contrast by remember { mutableFloatStateOf(config.contrast) }
     var neonSensitivity by remember { mutableFloatStateOf(config.neonSensitivity) }
     var neonLineWidth by remember { mutableFloatStateOf(config.neonLineWidth) }
+    var atmosphereGlassEnabled by remember {
+        mutableStateOf(config.atmosphereGlassEnabled)
+    }
     var glassLineCount by remember { mutableFloatStateOf(config.glassLineCount.toFloat()) }
     var glassLineThickness by remember {
         mutableFloatStateOf(config.glassLineThickness)
@@ -232,6 +238,7 @@ fun AdvancedSettingsScreen(
         contrast = contrast,
         neonSensitivity = neonSensitivity,
         neonLineWidth = neonLineWidth,
+        atmosphereGlassEnabled = atmosphereGlassEnabled,
         glassLineCount = GlassEffectPolicy.sanitizeLineCount(glassLineCount),
         glassLineThickness = GlassEffectPolicy.sanitizeLineThickness(glassLineThickness),
         glassTransitionStyle = glassTransitionStyle,
@@ -325,6 +332,10 @@ fun AdvancedSettingsScreen(
                         onNeonSensitivityChange = { neonSensitivity = it },
                         neonLineWidth = neonLineWidth,
                         onNeonLineWidthChange = { neonLineWidth = it },
+                        atmosphereGlassEnabled = atmosphereGlassEnabled,
+                        onAtmosphereGlassEnabledChange = {
+                            atmosphereGlassEnabled = it
+                        },
                         glassLineCount = glassLineCount,
                         onGlassLineCountChange = { glassLineCount = it },
                         glassLineThickness = glassLineThickness,
@@ -411,6 +422,8 @@ private fun EffectSettings(
     onNeonSensitivityChange: (Float) -> Unit,
     neonLineWidth: Float,
     onNeonLineWidthChange: (Float) -> Unit,
+    atmosphereGlassEnabled: Boolean,
+    onAtmosphereGlassEnabledChange: (Boolean) -> Unit,
     glassLineCount: Float,
     onGlassLineCountChange: (Float) -> Unit,
     glassLineThickness: Float,
@@ -438,65 +451,91 @@ private fun EffectSettings(
     onNoiseStrengthChange: (String) -> Unit
 ) {
     SettingsScroll {
-        if (config.showGlass) {
+        if (config.showGlass || config.showAtmosphereGlassToggle) {
             SettingsGroup("Glass effect") {
-                LabeledSlider(
-                    label = "Number of lines",
-                    value = glassLineCount,
-                    onValueChange = onGlassLineCountChange,
-                    valueRange = GlassEffectPolicy.MIN_LINE_COUNT.toFloat()..
-                        GlassEffectPolicy.MAX_LINE_COUNT.toFloat(),
-                    step = 1f,
-                    valueText = { it.roundToInt().toString() }
-                )
-                Spacer(Modifier.height(12.dp))
-                LabeledSlider(
-                    label = "Line thickness",
-                    value = glassLineThickness,
-                    onValueChange = onGlassLineThicknessChange,
-                    valueRange = GlassEffectPolicy.MIN_LINE_THICKNESS..
-                        GlassEffectPolicy.MAX_LINE_THICKNESS,
-                    step = 0.05f,
-                    valueText = { "${(it * 100).roundToInt()}%" }
-                )
-                Spacer(Modifier.height(18.dp))
-                Text(
-                    "Transition style",
-                    style = MaterialTheme.typography.labelLarge
-                )
-                Spacer(Modifier.height(8.dp))
-                AtmoSegmentedControl(
-                    options = if (config.glassReverse) {
-                        listOf("Left to right", "Fade out")
-                    } else {
-                        listOf("Right to left", "Fade in")
-                    },
-                    selectedIndex = glassTransitionStyle.ordinal,
-                    onSelected = {
-                        onGlassTransitionStyleChange(
-                            GlassTransitionStyle.entries.getOrElse(it) {
-                                GlassTransitionStyle.RIGHT_TO_LEFT
-                            }
+                if (config.showAtmosphereGlassToggle) {
+                    SettingSwitchRow(
+                        title = "Add glass effect",
+                        checked = atmosphereGlassEnabled,
+                        onCheckedChange = onAtmosphereGlassEnabledChange,
+                        subtitle = if (atmosphereGlassEnabled) {
+                            "The sharp Atmosphere state uses the Glass effect."
+                        } else {
+                            "The sharp Atmosphere state uses the original wallpaper."
+                        }
+                    )
+                }
+
+                AnimatedVisibility(
+                    visible = config.showGlass || atmosphereGlassEnabled
+                ) {
+                    Column {
+                        if (config.showAtmosphereGlassToggle) {
+                            Spacer(Modifier.height(18.dp))
+                        }
+                        LabeledSlider(
+                            label = "Number of lines",
+                            value = glassLineCount,
+                            onValueChange = onGlassLineCountChange,
+                            valueRange = GlassEffectPolicy.MIN_LINE_COUNT.toFloat()..
+                                GlassEffectPolicy.MAX_LINE_COUNT.toFloat(),
+                            step = 1f,
+                            valueText = { it.roundToInt().toString() }
                         )
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Spacer(Modifier.height(18.dp))
-                SubjectIsolationSetting(
-                    title = "Background only",
-                    checked = glassBackgroundOnly,
-                    onCheckedChange = onGlassBackgroundOnlyChange,
-                    inactiveText = "Applies the glass lines to the complete wallpaper.",
-                    activeDescription = "The subject stays sharp while the background becomes glass.",
-                    waitingText = "The wallpaper stays unchanged until the subject model is ready.",
-                    subjectModelDelivery = subjectModelDelivery,
-                    subjectModelReady = subjectModelReady,
-                    subjectModelWorking = subjectModelWorking,
-                    subjectModelButtonText = subjectModelButtonText,
-                    subjectModelStatusText = subjectModelStatusText,
-                    subjectModelState = subjectModelState,
-                    onDownloadSubjectModel = onDownloadSubjectModel
-                )
+                        Spacer(Modifier.height(12.dp))
+                        LabeledSlider(
+                            label = "Line thickness",
+                            value = glassLineThickness,
+                            onValueChange = onGlassLineThicknessChange,
+                            valueRange = GlassEffectPolicy.MIN_LINE_THICKNESS..
+                                GlassEffectPolicy.MAX_LINE_THICKNESS,
+                            step = 0.05f,
+                            valueText = { "${(it * 100).roundToInt()}%" }
+                        )
+                        if (config.showGlass) {
+                            Spacer(Modifier.height(18.dp))
+                            Text(
+                                "Transition style",
+                                style = MaterialTheme.typography.labelLarge
+                            )
+                            Spacer(Modifier.height(8.dp))
+                            AtmoSegmentedControl(
+                                options = if (config.glassReverse) {
+                                    listOf("Left to right", "Fade out")
+                                } else {
+                                    listOf("Right to left", "Fade in")
+                                },
+                                selectedIndex = glassTransitionStyle.ordinal,
+                                onSelected = {
+                                    onGlassTransitionStyleChange(
+                                        GlassTransitionStyle.entries.getOrElse(it) {
+                                            GlassTransitionStyle.RIGHT_TO_LEFT
+                                        }
+                                    )
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                        Spacer(Modifier.height(18.dp))
+                        SubjectIsolationSetting(
+                            title = "Background only",
+                            checked = glassBackgroundOnly,
+                            onCheckedChange = onGlassBackgroundOnlyChange,
+                            inactiveText = "Applies the glass lines to the complete wallpaper.",
+                            activeDescription =
+                                "The subject stays sharp while the background becomes glass.",
+                            waitingText =
+                                "The wallpaper stays unchanged until the subject model is ready.",
+                            subjectModelDelivery = subjectModelDelivery,
+                            subjectModelReady = subjectModelReady,
+                            subjectModelWorking = subjectModelWorking,
+                            subjectModelButtonText = subjectModelButtonText,
+                            subjectModelStatusText = subjectModelStatusText,
+                            subjectModelState = subjectModelState,
+                            onDownloadSubjectModel = onDownloadSubjectModel
+                        )
+                    }
+                }
             }
         }
 

@@ -52,11 +52,11 @@ Open the app and choose your desired atmosphere style from the selection screen:
 
 #### Atmosphere with a Static Glass Source
 
-When setting an image for Original or Reverse Atmosphere, enable **Add glass effect** on the crop screen to replace the clear side of the transition with the same static reeded-glass treatment used by Glass Effect. The animation remains an Atmosphere transition: Original Atmosphere moves from the glass-treated image into its ambient state, while Reverse Atmosphere finishes on the glass-treated image.
+For Original or Reverse Atmosphere, enable **Add glass effect** while setting the image or from **Fine tuning → Effect**. The Fine Tune screen also exposes the rib count, rib thickness, and **Background only** subject isolation while Glass is enabled. The animation remains an Atmosphere transition: Original Atmosphere moves from the glass-treated image into its ambient state, while Reverse Atmosphere finishes on the glass-treated image.
 
 #### Subject Isolation for Canvas, Glass, and Halftone
 
-Canvas Sketch, Glass Effect, and Halftone Print share the same on-device subject model. Canvas Sketch can use **Subject segmentation** to anchor its sketch to a prominent person, character, animal, or object. Glass and Halftone provide **Background only**, which keeps the detected foreground subject clear while applying the selected effect behind it. Model delivery depends on the app distribution:
+Canvas Sketch, Glass Effect, Atmosphere with Glass, and Halftone Print share the same on-device subject model. Canvas Sketch can use **Subject segmentation** to anchor its sketch to a prominent person, character, animal, or object. Glass and Halftone provide **Background only**, which keeps the detected foreground subject clear while applying the selected effect behind it. Model delivery depends on the app distribution:
 
 * **Google Play build:** Uses the higher-quality ML Kit subject model supplied by Google Play services. The model is not downloaded automatically by Atmo Engine. Fine Tuning shows its real installed status and provides an explicit **Download subject model** button. After installation, segmentation runs on-device and works offline.
 * **F-Droid build:** Includes the open-source [U2NetP model](https://github.com/xuebinqin/U-2-Net) and a source-built FOSS LiteRT runtime in the APK. It is ready immediately, requires no download, and does not depend on ML Kit or Google Play services.
@@ -103,7 +103,7 @@ Take full control of the animation and look. You can now tweak the following set
 * **Dimness Level:** Adjust the darkening overlay to ensure your home screen icons remain readable against bright wallpapers.
 * **Blob Saturation:** (Original Atmosphere & Reverse Atmosphere Effects Only) Adjusts the color intensity of the drifting atmospheric clouds. Increase to make the colors vibrant and punchy, or decrease to zero for a muted, grayscale cloud effect.
 * **Blob Contrast:** (Original Atmosphere & Reverse Atmosphere Effects Only) Adjusts the harshness of the atmospheric clouds. Higher values create distinct, separated color pools, while lower values blend the colors softly and smoothly together.
-* **Add Glass Effect:** (Original Atmosphere & Reverse Atmosphere Only) Available while setting or editing an image. Keeps the Atmosphere animation but uses a static reeded-glass image for the clear side of the transition.
+* **Add Glass Effect:** (Original Atmosphere & Reverse Atmosphere Only) Available while setting or editing an image and in Fine Tune. Keeps the Atmosphere animation but uses a customizable static reeded-glass image for the clear side of the transition.
 * **Glass Lines:** (Glass Effects Only) Adjusts the number of refractive ribs and the shape of each rib.
 * **Glass Transition Style:** (Glass Effects Only) Choose right-to-left or fade-in for Glass Effect, and left-to-right or fade-out for Glass Effect Reverse.
 * **Blur Strength:** (Frosted Effects Only) Use the slider to fine-tune the intensity of the blur radius, from a light mist to heavy glass.

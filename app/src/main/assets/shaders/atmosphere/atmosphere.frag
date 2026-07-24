@@ -7,6 +7,7 @@ out vec4 fragColor;
 
 uniform sampler2D uTextureSharp;
 uniform sampler2D uTextureBlur;
+uniform sampler2D uSubjectMask;
 
 #define MAX_BLOBS 16
 uniform vec3 uBlobColors[MAX_BLOBS];
@@ -28,6 +29,8 @@ uniform float uAtmosphereGlassEnabled;
 uniform float uGlassLineCount;
 uniform float uGlassLineThickness;
 uniform float uScrollWindowX;
+uniform float uBackgroundOnly;
+uniform float uHasSubject;
 
 const float TWO_PI = 6.28318530718;
 
@@ -37,6 +40,40 @@ vec3 sampleGlassSoftened(vec2 sampleUv, vec2 texel) {
         texture(uTextureSharp, sampleUv).rgb * 0.58 +
         texture(uTextureSharp, clamp(sampleUv + radius, 0.0, 1.0)).rgb * 0.21 +
         texture(uTextureSharp, clamp(sampleUv - radius, 0.0, 1.0)).rgb * 0.21;
+}
+
+float sampleSubject(vec2 sampleUv) {
+    vec2 stepSize = 2.0 / vec2(textureSize(uSubjectMask, 0));
+    float mask = texture(uSubjectMask, sampleUv).r;
+    mask = max(
+        mask,
+        texture(
+            uSubjectMask,
+            clamp(sampleUv + vec2(stepSize.x, 0.0), 0.0, 1.0)
+        ).r
+    );
+    mask = max(
+        mask,
+        texture(
+            uSubjectMask,
+            clamp(sampleUv - vec2(stepSize.x, 0.0), 0.0, 1.0)
+        ).r
+    );
+    mask = max(
+        mask,
+        texture(
+            uSubjectMask,
+            clamp(sampleUv + vec2(0.0, stepSize.y), 0.0, 1.0)
+        ).r
+    );
+    mask = max(
+        mask,
+        texture(
+            uSubjectMask,
+            clamp(sampleUv - vec2(0.0, stepSize.y), 0.0, 1.0)
+        ).r
+    );
+    return mask;
 }
 
 vec3 sampleStaticAtmosphereGlass() {
@@ -59,6 +96,7 @@ vec3 sampleStaticAtmosphereGlass() {
         vTexCoord.y
     );
     vec2 texel = 1.0 / vec2(textureSize(uTextureSharp, 0));
+    vec3 sharpColor = texture(uTextureSharp, vTexCoord).rgb;
     vec3 refractedColor = texture(uTextureSharp, glassUv).rgb;
     vec3 glassColor = mix(
         refractedColor,
@@ -74,11 +112,25 @@ vec3 sampleStaticAtmosphereGlass() {
         0.25,
         rightInnerDistance
     );
-    return clamp(
+    glassColor = clamp(
         glassColor + vec3(0.036 * rightInnerGlow),
         0.0,
         1.0
     );
+
+    float backgroundCoverage = 1.0;
+    if (uBackgroundOnly > 0.5) {
+        if (uHasSubject > 0.5) {
+            float subject = max(
+                sampleSubject(vTexCoord),
+                sampleSubject(glassUv)
+            );
+            backgroundCoverage = 1.0 - smoothstep(0.30, 0.72, subject);
+        } else {
+            backgroundCoverage = 0.0;
+        }
+    }
+    return mix(sharpColor, glassColor, backgroundCoverage);
 }
 
 vec3 adjustColor(vec3 color) {

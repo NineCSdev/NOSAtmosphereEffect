@@ -1,5 +1,7 @@
 package com.app.nosatmosphereeffect.activity
 
+import com.app.nosatmosphereeffect.service.AtmosphereService
+import com.app.nosatmosphereeffect.service.BlurToSharpService
 import com.app.nosatmosphereeffect.service.GlassReverseService
 import com.app.nosatmosphereeffect.service.GlassService
 import com.app.nosatmosphereeffect.ui.model.EffectCatalog
@@ -33,5 +35,20 @@ class WallpaperEffectServicesTest {
             "GLASS_REVERSE",
             WallpaperEffectServices.effectIdForService(GlassReverseService::class.java.name)
         )
+    }
+
+    @Test
+    fun `atmosphere glass option is visible only for services that consume it`() {
+        val atmosphereGlassServices = setOf(
+            AtmosphereService::class.java,
+            BlurToSharpService::class.java
+        )
+
+        WallpaperEffectServices.supportedEffectIds.forEach { effectId ->
+            assertEquals(
+                WallpaperEffectServices.serviceFor(effectId) in atmosphereGlassServices,
+                EffectCatalog.supportsAtmosphereGlass(effectId)
+            )
+        }
     }
 }

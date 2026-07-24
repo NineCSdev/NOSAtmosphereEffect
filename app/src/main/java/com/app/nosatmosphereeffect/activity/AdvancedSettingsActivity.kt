@@ -15,6 +15,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.core.content.edit
+import com.app.nosatmosphereeffect.helper.AtmosphereGlassPolicy
 import com.app.nosatmosphereeffect.helper.CanvasSubjectSettings
 import com.app.nosatmosphereeffect.helper.GlassEffectPreferences
 import com.app.nosatmosphereeffect.helper.GlassEffectPolicy
@@ -54,9 +55,10 @@ class AdvancedSettingsActivity : ComponentActivity() {
         val isNeon = activeEffect.contains("NEON")
         val isFrosted = activeEffect.contains("FROSTED")
         val isGlass = activeEffect.contains("GLASS")
+        val isAtmosphere = AtmosphereGlassPolicy.supportsEffect(activeEffect)
         val showNoiseSwitch = !isHalftone && !isColorFill && !isNeon && !isGlass
         val showBlob = activeEffect == "ORIGINAL" || activeEffect == "REVERSE"
-        val usesSubjectModel = isNeon || isGlass || isHalftone
+        val usesSubjectModel = isNeon || isGlass || isHalftone || isAtmosphere
 
         val defaultDuration = EffectCatalog.recommendedDurationMillis(activeEffect)
         val defaultDimness = EffectCatalog.defaultDimness(activeEffect)
@@ -83,6 +85,11 @@ class AdvancedSettingsActivity : ComponentActivity() {
             showNeon = isNeon,
             showFrosted = isFrosted,
             showGlass = isGlass,
+            showAtmosphereGlassToggle = isAtmosphere,
+            atmosphereGlassEnabled = AtmosphereGlassPolicy.resolveEnabled(
+                activeEffect,
+                prefs.readBoolean(AtmosphereGlassPolicy.ENABLED_KEY, false)
+            ),
             glassReverse = activeEffect == "GLASS_REVERSE",
             showNoiseSwitch = showNoiseSwitch,
             showBlob = showBlob,
@@ -168,7 +175,15 @@ class AdvancedSettingsActivity : ComponentActivity() {
                         manager.download(updateSubjectModelState)
                     },
                     onApply = { result ->
-                        applySettings(result, prefs, wpPrefs, defaultPoll, defaultDelay, defaultDuration)
+                        applySettings(
+                            result,
+                            prefs,
+                            wpPrefs,
+                            defaultPoll,
+                            defaultDelay,
+                            defaultDuration,
+                            updateAtmosphereGlass = isAtmosphere
+                        )
                     },
                     onReset = { resetSettings(prefs) },
                     onBack = { finish() }
@@ -183,7 +198,8 @@ class AdvancedSettingsActivity : ComponentActivity() {
         wpPrefs: SharedPreferences,
         defaultPoll: Long,
         defaultDelay: Long,
-        defaultDuration: Long
+        defaultDuration: Long,
+        updateAtmosphereGlass: Boolean
     ) {
         val poll = result.poll.toLongOrNull() ?: defaultPoll
         val delay = result.delay.toLongOrNull() ?: defaultDelay
@@ -212,6 +228,12 @@ class AdvancedSettingsActivity : ComponentActivity() {
             putFloat("origin_y", result.originY)
             putFloat("neon_sensitivity", result.neonSensitivity)
             putFloat("neon_line_width", result.neonLineWidth)
+            if (updateAtmosphereGlass) {
+                putBoolean(
+                    AtmosphereGlassPolicy.ENABLED_KEY,
+                    result.atmosphereGlassEnabled
+                )
+            }
             putInt(
                 GlassEffectPolicy.LINE_COUNT_KEY,
                 GlassEffectPolicy.sanitizeLineCount(result.glassLineCount)
@@ -266,6 +288,7 @@ class AdvancedSettingsActivity : ComponentActivity() {
             remove("origin_y")
             remove("neon_sensitivity")
             remove("neon_line_width")
+            remove(AtmosphereGlassPolicy.ENABLED_KEY)
             remove(GlassEffectPolicy.LINE_COUNT_KEY)
             remove(GlassEffectPolicy.LINE_THICKNESS_KEY)
             remove(GlassEffectPolicy.TRANSITION_STYLE_KEY)

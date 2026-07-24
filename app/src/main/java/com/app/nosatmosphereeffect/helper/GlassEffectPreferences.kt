@@ -3,7 +3,33 @@ package com.app.nosatmosphereeffect.helper
 import android.content.SharedPreferences
 
 object GlassEffectPreferences {
+    private data class ResolvedPreferences(
+        val settings: GlassEffectSettings,
+        val storedCount: Int,
+        val storedThickness: Float,
+        val storedTransition: String,
+        val presetVersion: Int
+    )
+
+    fun read(preferences: SharedPreferences): GlassEffectSettings =
+        resolve(preferences).settings
+
     fun readAndMigrate(preferences: SharedPreferences): GlassEffectSettings {
+        val resolved = resolve(preferences)
+        val settings = resolved.settings
+        if (
+            resolved.presetVersion != GlassEffectPolicy.CURRENT_PRESET_VERSION ||
+            settings.lineCount != resolved.storedCount ||
+            settings.lineThickness != resolved.storedThickness ||
+            settings.transitionStyle.storedValue != resolved.storedTransition
+        ) {
+            write(preferences.edit(), settings).apply()
+        }
+
+        return settings
+    }
+
+    private fun resolve(preferences: SharedPreferences): ResolvedPreferences {
         val storedCount = preferences.readInt(
             GlassEffectPolicy.LINE_COUNT_KEY,
             GlassEffectPolicy.DEFAULT_LINE_COUNT
@@ -32,31 +58,44 @@ object GlassEffectPreferences {
             transitionStyle = transitionStyle,
             backgroundOnly = backgroundOnly
         )
+        return ResolvedPreferences(
+            settings = settings,
+            storedCount = storedCount,
+            storedThickness = storedThickness,
+            storedTransition = storedTransition,
+            presetVersion = presetVersion
+        )
+    }
 
-        if (presetVersion != GlassEffectPolicy.CURRENT_PRESET_VERSION ||
-            settings.lineCount != storedCount ||
-            settings.lineThickness != storedThickness ||
-            settings.transitionStyle.storedValue != storedTransition
-        ) {
-            preferences.edit()
-                .putInt(GlassEffectPolicy.LINE_COUNT_KEY, settings.lineCount)
-                .putFloat(GlassEffectPolicy.LINE_THICKNESS_KEY, settings.lineThickness)
-                .putString(
-                    GlassEffectPolicy.TRANSITION_STYLE_KEY,
-                    settings.transitionStyle.storedValue
-                )
-                .putBoolean(
-                    GlassEffectPolicy.BACKGROUND_ONLY_KEY,
-                    settings.backgroundOnly
-                )
-                .putInt(
-                    GlassEffectPolicy.PRESET_VERSION_KEY,
-                    GlassEffectPolicy.CURRENT_PRESET_VERSION
-                )
-                .apply()
-        }
-
-        return settings
+    fun write(
+        editor: SharedPreferences.Editor,
+        settings: GlassEffectSettings
+    ): SharedPreferences.Editor {
+        val safeSettings = GlassEffectPolicy.resolveStoredSettings(
+            lineCount = settings.lineCount,
+            lineThickness = settings.lineThickness,
+            presetVersion = GlassEffectPolicy.CURRENT_PRESET_VERSION,
+            transitionStyle = settings.transitionStyle,
+            backgroundOnly = settings.backgroundOnly
+        )
+        return editor
+            .putInt(GlassEffectPolicy.LINE_COUNT_KEY, safeSettings.lineCount)
+            .putFloat(
+                GlassEffectPolicy.LINE_THICKNESS_KEY,
+                safeSettings.lineThickness
+            )
+            .putString(
+                GlassEffectPolicy.TRANSITION_STYLE_KEY,
+                safeSettings.transitionStyle.storedValue
+            )
+            .putBoolean(
+                GlassEffectPolicy.BACKGROUND_ONLY_KEY,
+                safeSettings.backgroundOnly
+            )
+            .putInt(
+                GlassEffectPolicy.PRESET_VERSION_KEY,
+                GlassEffectPolicy.CURRENT_PRESET_VERSION
+            )
     }
 
     private fun SharedPreferences.readInt(key: String, fallback: Int): Int {

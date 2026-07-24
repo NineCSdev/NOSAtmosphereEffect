@@ -2,6 +2,7 @@ package com.app.nosatmosphereeffect.activity
 
 import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
 import android.net.Uri
 import android.os.Bundle
 import android.util.Log
@@ -20,6 +21,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.view.WindowCompat
 import com.app.nosatmosphereeffect.helper.AtmosphereGlassPolicy
+import com.app.nosatmosphereeffect.helper.GlassEffectPreferences
+import com.app.nosatmosphereeffect.helper.GlassEffectSettings
 import com.app.nosatmosphereeffect.helper.MatrixStatePolicy
 import com.app.nosatmosphereeffect.helper.PlaylistModeManager
 import com.app.nosatmosphereeffect.helper.SystemColorSyncPreferences
@@ -292,9 +295,11 @@ class ThemePlaylistEditorActivity : ComponentActivity() {
             try {
                 WallpaperStorageCoordinator.runExclusive {
                     val fileTransactions = mutableListOf<FileTransactions.ReplacementTransaction>()
+                    val appPreferences =
+                        getSharedPreferences(APP_PREFERENCES, Context.MODE_PRIVATE)
                     val preferenceSnapshots = SharedPreferencesTransactions.snapshot(
                         listOf(
-                            getSharedPreferences(APP_PREFERENCES, Context.MODE_PRIVATE),
+                            appPreferences,
                             getSharedPreferences(WALLPAPER_PREFERENCES, Context.MODE_PRIVATE),
                             getSharedPreferences(
                                 WallpaperFitHelper.PREFS_NAME,
@@ -302,6 +307,7 @@ class ThemePlaylistEditorActivity : ComponentActivity() {
                             )
                         )
                     )
+                    val glassSettings = GlassEffectPreferences.read(appPreferences)
                     var preferencesTouched = false
                     try {
                         fileTransactions += persistCollections(
@@ -341,7 +347,12 @@ class ThemePlaylistEditorActivity : ComponentActivity() {
                             WallpaperFitHelper.FILL_BLACK
                         )
 
-                        resetPreferences(isNightMode, atmosphereGlassEnabled)
+                        resetPreferences(
+                            appPreferences,
+                            isNightMode,
+                            atmosphereGlassEnabled,
+                            glassSettings
+                        )
                         FileTransactions.commitAll(fileTransactions)
                     } catch (failure: Exception) {
                         FileTransactions.rollbackAll(fileTransactions, failure)
@@ -465,8 +476,10 @@ class ThemePlaylistEditorActivity : ComponentActivity() {
     )
 
     private fun resetPreferences(
+        appPreferences: SharedPreferences,
         isNightMode: Boolean,
-        atmosphereGlassEnabled: Boolean
+        atmosphereGlassEnabled: Boolean,
+        glassSettings: GlassEffectSettings
     ) {
         val wallpaperPreferences =
             getSharedPreferences(WALLPAPER_PREFERENCES, Context.MODE_PRIVATE)
@@ -477,17 +490,16 @@ class ThemePlaylistEditorActivity : ComponentActivity() {
         }
 
         SystemColorSyncPreferences.isEnabled(this)
-        val appPreferencesEditor =
-            getSharedPreferences(APP_PREFERENCES, Context.MODE_PRIVATE).edit()
+        val appPreferencesEditor = appPreferences.edit()
         if (!isEditExisting) {
             appPreferencesEditor.clear()
         }
+        appPreferencesEditor.putBoolean(
+            AtmosphereGlassPolicy.ENABLED_KEY,
+            atmosphereGlassEnabled
+        )
         if (
-            !appPreferencesEditor
-                .putBoolean(
-                    AtmosphereGlassPolicy.ENABLED_KEY,
-                    atmosphereGlassEnabled
-                )
+            !GlassEffectPreferences.write(appPreferencesEditor, glassSettings)
                 .commit()
         ) {
             throw IOException("Could not persist effect preferences")

@@ -3,6 +3,7 @@ package com.app.nosatmosphereeffect.service
 import android.content.SharedPreferences
 import android.graphics.Bitmap
 import com.app.nosatmosphereeffect.helper.AtmosphereGlassPolicy
+import com.app.nosatmosphereeffect.helper.GlassEffectPreferences
 import com.app.nosatmosphereeffect.renderer.BlurToSharpRenderer
 
 class BlurToSharpService : AnimatedEffectWallpaperService<BlurToSharpRenderer>() {
@@ -21,9 +22,16 @@ class BlurToSharpService : AnimatedEffectWallpaperService<BlurToSharpRenderer>()
         renderer: BlurToSharpRenderer,
         preferences: SharedPreferences
     ) {
-        renderer.atmosphereGlassEnabled = preferences.readBoolean(
+        val glassEnabled = preferences.readBoolean(
             AtmosphereGlassPolicy.ENABLED_KEY,
             false
+        )
+        val glassSettings = GlassEffectPreferences.readAndMigrate(preferences)
+        renderer.atmosphereGlassEnabled = glassEnabled
+        renderer.glassLineCount = glassSettings.lineCount
+        renderer.glassLineThickness = glassSettings.lineThickness
+        renderer.configureGlassBackgroundOnly(
+            glassEnabled && glassSettings.backgroundOnly
         )
         renderer.dimLevel = preferences.readFloat("dim_level", 0.2f)
         renderer.blobSaturation = preferences.readFloat("blob_saturation", 1f)
@@ -54,6 +62,7 @@ class BlurToSharpService : AnimatedEffectWallpaperService<BlurToSharpRenderer>()
         requestRender: () -> Unit
     ) {
         renderer.onRenderRetryRequested = requestRender
+        renderer.onSubjectMaskUpdated = requestRender
     }
 
     override fun releaseRenderer(renderer: BlurToSharpRenderer) {

@@ -10,6 +10,7 @@ import android.opengl.GLUtils
 import android.util.Log
 import androidx.core.graphics.createBitmap
 import com.app.nosatmosphereeffect.helper.GlassEffectPolicy
+import com.app.nosatmosphereeffect.helper.SubjectMaskCoordinator
 import com.app.nosatmosphereeffect.helper.WallpaperFitHelper
 import com.app.nosatmosphereeffect.helper.WallpaperScrollRenderer
 import java.io.File
@@ -40,10 +41,21 @@ class AtmosphereRenderer(
     private class TextureSet {
         var sharpId = 0
         var blurId = 0
+        var maskId = 0
         var width = 0
         var height = 0
+        var generation = 0L
+        var hasSubject = false
         fun isValid() = sharpId != 0 && blurId != 0
-        fun reset() { sharpId = 0; blurId = 0; width = 0; height = 0 }
+        fun reset() {
+            sharpId = 0
+            blurId = 0
+            maskId = 0
+            width = 0
+            height = 0
+            generation = 0L
+            hasSubject = false
+        }
     }
 
     private var currentSet = TextureSet()
@@ -53,8 +65,13 @@ class AtmosphereRenderer(
     private var pendingPlaylistBitmap: Bitmap? = null
     @Volatile private var released = false
     @Volatile var onRenderRetryRequested: (() -> Unit)? = null
+    @Volatile var onSubjectMaskUpdated: (() -> Unit)? = null
     private var renderFailureLogged = false
     private var renderRetryCount = 0
+    private var generationCounter = 0L
+    private val subjectMasks = SubjectMaskCoordinator(context) {
+        onSubjectMaskUpdated?.invoke()
+    }
 
     // Texture storage can only be reused while its dimensions still match.
     private var tempTextureWidth: Int = 0
@@ -131,6 +148,20 @@ class AtmosphereRenderer(
         }
     }
 
+    fun configureGlassBackgroundOnly(enabled: Boolean) {
+        val changed = subjectMasks.configure(enabled)
+        if (
+            enabled &&
+            currentSet.isValid() &&
+            (changed || !currentSet.hasSubject)
+        ) {
+            needsReload = true
+        }
+    }
+
+    internal val glassBackgroundOnlyEnabled: Boolean
+        get() = subjectMasks.enabled
+
     fun queuePlaylistTransition(bitmap: Bitmap) {
         if (bitmap.isRecycled) return
 
@@ -159,6 +190,8 @@ class AtmosphereRenderer(
             pendingPlaylistBitmap.also { pendingPlaylistBitmap = null }
         }
         onRenderRetryRequested = null
+        onSubjectMaskUpdated = null
+        subjectMasks.close()
         if (pending != null && !pending.isRecycled) {
             pending.recycle()
         }
@@ -175,6 +208,7 @@ class AtmosphereRenderer(
 
         currentSet.reset()
         nextSet.reset()
+        subjectMasks.discardPending()
         tempTextureId = 0
         tempTextureWidth = 0
         tempTextureHeight = 0
@@ -235,6 +269,7 @@ class AtmosphereRenderer(
         try {
             replacement.width = sharpBitmap.width
             replacement.height = sharpBitmap.height
+            replacement.generation = nextGeneration()
             replacement.sharpId = uploadTexture(sharpBitmap)
 
             tempTextureId = createEmptyTexture(
@@ -264,6 +299,7 @@ class AtmosphereRenderer(
             currentWindowX = render.windowX
             fittedForWidth = surfaceWidth
             fittedForHeight = surfaceHeight
+            requestSubjectMask(sharpBitmap, currentSet.generation)
         } catch (failure: Exception) {
             deleteTextureSet(replacement)
             throw failure
@@ -299,6 +335,7 @@ class AtmosphereRenderer(
             fittedForHeight = surfaceHeight
 
             // Reuse queued texture IDs; dimensions determine whether storage is reallocated.
+            deleteMaskTexture(nextSet)
             nextSet.sharpId = uploadTexture(
                 bitmap,
                 nextSet.sharpId,
@@ -328,6 +365,8 @@ class AtmosphereRenderer(
 
             nextSet.width = bitmap.width
             nextSet.height = bitmap.height
+            nextSet.generation = nextGeneration()
+            nextSet.hasSubject = false
 
             blurredBitmap = downloadTexture(nextSet.blurId, bitmap.width, bitmap.height)
             initBaseBlobs(blurredBitmap)
@@ -339,6 +378,7 @@ class AtmosphereRenderer(
             currentWindowX = nextWindowX
             nextWindowX = tmpWin
             reRollTargets()
+            requestSubjectMask(bitmap, currentSet.generation)
         } catch (failure: RuntimeException) {
             Log.e(TAG, "Unable to apply the next Atmosphere playlist image", failure)
             deleteTextureSet(nextSet)
@@ -467,6 +507,7 @@ class AtmosphereRenderer(
                     throw failure
                 }
             }
+            applyPendingSubjectMask()
 
             if (surfaceWidth > 0 && surfaceHeight > 0) {
                 GLES30.glViewport(0, 0, surfaceWidth, surfaceHeight)
@@ -532,6 +573,14 @@ class AtmosphereRenderer(
             GLES30.glGetUniformLocation(programId, "uGlassLineThickness"),
             glassLineThickness
         )
+        GLES30.glUniform1f(
+            GLES30.glGetUniformLocation(programId, "uBackgroundOnly"),
+            if (subjectMasks.enabled) 1f else 0f
+        )
+        GLES30.glUniform1f(
+            GLES30.glGetUniformLocation(programId, "uHasSubject"),
+            if (subjectMasks.enabled && currentSet.hasSubject) 1f else 0f
+        )
 
         // Horizontal scroll window (identity 0f/1f = no scroll, draws as before).
         // Blobs share vTexCoord with the photo, so they pan together coherently.
@@ -545,6 +594,10 @@ class AtmosphereRenderer(
         GLES30.glActiveTexture(GLES30.GL_TEXTURE1)
         GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, currentSet.blurId)
         GLES30.glUniform1i(GLES30.glGetUniformLocation(programId, "uTextureBlur"), 1)
+
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE2)
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, currentSet.maskId)
+        GLES30.glUniform1i(GLES30.glGetUniformLocation(programId, "uSubjectMask"), 2)
 
             val aPosLoc = GLES30.glGetAttribLocation(programId, "aPosition")
             val aTexLoc = GLES30.glGetAttribLocation(programId, "aTexCoord")
@@ -676,6 +729,73 @@ class AtmosphereRenderer(
         }
     }
 
+    private fun uploadMaskTexture(bitmap: Bitmap, existingTextureId: Int = 0): Int {
+        val isNewTexture = existingTextureId == 0
+        val textureId = if (isNewTexture) {
+            IntArray(1).also { GLES30.glGenTextures(1, it, 0) }[0]
+        } else {
+            existingTextureId
+        }
+        check(textureId != 0) { "OpenGL did not create an Atmosphere subject mask" }
+        try {
+            GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, textureId)
+            GLES30.glTexParameteri(
+                GLES30.GL_TEXTURE_2D,
+                GLES30.GL_TEXTURE_MIN_FILTER,
+                GLES30.GL_LINEAR
+            )
+            GLES30.glTexParameteri(
+                GLES30.GL_TEXTURE_2D,
+                GLES30.GL_TEXTURE_MAG_FILTER,
+                GLES30.GL_LINEAR
+            )
+            GLES30.glTexParameteri(
+                GLES30.GL_TEXTURE_2D,
+                GLES30.GL_TEXTURE_WRAP_S,
+                GLES30.GL_CLAMP_TO_EDGE
+            )
+            GLES30.glTexParameteri(
+                GLES30.GL_TEXTURE_2D,
+                GLES30.GL_TEXTURE_WRAP_T,
+                GLES30.GL_CLAMP_TO_EDGE
+            )
+            GLUtils.texImage2D(GLES30.GL_TEXTURE_2D, 0, bitmap, 0)
+            throwOnGlError("uploading an Atmosphere subject mask")
+            return textureId
+        } catch (failure: RuntimeException) {
+            if (isNewTexture) {
+                GLES30.glDeleteTextures(1, intArrayOf(textureId), 0)
+            }
+            throw failure
+        }
+    }
+
+    private fun applyPendingSubjectMask() {
+        val pending = subjectMasks.takePending() ?: return
+        try {
+            if (pending.generation != currentSet.generation || !subjectMasks.enabled) {
+                return
+            }
+            currentSet.maskId = uploadMaskTexture(pending.bitmap, currentSet.maskId)
+            currentSet.hasSubject = true
+        } catch (failure: RuntimeException) {
+            Log.w(TAG, "Unable to upload the Atmosphere subject mask", failure)
+            deleteMaskTexture(currentSet)
+        } finally {
+            if (!pending.bitmap.isRecycled) {
+                pending.bitmap.recycle()
+            }
+        }
+    }
+
+    private fun requestSubjectMask(bitmap: Bitmap, generation: Long) {
+        try {
+            subjectMasks.request(bitmap, generation)
+        } catch (failure: RuntimeException) {
+            Log.w(TAG, "Unable to request the Atmosphere subject mask", failure)
+        }
+    }
+
     private fun createProgram(vertexSource: String, fragmentSource: String): Int {
         val vertexShader = compileShader(GLES30.GL_VERTEX_SHADER, vertexSource, "vertex")
         val fragmentShader = try {
@@ -738,7 +858,23 @@ class AtmosphereRenderer(
         if (set.blurId != 0) {
             GLES30.glDeleteTextures(1, intArrayOf(set.blurId), 0)
         }
+        if (set.maskId != 0) {
+            GLES30.glDeleteTextures(1, intArrayOf(set.maskId), 0)
+        }
         set.reset()
+    }
+
+    private fun deleteMaskTexture(set: TextureSet) {
+        if (set.maskId != 0) {
+            GLES30.glDeleteTextures(1, intArrayOf(set.maskId), 0)
+        }
+        set.maskId = 0
+        set.hasSubject = false
+    }
+
+    private fun nextGeneration(): Long {
+        generationCounter++
+        return generationCounter
     }
 
     private fun clearFrame() {

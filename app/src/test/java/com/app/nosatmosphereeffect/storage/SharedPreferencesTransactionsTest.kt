@@ -1,6 +1,10 @@
 package com.app.nosatmosphereeffect.storage
 
 import android.content.SharedPreferences
+import com.app.nosatmosphereeffect.helper.AtmosphereGlassPolicy
+import com.app.nosatmosphereeffect.helper.GlassEffectPreferences
+import com.app.nosatmosphereeffect.helper.GlassEffectPolicy
+import com.app.nosatmosphereeffect.helper.GlassTransitionStyle
 import java.io.IOException
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -48,6 +52,45 @@ class SharedPreferencesTransactionsTest {
 
         assertEquals(1, applyFailure.suppressed.size)
         assertTrue(applyFailure.suppressed.single() is IOException)
+    }
+
+    @Test
+    fun `glass profile survives clear rewrite and full preferences rollback`() {
+        val originalValues = mutableMapOf<String, Any?>(
+            AtmosphereGlassPolicy.ENABLED_KEY to true,
+            GlassEffectPolicy.LINE_COUNT_KEY to 17,
+            GlassEffectPolicy.LINE_THICKNESS_KEY to 0.62f,
+            GlassEffectPolicy.TRANSITION_STYLE_KEY to GlassTransitionStyle.FADE.storedValue,
+            GlassEffectPolicy.BACKGROUND_ONLY_KEY to true,
+            GlassEffectPolicy.PRESET_VERSION_KEY to
+                GlassEffectPolicy.CURRENT_PRESET_VERSION,
+            "dim_level" to 0.35f
+        )
+        val preferences = FakeSharedPreferences(originalValues.toMutableMap())
+        val glassSettings = GlassEffectPreferences.read(preferences)
+        val snapshot = SharedPreferencesTransactions.snapshot(listOf(preferences)).single()
+        val editor = preferences.edit()
+            .clear()
+            .putBoolean(AtmosphereGlassPolicy.ENABLED_KEY, false)
+
+        assertTrue(GlassEffectPreferences.write(editor, glassSettings).commit())
+        assertEquals(17, preferences.all[GlassEffectPolicy.LINE_COUNT_KEY])
+        assertEquals(0.62f, preferences.all[GlassEffectPolicy.LINE_THICKNESS_KEY])
+        assertEquals(
+            GlassTransitionStyle.FADE.storedValue,
+            preferences.all[GlassEffectPolicy.TRANSITION_STYLE_KEY]
+        )
+        assertEquals(true, preferences.all[GlassEffectPolicy.BACKGROUND_ONLY_KEY])
+        assertEquals(
+            GlassEffectPolicy.CURRENT_PRESET_VERSION,
+            preferences.all[GlassEffectPolicy.PRESET_VERSION_KEY]
+        )
+        assertEquals(false, preferences.all[AtmosphereGlassPolicy.ENABLED_KEY])
+        assertTrue("Unrelated tuning should still be cleared", "dim_level" !in preferences.all)
+
+        snapshot.restore()
+
+        assertEquals(originalValues, preferences.all)
     }
 
     private class FakeSharedPreferences(

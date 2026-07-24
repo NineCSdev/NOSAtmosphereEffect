@@ -20,6 +20,7 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import com.app.nosatmosphereeffect.helper.AtmosphereGlassPolicy
+import com.app.nosatmosphereeffect.helper.GlassEffectPreferences
 import com.app.nosatmosphereeffect.helper.PlaylistModeManager
 import com.app.nosatmosphereeffect.helper.MatrixStatePolicy
 import com.app.nosatmosphereeffect.helper.SystemColorSyncPreferences
@@ -264,9 +265,11 @@ abstract class BaseCropActivity : ComponentActivity() {
                     val source = sourceBitmap
                         ?: throw IOException("The original wallpaper image is unavailable")
                     val fileTransactions = mutableListOf<FileTransactions.ReplacementTransaction>()
+                    val appPreferences =
+                        getSharedPreferences(APP_PREFERENCES, Context.MODE_PRIVATE)
                     val preferenceSnapshots = SharedPreferencesTransactions.snapshot(
                         listOf(
-                            getSharedPreferences(APP_PREFERENCES, Context.MODE_PRIVATE),
+                            appPreferences,
                             getSharedPreferences(WALLPAPER_PREFERENCES, Context.MODE_PRIVATE),
                             getSharedPreferences(
                                 WallpaperFitHelper.PREFS_NAME,
@@ -274,19 +277,24 @@ abstract class BaseCropActivity : ComponentActivity() {
                             )
                         )
                     )
+                    val glassSettings = GlassEffectPreferences.read(appPreferences)
                     var preferencesTouched = false
                     try {
                         fileTransactions += installWallpaperFiles(bitmap, source)
 
                         preferencesTouched = true
                         SystemColorSyncPreferences.isEnabled(this)
-                        getSharedPreferences(APP_PREFERENCES, Context.MODE_PRIVATE)
-                            .edit()
-                            .clear()
-                            .putBoolean(
-                                AtmosphereGlassPolicy.ENABLED_KEY,
-                                atmosphereGlassEnabled
-                            )
+                        val appPreferencesEditor =
+                            appPreferences.edit()
+                                .clear()
+                                .putBoolean(
+                                    AtmosphereGlassPolicy.ENABLED_KEY,
+                                    atmosphereGlassEnabled
+                                )
+                        GlassEffectPreferences.write(
+                            appPreferencesEditor,
+                            glassSettings
+                        )
                             .commit()
                             .also { success ->
                                 if (!success) throw IOException("Could not reset effect preferences")

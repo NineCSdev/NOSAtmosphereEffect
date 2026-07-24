@@ -74,9 +74,15 @@ class EffectPreviewService(
             }
         }
         if (productionRenderer is AtmosphereRenderer) {
+            productionRenderer.onSubjectMaskUpdated = {
+                if (!released.get()) view.post { view.requestRender() }
+            }
             productionRenderer.onRenderRetryRequested = ::requestRenderRetry
         }
         if (productionRenderer is BlurToSharpRenderer) {
+            productionRenderer.onSubjectMaskUpdated = {
+                if (!released.get()) view.post { view.requestRender() }
+            }
             productionRenderer.onRenderRetryRequested = ::requestRenderRetry
         }
         if (productionRenderer is GlassRenderer) {
@@ -175,13 +181,20 @@ class EffectPreviewService(
         val prefs = appContext.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
         return when (effectId) {
             "REVERSE" -> BlurToSharpRenderer(appContext, sourceProvider).apply {
+                val glassEnabled = previewAtmosphereGlassEnabled(prefs)
+                val glassSettings = previewGlassSettings(prefs)
                 dimLevel = previewFloat(prefs, "dim_level", 0.2f)
                 enableNoise = previewBoolean(prefs, "enable_noise", false)
                 noiseScale = previewFloat(prefs, "noise_scale", 2000f)
                 noiseStrength = previewFloat(prefs, "noise_strength", 0.06f)
                 blobSaturation = previewFloat(prefs, "blob_saturation", 1f)
                 blobContrast = previewFloat(prefs, "blob_contrast", 1f)
-                atmosphereGlassEnabled = previewAtmosphereGlassEnabled(prefs)
+                atmosphereGlassEnabled = glassEnabled
+                glassLineCount = glassSettings.lineCount
+                glassLineThickness = glassSettings.lineThickness
+                configureGlassBackgroundOnly(
+                    glassEnabled && glassSettings.backgroundOnly
+                )
             }
 
             "FROSTED", "FROSTED_REVERSE" -> FrostedRenderer(appContext, sourceProvider).apply {
@@ -193,17 +206,7 @@ class EffectPreviewService(
             }
 
             "GLASS", "GLASS_REVERSE" -> GlassRenderer(appContext, sourceProvider).apply {
-                val glassSettings = if (
-                    settingsMode == EffectPreviewSettingsMode.SAVED_ACTIVE
-                ) {
-                    GlassEffectPreferences.readAndMigrate(prefs)
-                } else {
-                    GlassEffectPolicy.resolveStoredSettings(
-                        lineCount = GlassEffectPolicy.DEFAULT_LINE_COUNT,
-                        lineThickness = GlassEffectPolicy.DEFAULT_LINE_THICKNESS,
-                        presetVersion = GlassEffectPolicy.CURRENT_PRESET_VERSION
-                    )
-                }
+                val glassSettings = previewGlassSettings(prefs)
                 dimLevel = previewFloat(prefs, "dim_level", 0f)
                 lineCount = glassSettings.lineCount
                 lineThickness = glassSettings.lineThickness
@@ -252,16 +255,34 @@ class EffectPreviewService(
             }
 
             else -> AtmosphereRenderer(appContext, sourceProvider).apply {
+                val glassEnabled = previewAtmosphereGlassEnabled(prefs)
+                val glassSettings = previewGlassSettings(prefs)
                 dimLevel = previewFloat(prefs, "dim_level", 0.2f)
                 enableNoise = previewBoolean(prefs, "enable_noise", false)
                 noiseScale = previewFloat(prefs, "noise_scale", 2000f)
                 noiseStrength = previewFloat(prefs, "noise_strength", 0.06f)
                 blobSaturation = previewFloat(prefs, "blob_saturation", 1f)
                 blobContrast = previewFloat(prefs, "blob_contrast", 1f)
-                atmosphereGlassEnabled = previewAtmosphereGlassEnabled(prefs)
+                atmosphereGlassEnabled = glassEnabled
+                glassLineCount = glassSettings.lineCount
+                glassLineThickness = glassSettings.lineThickness
+                configureGlassBackgroundOnly(
+                    glassEnabled && glassSettings.backgroundOnly
+                )
             }
         }
     }
+
+    private fun previewGlassSettings(preferences: SharedPreferences) =
+        if (settingsMode == EffectPreviewSettingsMode.SAVED_ACTIVE) {
+            GlassEffectPreferences.readAndMigrate(preferences)
+        } else {
+            GlassEffectPolicy.resolveStoredSettings(
+                lineCount = GlassEffectPolicy.DEFAULT_LINE_COUNT,
+                lineThickness = GlassEffectPolicy.DEFAULT_LINE_THICKNESS,
+                presetVersion = GlassEffectPolicy.CURRENT_PRESET_VERSION
+            )
+        }
 
     private fun previewAtmosphereGlassEnabled(preferences: SharedPreferences): Boolean {
         return atmosphereGlassEnabledOverride ?: previewBoolean(
