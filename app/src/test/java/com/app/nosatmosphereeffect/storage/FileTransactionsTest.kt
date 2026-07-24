@@ -137,6 +137,74 @@ class FileTransactionsTest {
         assertTrue(stagedImage.exists())
     }
 
+    @Test
+    fun `deferred file replacement can be rolled back after a later failure`() {
+        val root = temporaryFolder.root
+        val activeImage = File(root, "wallpaper.jpg").apply { writeText("old-image") }
+        val activeSource = File(root, "wallpaper_src.jpg").apply { writeText("old-source") }
+        val stagedImage = File(root, ".wallpaper-staged.jpg").apply { writeText("new-image") }
+        val stagedSource =
+            File(root, ".wallpaper-source-staged.jpg").apply { writeText("new-source") }
+
+        val transaction = FileTransactions.beginReplacingFiles(
+            listOf(
+                stagedImage to activeImage,
+                stagedSource to activeSource
+            )
+        )
+
+        assertEquals("new-image", activeImage.readText())
+        assertEquals("new-source", activeSource.readText())
+        transaction.rollback()
+
+        assertEquals("old-image", activeImage.readText())
+        assertEquals("old-source", activeSource.readText())
+        assertTrue(root.listFiles().orEmpty().none { ".backup-" in it.name })
+    }
+
+    @Test
+    fun `rolling back multiple deferred replacements restores them in reverse order`() {
+        val root = temporaryFolder.root
+        val activeDirectory = directory(root, "images", "old.jpg" to "old")
+        val activeImage = File(root, "wallpaper.jpg").apply { writeText("old-active") }
+        val stagedDirectory = directory(root, "images-staged", "new.jpg" to "new")
+        val stagedImage = File(root, ".wallpaper-staged.jpg").apply {
+            writeText("new-active")
+        }
+        val failure = IOException("Preference commit failed")
+        val transactions = listOf(
+            FileTransactions.beginReplacingDirectories(
+                listOf(stagedDirectory to activeDirectory)
+            ),
+            FileTransactions.beginReplacingFiles(
+                listOf(stagedImage to activeImage)
+            )
+        )
+
+        FileTransactions.rollbackAll(transactions, failure)
+
+        assertEquals("old", File(activeDirectory, "old.jpg").readText())
+        assertEquals("old-active", activeImage.readText())
+        assertEquals(0, failure.suppressed.size)
+        assertTrue(root.listFiles().orEmpty().none { ".backup-" in it.name })
+    }
+
+    @Test
+    fun `committing deferred replacement keeps the new file and removes backup`() {
+        val root = temporaryFolder.root
+        val activeImage = File(root, "wallpaper.jpg").apply { writeText("old") }
+        val stagedImage = File(root, ".wallpaper-staged.jpg").apply { writeText("new") }
+
+        val transaction = FileTransactions.beginReplacingFiles(
+            listOf(stagedImage to activeImage)
+        )
+        transaction.commit()
+        transaction.rollback()
+
+        assertEquals("new", activeImage.readText())
+        assertTrue(root.listFiles().orEmpty().none { ".backup-" in it.name })
+    }
+
     private fun directory(parent: File, name: String, file: Pair<String, String>): File {
         return File(parent, name).apply {
             assertTrue(mkdirs())

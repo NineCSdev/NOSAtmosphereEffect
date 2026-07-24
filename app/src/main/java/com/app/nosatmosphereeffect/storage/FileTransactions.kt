@@ -44,18 +44,49 @@ internal object FileTransactions {
 
     @Throws(IOException::class)
     fun replaceDirectories(replacements: List<Pair<File, File>>) {
-        replaceEntries(replacements, expectedType = EntryType.DIRECTORY)
+        beginReplacingDirectories(replacements).commit()
     }
 
     @Throws(IOException::class)
     fun replaceFiles(replacements: List<Pair<File, File>>) {
-        replaceEntries(replacements, expectedType = EntryType.FILE)
+        beginReplacingFiles(replacements).commit()
     }
 
-    private fun replaceEntries(
+    @Throws(IOException::class)
+    fun beginReplacingDirectories(
+        replacements: List<Pair<File, File>>
+    ): ReplacementTransaction {
+        return beginReplacingEntries(replacements, expectedType = EntryType.DIRECTORY)
+    }
+
+    @Throws(IOException::class)
+    fun beginReplacingFiles(
+        replacements: List<Pair<File, File>>
+    ): ReplacementTransaction {
+        return beginReplacingEntries(replacements, expectedType = EntryType.FILE)
+    }
+
+    fun commitAll(transactions: List<ReplacementTransaction>) {
+        transactions.forEach(ReplacementTransaction::commit)
+    }
+
+    fun rollbackAll(
+        transactions: List<ReplacementTransaction>,
+        failure: Throwable
+    ) {
+        transactions.asReversed().forEach { transaction ->
+            try {
+                transaction.rollback()
+            } catch (rollbackFailure: Exception) {
+                failure.addSuppressed(rollbackFailure)
+            }
+        }
+    }
+
+    private fun beginReplacingEntries(
         replacements: List<Pair<File, File>>,
         expectedType: EntryType
-    ) {
+    ): ReplacementTransaction {
         require(replacements.isNotEmpty()) { "At least one replacement is required" }
         require(replacements.map { it.second.absolutePath }.distinct().size == replacements.size) {
             "Replacement targets must be unique"
@@ -79,7 +110,6 @@ internal object FileTransactions {
         }
         val installedTargets = mutableListOf<File>()
         val backedUpTargets = mutableListOf<File>()
-        var committed = false
 
         try {
             replacements.forEach { (_, target) ->
@@ -93,22 +123,86 @@ internal object FileTransactions {
                 moveReplacing(staged, target)
                 installedTargets += target
             }
-            committed = true
+            return ReplacementTransaction(
+                backups = backups,
+                installedTargets = installedTargets,
+                backedUpTargets = backedUpTargets
+            )
         } catch (failure: Exception) {
-            installedTargets.asReversed().forEach(::deleteRecursivelyQuietly)
+            val transaction = ReplacementTransaction(
+                backups = backups,
+                installedTargets = installedTargets,
+                backedUpTargets = backedUpTargets
+            )
+            try {
+                transaction.rollback()
+            } catch (rollbackFailure: Exception) {
+                failure.addSuppressed(rollbackFailure)
+            }
+            throw failure
+        }
+    }
+
+    internal class ReplacementTransaction internal constructor(
+        private val backups: Map<File, File>,
+        installedTargets: List<File>,
+        backedUpTargets: List<File>
+    ) {
+        private val installedTargets = installedTargets.toList()
+        private val backedUpTargets = backedUpTargets.toList()
+        private var isOpen = true
+
+        @Synchronized
+        fun commit() {
+            if (!isOpen) return
+            isOpen = false
+            backups.values.forEach(::deleteRecursivelyQuietly)
+        }
+
+        @Synchronized
+        @Throws(IOException::class)
+        fun rollback() {
+            if (!isOpen) return
+
+            var rollbackFailure: IOException? = null
+            installedTargets.asReversed().forEach { target ->
+                try {
+                    deleteRecursively(target)
+                } catch (error: Exception) {
+                    rollbackFailure = appendRollbackFailure(
+                        rollbackFailure,
+                        "Could not remove replacement ${target.absolutePath}",
+                        error
+                    )
+                }
+            }
             backedUpTargets.asReversed().forEach { target ->
                 val backup = backups.getValue(target)
                 if (backup.exists()) {
                     try {
                         moveReplacing(backup, target)
-                    } catch (rollbackFailure: Exception) {
-                        failure.addSuppressed(rollbackFailure)
+                    } catch (error: Exception) {
+                        rollbackFailure = appendRollbackFailure(
+                            rollbackFailure,
+                            "Could not restore ${target.absolutePath}",
+                            error
+                        )
                     }
                 }
             }
-            throw failure
-        } finally {
-            if (committed) backups.values.forEach(::deleteRecursivelyQuietly)
+
+            rollbackFailure?.let { throw it }
+            isOpen = false
+        }
+
+        private fun appendRollbackFailure(
+            current: IOException?,
+            message: String,
+            cause: Exception
+        ): IOException {
+            if (current == null) return IOException(message, cause)
+            current.addSuppressed(IOException(message, cause))
+            return current
         }
     }
 

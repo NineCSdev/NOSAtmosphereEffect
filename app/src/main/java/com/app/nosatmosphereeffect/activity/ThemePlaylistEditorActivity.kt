@@ -19,6 +19,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.view.WindowCompat
+import com.app.nosatmosphereeffect.helper.AtmosphereGlassPolicy
 import com.app.nosatmosphereeffect.helper.MatrixStatePolicy
 import com.app.nosatmosphereeffect.helper.PlaylistModeManager
 import com.app.nosatmosphereeffect.helper.SystemColorSyncPreferences
@@ -26,11 +27,13 @@ import com.app.nosatmosphereeffect.helper.WallpaperFitHelper
 import com.app.nosatmosphereeffect.storage.FileTransactions
 import com.app.nosatmosphereeffect.storage.PlaylistCollectionStore
 import com.app.nosatmosphereeffect.storage.PlaylistImageSource
+import com.app.nosatmosphereeffect.storage.SharedPreferencesTransactions
 import com.app.nosatmosphereeffect.storage.WallpaperStorageCoordinator
 import com.app.nosatmosphereeffect.ui.screens.PlaylistEditorScreen
 import com.app.nosatmosphereeffect.ui.screens.PlaylistEntry
 import com.app.nosatmosphereeffect.ui.screens.ProcessingOverlay
 import com.app.nosatmosphereeffect.ui.screens.SimpleConfirmDialog
+import com.app.nosatmosphereeffect.ui.model.EffectCatalog
 import com.app.nosatmosphereeffect.ui.theme.AtmoEngineTheme
 import java.io.File
 import java.io.IOException
@@ -114,6 +117,18 @@ class ThemePlaylistEditorActivity : ComponentActivity() {
             editingPlaylist = savedInstanceState.getInt("EDITING_PLAYLIST", 0)
         }
         if (!draftState.initialized) {
+            val restoredAtmosphereGlass =
+                if (savedInstanceState?.containsKey(STATE_ATMOSPHERE_GLASS) == true) {
+                    savedInstanceState.getBoolean(STATE_ATMOSPHERE_GLASS)
+                } else {
+                    null
+                }
+            draftState.atmosphereGlassEnabled =
+                AtmosphereGlassPolicy.resolveEnabled(
+                    effectId,
+                    restoredAtmosphereGlass
+                        ?: if (isEditExisting) readStoredAtmosphereGlass() else false
+                )
             val restoredLight = PlaylistDraftStateCodec.decode(
                 savedInstanceState?.getParcelableArrayList(
                     STATE_LIGHT_ITEMS,
@@ -156,6 +171,13 @@ class ThemePlaylistEditorActivity : ComponentActivity() {
                 PlaylistEditorScreen(
                     title = "Theme playlists",
                     effectId = effectId,
+                    showAtmosphereGlassOption =
+                        EffectCatalog.supportsAtmosphereGlass(effectId),
+                    atmosphereGlassEnabled = draftState.atmosphereGlassEnabled,
+                    onAtmosphereGlassEnabledChange = { enabled ->
+                        draftState.atmosphereGlassEnabled =
+                            AtmosphereGlassPolicy.resolveEnabled(effectId, enabled)
+                    },
                     entries = activeItems.map { item ->
                         PlaylistEntry(
                             displayUri = item.editedFilePath?.takeIf { item.isEdited }
@@ -207,6 +229,10 @@ class ThemePlaylistEditorActivity : ComponentActivity() {
         outState.putInt("SELECTED_PLAYLIST", selectedPlaylist)
         outState.putInt("EDITING_POSITION", editingPosition)
         outState.putInt("EDITING_PLAYLIST", editingPlaylist)
+        outState.putBoolean(
+            STATE_ATMOSPHERE_GLASS,
+            draftState.atmosphereGlassEnabled
+        )
         outState.putParcelableArrayList(
             STATE_LIGHT_ITEMS,
             PlaylistDraftStateCodec.encode(lightItems)
@@ -254,6 +280,10 @@ class ThemePlaylistEditorActivity : ComponentActivity() {
 
         val lightSnapshot = lightItems.map(::snapshot)
         val darkSnapshot = darkItems.map(::snapshot)
+        val atmosphereGlassEnabled = AtmosphereGlassPolicy.resolveEnabled(
+            effectId,
+            draftState.atmosphereGlassEnabled
+        )
         val bounds = windowManager.currentWindowMetrics.bounds
         isProcessing = true
         draftState.applyCompleted = false
@@ -261,43 +291,68 @@ class ThemePlaylistEditorActivity : ComponentActivity() {
         ioExecutor.execute {
             try {
                 WallpaperStorageCoordinator.runExclusive {
-                    persistCollections(
-                        lightSnapshot,
-                        darkSnapshot,
-                        bounds.width(),
-                        bounds.height()
+                    val fileTransactions = mutableListOf<FileTransactions.ReplacementTransaction>()
+                    val preferenceSnapshots = SharedPreferencesTransactions.snapshot(
+                        listOf(
+                            getSharedPreferences(APP_PREFERENCES, Context.MODE_PRIVATE),
+                            getSharedPreferences(WALLPAPER_PREFERENCES, Context.MODE_PRIVATE),
+                            getSharedPreferences(
+                                WallpaperFitHelper.PREFS_NAME,
+                                Context.MODE_PRIVATE
+                            )
+                        )
                     )
+                    var preferencesTouched = false
+                    try {
+                        fileTransactions += persistCollections(
+                            lightSnapshot,
+                            darkSnapshot,
+                            bounds.width(),
+                            bounds.height()
+                        )
 
-                    val isNightMode = PlaylistModeManager.currentNightMode(this)
-                    val activeDir = if (isNightMode) {
-                        PlaylistModeManager.darkPlaylistDir(this)
-                    } else {
-                        PlaylistModeManager.lightPlaylistDir(this)
-                    }
-                    val originalsName = if (isNightMode) {
-                        PlaylistModeManager.DARK_ORIGINALS_DIR
-                    } else {
-                        PlaylistModeManager.LIGHT_ORIGINALS_DIR
-                    }
-                    PlaylistCollectionStore.activateFirst(
-                        this,
-                        activeDir,
-                        File(filesDir, originalsName),
-                        File(filesDir, WallpaperFitHelper.ACTIVE_WALLPAPER_FILE),
-                        File(filesDir, WallpaperFitHelper.ACTIVE_SOURCE_FILE)
-                    )
-                    WallpaperFitHelper.setActiveModes(
-                        this,
-                        WallpaperFitHelper.MODE_FILL,
-                        WallpaperFitHelper.FILL_BLACK
-                    )
-                    WallpaperFitHelper.setNextModes(
-                        this,
-                        WallpaperFitHelper.MODE_FILL,
-                        WallpaperFitHelper.FILL_BLACK
-                    )
+                        val isNightMode = PlaylistModeManager.currentNightMode(this)
+                        val activeDir = if (isNightMode) {
+                            PlaylistModeManager.darkPlaylistDir(this)
+                        } else {
+                            PlaylistModeManager.lightPlaylistDir(this)
+                        }
+                        val originalsName = if (isNightMode) {
+                            PlaylistModeManager.DARK_ORIGINALS_DIR
+                        } else {
+                            PlaylistModeManager.LIGHT_ORIGINALS_DIR
+                        }
+                        fileTransactions += PlaylistCollectionStore.beginActivatingFirst(
+                            this,
+                            activeDir,
+                            File(filesDir, originalsName),
+                            File(filesDir, WallpaperFitHelper.ACTIVE_WALLPAPER_FILE),
+                            File(filesDir, WallpaperFitHelper.ACTIVE_SOURCE_FILE)
+                        )
+                        preferencesTouched = true
+                        WallpaperFitHelper.setActiveModes(
+                            this,
+                            WallpaperFitHelper.MODE_FILL,
+                            WallpaperFitHelper.FILL_BLACK
+                        )
+                        WallpaperFitHelper.setNextModes(
+                            this,
+                            WallpaperFitHelper.MODE_FILL,
+                            WallpaperFitHelper.FILL_BLACK
+                        )
 
-                    resetPreferences(isNightMode)
+                        resetPreferences(isNightMode, atmosphereGlassEnabled)
+                        FileTransactions.commitAll(fileTransactions)
+                    } catch (failure: Exception) {
+                        FileTransactions.rollbackAll(fileTransactions, failure)
+                        if (preferencesTouched) {
+                            SharedPreferencesTransactions.restoreAll(
+                                preferenceSnapshots,
+                                failure
+                            )
+                        }
+                        throw failure
+                    }
                     cleanupObsoleteStandardData()
                 }
 
@@ -342,7 +397,7 @@ class ThemePlaylistEditorActivity : ComponentActivity() {
         dark: List<ThemePlaylistItem>,
         width: Int,
         height: Int
-    ) {
+    ): FileTransactions.ReplacementTransaction {
         val token = UUID.randomUUID().toString()
         val stagedLight = File(filesDir, ".playlist-light-$token.staged")
         val stagedLightOriginals =
@@ -374,7 +429,7 @@ class ThemePlaylistEditorActivity : ComponentActivity() {
                 width,
                 height
             )
-            FileTransactions.replaceDirectories(
+            return FileTransactions.beginReplacingDirectories(
                 listOf(
                     stagedLight to PlaylistModeManager.lightPlaylistDir(this),
                     stagedLightOriginals to File(
@@ -409,7 +464,10 @@ class ThemePlaylistEditorActivity : ComponentActivity() {
         fillMode = item.fillMode
     )
 
-    private fun resetPreferences(isNightMode: Boolean) {
+    private fun resetPreferences(
+        isNightMode: Boolean,
+        atmosphereGlassEnabled: Boolean
+    ) {
         val wallpaperPreferences =
             getSharedPreferences(WALLPAPER_PREFERENCES, Context.MODE_PRIVATE)
         val preservedInterval = if (isEditExisting) {
@@ -419,14 +477,20 @@ class ThemePlaylistEditorActivity : ComponentActivity() {
         }
 
         SystemColorSyncPreferences.isEnabled(this)
+        val appPreferencesEditor =
+            getSharedPreferences(APP_PREFERENCES, Context.MODE_PRIVATE).edit()
+        if (!isEditExisting) {
+            appPreferencesEditor.clear()
+        }
         if (
-            !isEditExisting &&
-            !getSharedPreferences(APP_PREFERENCES, Context.MODE_PRIVATE)
-                .edit()
-                .clear()
+            !appPreferencesEditor
+                .putBoolean(
+                    AtmosphereGlassPolicy.ENABLED_KEY,
+                    atmosphereGlassEnabled
+                )
                 .commit()
         ) {
-            throw IOException("Could not reset effect preferences")
+            throw IOException("Could not persist effect preferences")
         }
         if (
             !wallpaperPreferences.edit()
@@ -601,6 +665,16 @@ class ThemePlaylistEditorActivity : ComponentActivity() {
 
     private fun themeLabel(index: Int) = if (index == 0) "Light" else "Dark"
 
+    private fun readStoredAtmosphereGlass(): Boolean {
+        return try {
+            getSharedPreferences(APP_PREFERENCES, Context.MODE_PRIVATE)
+                .getBoolean(AtmosphereGlassPolicy.ENABLED_KEY, false)
+        } catch (error: ClassCastException) {
+            Log.w(TAG, "Stored Atmosphere glass option has the wrong type", error)
+            false
+        }
+    }
+
     private companion object {
         const val TAG = "ThemePlaylistEditor"
         const val APP_PREFERENCES = "app_prefs"
@@ -611,6 +685,7 @@ class ThemePlaylistEditorActivity : ComponentActivity() {
         const val KEY_LAST_DARK_IMAGE = "last_playlist_image_dark"
         const val STATE_LIGHT_ITEMS = "light_playlist_items"
         const val STATE_DARK_ITEMS = "dark_playlist_items"
+        const val STATE_ATMOSPHERE_GLASS = "theme_playlist_atmosphere_glass"
         const val ACTION_RELOAD_WALLPAPER =
             "com.app.nosatmosphereeffect.RELOAD_WALLPAPER"
     }

@@ -25,6 +25,7 @@ internal data class PlaylistDraftItem(
 internal class StandardPlaylistDraftState : ViewModel() {
     val items = mutableStateListOf<PlaylistDraftItem>()
     var initialized = false
+    var atmosphereGlassEnabled by mutableStateOf(false)
     var isProcessing by mutableStateOf(false)
     var applyCompleted by mutableStateOf(false)
     var applyError by mutableStateOf<String?>(null)
@@ -34,6 +35,7 @@ internal class ThemePlaylistDraftState : ViewModel() {
     val lightItems = mutableStateListOf<PlaylistDraftItem>()
     val darkItems = mutableStateListOf<PlaylistDraftItem>()
     var initialized = false
+    var atmosphereGlassEnabled by mutableStateOf(false)
     var isProcessing by mutableStateOf(false)
     var applyCompleted by mutableStateOf(false)
     var applyError by mutableStateOf<String?>(null)

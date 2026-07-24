@@ -2,7 +2,9 @@ package com.app.nosatmosphereeffect.service
 
 import android.content.SharedPreferences
 import android.graphics.Bitmap
+import android.util.Log
 import com.app.nosatmosphereeffect.helper.CanvasSubjectSettings
+import com.app.nosatmosphereeffect.helper.SubjectIsolationPolicy
 import com.app.nosatmosphereeffect.renderer.ColorFillRenderer
 import com.app.nosatmosphereeffect.renderer.FrostedRenderer
 import com.app.nosatmosphereeffect.renderer.HalftoneRenderer
@@ -105,9 +107,15 @@ abstract class HalftoneWallpaperService protected constructor(
         renderer: HalftoneRenderer,
         preferences: SharedPreferences
     ) {
-        renderer.dimLevel = preferences.getFloat("dim_level", 0f)
-        renderer.dotSize = preferences.getFloat("halftone_dot_size", 12f)
-        renderer.grayscale = preferences.getBoolean("halftone_grayscale", false)
+        renderer.dimLevel = preferences.readFloat("dim_level", 0f)
+        renderer.dotSize = preferences.readFloat("halftone_dot_size", 12f)
+        renderer.grayscale = preferences.readBoolean("halftone_grayscale", false)
+        renderer.configureBackgroundOnly(
+            preferences.readBoolean(
+                SubjectIsolationPolicy.HALFTONE_BACKGROUND_ONLY_KEY,
+                false
+            )
+        )
     }
 
     final override fun setEffectProgress(renderer: HalftoneRenderer, progress: Float) {
@@ -120,6 +128,18 @@ abstract class HalftoneWallpaperService protected constructor(
 
     final override fun queuePlaylistTransition(renderer: HalftoneRenderer, bitmap: Bitmap) {
         renderer.queuePlaylistTransition(bitmap)
+    }
+
+    final override fun onRendererAttached(
+        renderer: HalftoneRenderer,
+        requestRender: () -> Unit
+    ) {
+        renderer.onSubjectMaskUpdated = requestRender
+        renderer.onRenderRetryRequested = requestRender
+    }
+
+    final override fun releaseRenderer(renderer: HalftoneRenderer) {
+        renderer.release()
     }
 }
 
@@ -169,5 +189,23 @@ abstract class NeonWallpaperService protected constructor(
 
     final override fun releaseRenderer(renderer: NeonRenderer) {
         renderer.release()
+    }
+}
+
+private fun SharedPreferences.readBoolean(key: String, fallback: Boolean): Boolean {
+    return try {
+        getBoolean(key, fallback)
+    } catch (failure: ClassCastException) {
+        Log.w("EffectPreferences", "Preference '$key' has the wrong type", failure)
+        fallback
+    }
+}
+
+private fun SharedPreferences.readFloat(key: String, fallback: Float): Float {
+    return try {
+        getFloat(key, fallback)
+    } catch (failure: ClassCastException) {
+        Log.w("EffectPreferences", "Preference '$key' has the wrong type", failure)
+        fallback
     }
 }

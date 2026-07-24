@@ -41,6 +41,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import com.app.nosatmosphereeffect.R
+import com.app.nosatmosphereeffect.helper.GlassEffectPolicy
+import com.app.nosatmosphereeffect.helper.GlassTransitionStyle
 import com.app.nosatmosphereeffect.helper.SubjectModelDelivery
 import com.app.nosatmosphereeffect.helper.SubjectModelPhase
 import com.app.nosatmosphereeffect.helper.SubjectModelState
@@ -54,6 +56,7 @@ import com.app.nosatmosphereeffect.ui.components.AtmoTopBar
 import com.app.nosatmosphereeffect.ui.components.AtmoTextButton
 import com.app.nosatmosphereeffect.ui.components.LabeledSlider
 import com.app.nosatmosphereeffect.ui.components.SettingSwitchRow
+import kotlin.math.roundToInt
 
 data class AdvancedConfig(
     val activeEffectTitle: String,
@@ -62,6 +65,8 @@ data class AdvancedConfig(
     val showColorFill: Boolean,
     val showNeon: Boolean,
     val showFrosted: Boolean,
+    val showGlass: Boolean,
+    val glassReverse: Boolean,
     val showNoiseSwitch: Boolean,
     val showBlob: Boolean,
     val isPlaylistMode: Boolean,
@@ -83,6 +88,11 @@ data class AdvancedConfig(
     val contrast: Float,
     val neonSensitivity: Float,
     val neonLineWidth: Float,
+    val glassLineCount: Int,
+    val glassLineThickness: Float,
+    val glassTransitionStyle: GlassTransitionStyle,
+    val glassBackgroundOnly: Boolean,
+    val halftoneBackgroundOnly: Boolean,
     val subjectSegmentationEnabled: Boolean,
     val scrollEnabled: Boolean
 )
@@ -104,6 +114,11 @@ data class AdvancedResult(
     val contrast: Float,
     val neonSensitivity: Float,
     val neonLineWidth: Float,
+    val glassLineCount: Int,
+    val glassLineThickness: Float,
+    val glassTransitionStyle: GlassTransitionStyle,
+    val glassBackgroundOnly: Boolean,
+    val halftoneBackgroundOnly: Boolean,
     val subjectSegmentationEnabled: Boolean,
     val rotationIndex: Int,
     val scrollEnabled: Boolean
@@ -140,6 +155,19 @@ fun AdvancedSettingsScreen(
     var contrast by remember { mutableFloatStateOf(config.contrast) }
     var neonSensitivity by remember { mutableFloatStateOf(config.neonSensitivity) }
     var neonLineWidth by remember { mutableFloatStateOf(config.neonLineWidth) }
+    var glassLineCount by remember { mutableFloatStateOf(config.glassLineCount.toFloat()) }
+    var glassLineThickness by remember {
+        mutableFloatStateOf(config.glassLineThickness)
+    }
+    var glassTransitionStyle by remember {
+        mutableStateOf(config.glassTransitionStyle)
+    }
+    var glassBackgroundOnly by remember {
+        mutableStateOf(config.glassBackgroundOnly)
+    }
+    var halftoneBackgroundOnly by remember {
+        mutableStateOf(config.halftoneBackgroundOnly)
+    }
     var subjectSegmentationEnabled by remember {
         mutableStateOf(config.subjectSegmentationEnabled)
     }
@@ -204,6 +232,11 @@ fun AdvancedSettingsScreen(
         contrast = contrast,
         neonSensitivity = neonSensitivity,
         neonLineWidth = neonLineWidth,
+        glassLineCount = GlassEffectPolicy.sanitizeLineCount(glassLineCount),
+        glassLineThickness = GlassEffectPolicy.sanitizeLineThickness(glassLineThickness),
+        glassTransitionStyle = glassTransitionStyle,
+        glassBackgroundOnly = glassBackgroundOnly,
+        halftoneBackgroundOnly = halftoneBackgroundOnly,
         subjectSegmentationEnabled = subjectSegmentationEnabled,
         rotationIndex = rotationIndex,
         scrollEnabled = scrollEnabled
@@ -292,6 +325,16 @@ fun AdvancedSettingsScreen(
                         onNeonSensitivityChange = { neonSensitivity = it },
                         neonLineWidth = neonLineWidth,
                         onNeonLineWidthChange = { neonLineWidth = it },
+                        glassLineCount = glassLineCount,
+                        onGlassLineCountChange = { glassLineCount = it },
+                        glassLineThickness = glassLineThickness,
+                        onGlassLineThicknessChange = { glassLineThickness = it },
+                        glassTransitionStyle = glassTransitionStyle,
+                        onGlassTransitionStyleChange = { glassTransitionStyle = it },
+                        glassBackgroundOnly = glassBackgroundOnly,
+                        onGlassBackgroundOnlyChange = { glassBackgroundOnly = it },
+                        halftoneBackgroundOnly = halftoneBackgroundOnly,
+                        onHalftoneBackgroundOnlyChange = { halftoneBackgroundOnly = it },
                         subjectSegmentationEnabled = subjectSegmentationEnabled,
                         onSubjectSegmentationChange = { subjectSegmentationEnabled = it },
                         subjectModelDelivery = subjectModelDelivery,
@@ -368,6 +411,16 @@ private fun EffectSettings(
     onNeonSensitivityChange: (Float) -> Unit,
     neonLineWidth: Float,
     onNeonLineWidthChange: (Float) -> Unit,
+    glassLineCount: Float,
+    onGlassLineCountChange: (Float) -> Unit,
+    glassLineThickness: Float,
+    onGlassLineThicknessChange: (Float) -> Unit,
+    glassTransitionStyle: GlassTransitionStyle,
+    onGlassTransitionStyleChange: (GlassTransitionStyle) -> Unit,
+    glassBackgroundOnly: Boolean,
+    onGlassBackgroundOnlyChange: (Boolean) -> Unit,
+    halftoneBackgroundOnly: Boolean,
+    onHalftoneBackgroundOnlyChange: (Boolean) -> Unit,
     subjectSegmentationEnabled: Boolean,
     onSubjectSegmentationChange: (Boolean) -> Unit,
     subjectModelDelivery: SubjectModelDelivery,
@@ -385,6 +438,68 @@ private fun EffectSettings(
     onNoiseStrengthChange: (String) -> Unit
 ) {
     SettingsScroll {
+        if (config.showGlass) {
+            SettingsGroup("Glass effect") {
+                LabeledSlider(
+                    label = "Number of lines",
+                    value = glassLineCount,
+                    onValueChange = onGlassLineCountChange,
+                    valueRange = GlassEffectPolicy.MIN_LINE_COUNT.toFloat()..
+                        GlassEffectPolicy.MAX_LINE_COUNT.toFloat(),
+                    step = 1f,
+                    valueText = { it.roundToInt().toString() }
+                )
+                Spacer(Modifier.height(12.dp))
+                LabeledSlider(
+                    label = "Line thickness",
+                    value = glassLineThickness,
+                    onValueChange = onGlassLineThicknessChange,
+                    valueRange = GlassEffectPolicy.MIN_LINE_THICKNESS..
+                        GlassEffectPolicy.MAX_LINE_THICKNESS,
+                    step = 0.05f,
+                    valueText = { "${(it * 100).roundToInt()}%" }
+                )
+                Spacer(Modifier.height(18.dp))
+                Text(
+                    "Transition style",
+                    style = MaterialTheme.typography.labelLarge
+                )
+                Spacer(Modifier.height(8.dp))
+                AtmoSegmentedControl(
+                    options = if (config.glassReverse) {
+                        listOf("Left to right", "Fade out")
+                    } else {
+                        listOf("Right to left", "Fade in")
+                    },
+                    selectedIndex = glassTransitionStyle.ordinal,
+                    onSelected = {
+                        onGlassTransitionStyleChange(
+                            GlassTransitionStyle.entries.getOrElse(it) {
+                                GlassTransitionStyle.RIGHT_TO_LEFT
+                            }
+                        )
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(Modifier.height(18.dp))
+                SubjectIsolationSetting(
+                    title = "Background only",
+                    checked = glassBackgroundOnly,
+                    onCheckedChange = onGlassBackgroundOnlyChange,
+                    inactiveText = "Applies the glass lines to the complete wallpaper.",
+                    activeDescription = "The subject stays sharp while the background becomes glass.",
+                    waitingText = "The wallpaper stays unchanged until the subject model is ready.",
+                    subjectModelDelivery = subjectModelDelivery,
+                    subjectModelReady = subjectModelReady,
+                    subjectModelWorking = subjectModelWorking,
+                    subjectModelButtonText = subjectModelButtonText,
+                    subjectModelStatusText = subjectModelStatusText,
+                    subjectModelState = subjectModelState,
+                    onDownloadSubjectModel = onDownloadSubjectModel
+                )
+            }
+        }
+
         if (config.showHalftone) {
             SettingsGroup("Halftone") {
                 LabeledSlider(
@@ -399,6 +514,22 @@ private fun EffectSettings(
                     title = "Black and white",
                     checked = grayscale,
                     onCheckedChange = onGrayscaleChange
+                )
+                Spacer(Modifier.height(18.dp))
+                SubjectIsolationSetting(
+                    title = "Background only",
+                    checked = halftoneBackgroundOnly,
+                    onCheckedChange = onHalftoneBackgroundOnlyChange,
+                    inactiveText = "Applies Halftone to the complete wallpaper.",
+                    activeDescription = "The subject stays sharp while the background is printed.",
+                    waitingText = "The wallpaper stays unchanged until the subject model is ready.",
+                    subjectModelDelivery = subjectModelDelivery,
+                    subjectModelReady = subjectModelReady,
+                    subjectModelWorking = subjectModelWorking,
+                    subjectModelButtonText = subjectModelButtonText,
+                    subjectModelStatusText = subjectModelStatusText,
+                    subjectModelState = subjectModelState,
+                    onDownloadSubjectModel = onDownloadSubjectModel
                 )
             }
         }
@@ -425,52 +556,20 @@ private fun EffectSettings(
 
         if (config.showNeon) {
             SettingsGroup("Canvas Sketch") {
-                SettingSwitchRow(
+                SubjectIsolationSetting(
                     title = "Subject segmentation",
                     checked = subjectSegmentationEnabled,
                     onCheckedChange = onSubjectSegmentationChange,
-                    enabled = subjectModelReady || subjectSegmentationEnabled,
-                    subtitle = when {
-                        !subjectSegmentationEnabled -> "Sketches the complete wallpaper."
-                        subjectModelDelivery == SubjectModelDelivery.BUNDLED_FOSS ->
-                            "Uses the bundled U2NetP model locally to isolate the foreground."
-                        subjectModelReady ->
-                            "Uses the installed ML Kit model locally to isolate the foreground."
-                        else -> "The complete wallpaper is sketched until the model is installed."
-                    }
-                )
-                if (subjectModelDelivery == SubjectModelDelivery.GOOGLE_PLAY_SERVICES) {
-                    Spacer(Modifier.height(10.dp))
-                    AtmoOutlinedButton(
-                        text = subjectModelButtonText,
-                        onClick = onDownloadSubjectModel,
-                        enabled = !subjectModelWorking && !subjectModelReady,
-                        accent = true,
-                        icon = if (!subjectModelWorking && !subjectModelReady) {
-                            painterResource(R.drawable.ic_download)
-                        } else {
-                            null
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    if (subjectModelWorking) {
-                        Spacer(Modifier.height(10.dp))
-                        val percent = subjectModelState.progressPercent
-                        if (percent != null) {
-                            LinearProgressIndicator(
-                                progress = { percent / 100f },
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                        } else {
-                            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                        }
-                    }
-                }
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    subjectModelStatusText,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    inactiveText = "Sketches the complete wallpaper.",
+                    activeDescription = "The subject silhouette anchors the sketch.",
+                    waitingText = "The complete wallpaper is sketched until the model is ready.",
+                    subjectModelDelivery = subjectModelDelivery,
+                    subjectModelReady = subjectModelReady,
+                    subjectModelWorking = subjectModelWorking,
+                    subjectModelButtonText = subjectModelButtonText,
+                    subjectModelStatusText = subjectModelStatusText,
+                    subjectModelState = subjectModelState,
+                    onDownloadSubjectModel = onDownloadSubjectModel
                 )
                 Spacer(Modifier.height(18.dp))
                 LabeledSlider(
@@ -541,6 +640,71 @@ private fun EffectSettings(
             }
         }
     }
+}
+
+@Composable
+private fun SubjectIsolationSetting(
+    title: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    inactiveText: String,
+    activeDescription: String,
+    waitingText: String,
+    subjectModelDelivery: SubjectModelDelivery,
+    subjectModelReady: Boolean,
+    subjectModelWorking: Boolean,
+    subjectModelButtonText: String,
+    subjectModelStatusText: String,
+    subjectModelState: SubjectModelState,
+    onDownloadSubjectModel: () -> Unit
+) {
+    SettingSwitchRow(
+        title = title,
+        checked = checked,
+        onCheckedChange = onCheckedChange,
+        enabled = subjectModelReady || checked,
+        subtitle = when {
+            !checked -> inactiveText
+            subjectModelDelivery == SubjectModelDelivery.BUNDLED_FOSS ->
+                "Uses the bundled on-device model. $activeDescription"
+            subjectModelReady ->
+                "Uses the installed on-device model. $activeDescription"
+            else -> waitingText
+        }
+    )
+    if (subjectModelDelivery == SubjectModelDelivery.GOOGLE_PLAY_SERVICES) {
+        Spacer(Modifier.height(10.dp))
+        AtmoOutlinedButton(
+            text = subjectModelButtonText,
+            onClick = onDownloadSubjectModel,
+            enabled = !subjectModelWorking && !subjectModelReady,
+            accent = true,
+            icon = if (!subjectModelWorking && !subjectModelReady) {
+                painterResource(R.drawable.ic_download)
+            } else {
+                null
+            },
+            modifier = Modifier.fillMaxWidth()
+        )
+        if (subjectModelWorking) {
+            Spacer(Modifier.height(10.dp))
+            val percent = subjectModelState.progressPercent
+            if (percent != null) {
+                LinearProgressIndicator(
+                    progress = { percent / 100f },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            } else {
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            }
+        }
+    }
+    Spacer(Modifier.height(8.dp))
+    Text(
+        subjectModelStatusText,
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
 }
 
 @Composable

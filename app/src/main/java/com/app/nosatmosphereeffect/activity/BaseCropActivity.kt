@@ -19,6 +19,7 @@ import androidx.compose.runtime.setValue
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import com.app.nosatmosphereeffect.helper.AtmosphereGlassPolicy
 import com.app.nosatmosphereeffect.helper.PlaylistModeManager
 import com.app.nosatmosphereeffect.helper.MatrixStatePolicy
 import com.app.nosatmosphereeffect.helper.SystemColorSyncPreferences
@@ -26,11 +27,13 @@ import com.app.nosatmosphereeffect.helper.WallpaperFitHelper
 import com.app.nosatmosphereeffect.image.BitmapDecoder
 import com.app.nosatmosphereeffect.image.BitmapStore
 import com.app.nosatmosphereeffect.storage.FileTransactions
+import com.app.nosatmosphereeffect.storage.SharedPreferencesTransactions
 import com.app.nosatmosphereeffect.storage.WallpaperStorageCoordinator
 import com.app.nosatmosphereeffect.ui.screens.CropController
 import com.app.nosatmosphereeffect.ui.screens.CropScreen
 import com.app.nosatmosphereeffect.ui.screens.ProcessingOverlay
 import com.app.nosatmosphereeffect.ui.screens.WallpaperPreviewDialog
+import com.app.nosatmosphereeffect.ui.model.EffectCatalog
 import com.app.nosatmosphereeffect.ui.theme.AtmoEngineTheme
 import java.io.File
 import java.io.IOException
@@ -67,6 +70,16 @@ abstract class BaseCropActivity : ComponentActivity() {
             intent.getStringExtra(EXTRA_EFFECT_ID),
             fallbackEffectId
         )
+        if (!applyState.atmosphereGlassInitialized) {
+            val requested = if (savedInstanceState?.containsKey(STATE_ATMOSPHERE_GLASS) == true) {
+                savedInstanceState.getBoolean(STATE_ATMOSPHERE_GLASS)
+            } else {
+                readStoredAtmosphereGlass()
+            }
+            applyState.atmosphereGlassEnabled =
+                AtmosphereGlassPolicy.resolveEnabled(effectId, requested)
+            applyState.atmosphereGlassInitialized = true
+        }
         restoredMatrix = MatrixStatePolicy.copyIfValid(
             savedInstanceState?.getFloatArray(STATE_MATRIX)
         )
@@ -105,6 +118,13 @@ abstract class BaseCropActivity : ComponentActivity() {
                     buttonLabel = "Preview transition",
                     initialFit = currentFit,
                     initialFill = currentFill,
+                    showAtmosphereGlassOption =
+                        EffectCatalog.supportsAtmosphereGlass(effectId),
+                    atmosphereGlassEnabled = applyState.atmosphereGlassEnabled,
+                    onAtmosphereGlassEnabledChange = { enabled ->
+                        applyState.atmosphereGlassEnabled =
+                            AtmosphereGlassPolicy.resolveEnabled(effectId, enabled)
+                    },
                     onViewCreated = { loadImage(uri, restoredMatrix) },
                     onFitChanged = { fit, fill ->
                         currentFit = normalizeFitMode(fit)
@@ -126,6 +146,8 @@ abstract class BaseCropActivity : ComponentActivity() {
                         WallpaperPreviewDialog(
                             bitmap = preview,
                             effectId = effectId,
+                            atmosphereGlassEnabledOverride =
+                                applyState.atmosphereGlassEnabled,
                             onConfirm = {
                                 showApplyConfirm = false
                                 pendingBitmap = null
@@ -154,6 +176,10 @@ abstract class BaseCropActivity : ComponentActivity() {
         )
         outState.putString(STATE_FIT_MODE, currentFit)
         outState.putString(STATE_FILL_MODE, currentFill)
+        outState.putBoolean(
+            STATE_ATMOSPHERE_GLASS,
+            applyState.atmosphereGlassEnabled
+        )
     }
 
     override fun onDestroy() {
@@ -226,6 +252,10 @@ abstract class BaseCropActivity : ComponentActivity() {
         isApplying = true
         applyState.applyCompleted = false
         applyState.applyError = null
+        val atmosphereGlassEnabled = AtmosphereGlassPolicy.resolveEnabled(
+            effectId,
+            applyState.atmosphereGlassEnabled
+        )
         Toast.makeText(this, "Applying…", Toast.LENGTH_SHORT).show()
 
         ioExecutor.execute {
@@ -233,37 +263,71 @@ abstract class BaseCropActivity : ComponentActivity() {
                 WallpaperStorageCoordinator.runExclusive {
                     val source = sourceBitmap
                         ?: throw IOException("The original wallpaper image is unavailable")
-                    installWallpaperFiles(bitmap, source)
+                    val fileTransactions = mutableListOf<FileTransactions.ReplacementTransaction>()
+                    val preferenceSnapshots = SharedPreferencesTransactions.snapshot(
+                        listOf(
+                            getSharedPreferences(APP_PREFERENCES, Context.MODE_PRIVATE),
+                            getSharedPreferences(WALLPAPER_PREFERENCES, Context.MODE_PRIVATE),
+                            getSharedPreferences(
+                                WallpaperFitHelper.PREFS_NAME,
+                                Context.MODE_PRIVATE
+                            )
+                        )
+                    )
+                    var preferencesTouched = false
+                    try {
+                        fileTransactions += installWallpaperFiles(bitmap, source)
 
-                    SystemColorSyncPreferences.isEnabled(this)
-                    getSharedPreferences(APP_PREFERENCES, Context.MODE_PRIVATE)
-                        .edit()
-                        .clear()
-                        .commit()
-                        .also { success ->
-                            if (!success) throw IOException("Could not reset effect preferences")
-                        }
-                    getSharedPreferences(WALLPAPER_PREFERENCES, Context.MODE_PRIVATE)
-                        .edit()
-                        .clear()
-                        .putString(PlaylistModeManager.KEY_MODE, PlaylistModeManager.MODE_SINGLE)
-                        .commit()
-                        .also { success ->
-                            if (!success) {
-                                throw IOException("Could not initialize wallpaper preferences")
+                        preferencesTouched = true
+                        SystemColorSyncPreferences.isEnabled(this)
+                        getSharedPreferences(APP_PREFERENCES, Context.MODE_PRIVATE)
+                            .edit()
+                            .clear()
+                            .putBoolean(
+                                AtmosphereGlassPolicy.ENABLED_KEY,
+                                atmosphereGlassEnabled
+                            )
+                            .commit()
+                            .also { success ->
+                                if (!success) throw IOException("Could not reset effect preferences")
                             }
-                        }
+                        getSharedPreferences(WALLPAPER_PREFERENCES, Context.MODE_PRIVATE)
+                            .edit()
+                            .clear()
+                            .putString(
+                                PlaylistModeManager.KEY_MODE,
+                                PlaylistModeManager.MODE_SINGLE
+                            )
+                            .commit()
+                            .also { success ->
+                                if (!success) {
+                                    throw IOException(
+                                        "Could not initialize wallpaper preferences"
+                                    )
+                                }
+                            }
 
-                    WallpaperFitHelper.setActiveModes(
-                        this,
-                        WallpaperFitHelper.MODE_FILL,
-                        WallpaperFitHelper.FILL_BLACK
-                    )
-                    WallpaperFitHelper.setNextModes(
-                        this,
-                        WallpaperFitHelper.MODE_FILL,
-                        WallpaperFitHelper.FILL_BLACK
-                    )
+                        WallpaperFitHelper.setActiveModes(
+                            this,
+                            WallpaperFitHelper.MODE_FILL,
+                            WallpaperFitHelper.FILL_BLACK
+                        )
+                        WallpaperFitHelper.setNextModes(
+                            this,
+                            WallpaperFitHelper.MODE_FILL,
+                            WallpaperFitHelper.FILL_BLACK
+                        )
+                        FileTransactions.commitAll(fileTransactions)
+                    } catch (failure: Exception) {
+                        FileTransactions.rollbackAll(fileTransactions, failure)
+                        if (preferencesTouched) {
+                            SharedPreferencesTransactions.restoreAll(
+                                preferenceSnapshots,
+                                failure
+                            )
+                        }
+                        throw failure
+                    }
                     cleanupObsoletePlaylistFiles()
                 }
 
@@ -295,7 +359,10 @@ abstract class BaseCropActivity : ComponentActivity() {
         }
     }
 
-    private fun installWallpaperFiles(bitmap: Bitmap, source: Bitmap) {
+    private fun installWallpaperFiles(
+        bitmap: Bitmap,
+        source: Bitmap
+    ): FileTransactions.ReplacementTransaction {
         val token = UUID.randomUUID().toString()
         val stagedWallpaper = File(filesDir, ".wallpaper-$token.staged")
         val stagedSource = File(filesDir, ".wallpaper-source-$token.staged")
@@ -303,7 +370,7 @@ abstract class BaseCropActivity : ComponentActivity() {
         try {
             BitmapStore.writeJpegAtomically(bitmap, stagedWallpaper, quality = 100)
             BitmapStore.writeJpegAtomically(source, stagedSource, quality = 95)
-            FileTransactions.replaceFiles(
+            return FileTransactions.beginReplacingFiles(
                 listOf(
                     stagedWallpaper to File(
                         filesDir,
@@ -407,6 +474,16 @@ abstract class BaseCropActivity : ComponentActivity() {
         } ?: WallpaperFitHelper.FILL_BLACK
     }
 
+    private fun readStoredAtmosphereGlass(): Boolean {
+        return try {
+            getSharedPreferences(APP_PREFERENCES, Context.MODE_PRIVATE)
+                .getBoolean(AtmosphereGlassPolicy.ENABLED_KEY, false)
+        } catch (error: ClassCastException) {
+            Log.w(TAG, "Stored Atmosphere glass option has the wrong type", error)
+            false
+        }
+    }
+
     private companion object {
         const val TAG = "BaseCropActivity"
         const val EXTRA_EFFECT_ID = "EFFECT_ID"
@@ -415,6 +492,7 @@ abstract class BaseCropActivity : ComponentActivity() {
         const val STATE_MATRIX = "crop_matrix"
         const val STATE_FIT_MODE = "crop_fit_mode"
         const val STATE_FILL_MODE = "crop_fill_mode"
+        const val STATE_ATMOSPHERE_GLASS = "crop_atmosphere_glass"
         const val ACTION_RELOAD_WALLPAPER = "com.app.nosatmosphereeffect.RELOAD_WALLPAPER"
     }
 }

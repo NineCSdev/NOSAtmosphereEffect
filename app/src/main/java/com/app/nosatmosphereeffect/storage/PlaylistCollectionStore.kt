@@ -89,6 +89,24 @@ internal object PlaylistCollectionStore {
         activeWallpaper: File,
         activeSource: File
     ): File {
+        val transaction = beginActivatingFirst(
+            context,
+            playlistDirectory,
+            originalsDirectory,
+            activeWallpaper,
+            activeSource
+        )
+        transaction.commit()
+        return File(playlistDirectory, "wallpaper_0.jpg")
+    }
+
+    fun beginActivatingFirst(
+        context: Context,
+        playlistDirectory: File,
+        originalsDirectory: File,
+        activeWallpaper: File,
+        activeSource: File
+    ): FileTransactions.ReplacementTransaction {
         val firstWallpaper = File(playlistDirectory, "wallpaper_0.jpg")
         val firstOriginal = File(originalsDirectory, "original_0.jpg")
         if (!firstWallpaper.isFile || !firstOriginal.isFile) {
@@ -102,13 +120,12 @@ internal object PlaylistCollectionStore {
         try {
             UriFiles.copyAtomically(context, Uri.fromFile(firstWallpaper), stagedWallpaper)
             UriFiles.copyAtomically(context, Uri.fromFile(firstOriginal), stagedSource)
-            FileTransactions.replaceFiles(
+            return FileTransactions.beginReplacingFiles(
                 listOf(
                     stagedWallpaper to activeWallpaper,
                     stagedSource to activeSource
                 )
             )
-            return firstWallpaper
         } catch (error: Exception) {
             failure = error
             throw error

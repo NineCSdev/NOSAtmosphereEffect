@@ -15,6 +15,27 @@ class EffectCatalogTest {
     }
 
     @Test
+    fun `effect families follow the requested catalog order`() {
+        assertEquals(
+            listOf(
+                "ORIGINAL",
+                "REVERSE",
+                "GLASS",
+                "GLASS_REVERSE",
+                "COLORFILL",
+                "COLORFILL_REVERSE",
+                "NEON",
+                "NEON_REVERSE",
+                "FROSTED",
+                "FROSTED_REVERSE",
+                "HALFTONE",
+                "HALFTONE_REVERSE"
+            ),
+            EffectCatalog.items.map(EffectItem::id)
+        )
+    }
+
+    @Test
     fun `every reverse effect has a forward counterpart`() {
         val ids = EffectCatalog.items.map(EffectItem::id).toSet()
 
@@ -61,7 +82,9 @@ class EffectCatalogTest {
             "COLORFILL",
             "COLORFILL_REVERSE",
             "NEON",
-            "NEON_REVERSE"
+            "NEON_REVERSE",
+            "GLASS",
+            "GLASS_REVERSE"
         ).forEach { id ->
             assertEquals(0f, EffectCatalog.defaultDimness(id), 0f)
         }
@@ -74,6 +97,7 @@ class EffectCatalogTest {
     fun `only declared effects start from the original wallpaper`() {
         val originalFirst = setOf(
             "ORIGINAL",
+            "GLASS",
             "FROSTED",
             "HALFTONE",
             "COLORFILL_REVERSE",
@@ -87,5 +111,27 @@ class EffectCatalogTest {
             )
         }
         assertFalse(EffectCatalog.startsFromOriginalWallpaper(null))
+    }
+
+    @Test
+    fun `glass effects share a family and timing`() {
+        assertEquals("GLASS", EffectCatalog.family("GLASS"))
+        assertEquals("GLASS", EffectCatalog.family("GLASS_REVERSE"))
+        assertEquals(1200L, EffectCatalog.recommendedDurationMillis("GLASS"))
+        assertEquals(1200L, EffectCatalog.recommendedDurationMillis("GLASS_REVERSE"))
+        assertFalse(EffectCatalog.isReverse("GLASS"))
+        assertTrue(EffectCatalog.isReverse("GLASS_REVERSE"))
+    }
+
+    @Test
+    fun `image glass is offered only for original and reverse atmosphere`() {
+        EffectCatalog.items.forEach { effect ->
+            assertEquals(
+                effect.id == "ORIGINAL" || effect.id == "REVERSE",
+                EffectCatalog.supportsAtmosphereGlass(effect.id)
+            )
+        }
+        assertFalse(EffectCatalog.supportsAtmosphereGlass(null))
+        assertFalse(EffectCatalog.supportsAtmosphereGlass("NOT_AN_EFFECT"))
     }
 }

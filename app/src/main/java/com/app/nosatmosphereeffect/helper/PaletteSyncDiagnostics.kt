@@ -9,7 +9,6 @@ internal data class PaletteSyncTrace(
     val updatedAtMillis: Long
 )
 
-/** Small, temporary trace shared by the wallpaper engine and diagnostics UI. */
 internal object PaletteSyncDiagnostics {
     const val STAGE_FORCE_REQUESTED = "force_requested"
     const val STAGE_REFRESH_QUEUED = "refresh_queued"

@@ -53,6 +53,7 @@ import com.app.nosatmosphereeffect.helper.WallpaperFitHelper
 import com.app.nosatmosphereeffect.ui.components.AtmoDropdownField
 import com.app.nosatmosphereeffect.ui.components.AtmoPrimaryButton
 import com.app.nosatmosphereeffect.ui.components.AtmoReveal
+import com.app.nosatmosphereeffect.ui.components.SettingSwitchRow
 import com.app.nosatmosphereeffect.ui.theme.LocalAtmoExpressive
 
 /**
@@ -101,6 +102,9 @@ fun CropScreen(
     buttonLabel: String,
     initialFit: String,
     initialFill: String,
+    showAtmosphereGlassOption: Boolean = false,
+    atmosphereGlassEnabled: Boolean = false,
+    onAtmosphereGlassEnabledChange: (Boolean) -> Unit = {},
     onViewCreated: (TouchImageView) -> Unit,
     onFitChanged: (fit: String, fill: String) -> Unit,
     onBack: () -> Unit,
@@ -213,7 +217,17 @@ fun CropScreen(
                         onFitChanged = onFitChanged
                     )
                 }
-                AtmoReveal(delayMillis = 110) {
+                if (showAtmosphereGlassOption) {
+                    AtmoReveal(delayMillis = 90) {
+                        SettingSwitchRow(
+                            title = "Add glass effect",
+                            subtitle = "Keeps the Atmosphere transition and finishes on reeded glass.",
+                            checked = atmosphereGlassEnabled,
+                            onCheckedChange = onAtmosphereGlassEnabledChange
+                        )
+                    }
+                }
+                AtmoReveal(delayMillis = 140) {
                     AtmoPrimaryButton(
                         text = buttonLabel,
                         onClick = onConfirm,

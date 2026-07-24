@@ -37,8 +37,6 @@ abstract class AnimatedEffectWallpaperService<R : GLSurfaceView.Renderer> : GLWa
 
     protected open fun releaseRenderer(renderer: R) = Unit
 
-    final override fun getRenderer(): GLSurfaceView.Renderer = createEffectRenderer()
-
     final override fun onCreateEngine(): Engine {
         return EffectEngine().also(activeEngines::add)
     }
@@ -78,7 +76,11 @@ abstract class AnimatedEffectWallpaperService<R : GLSurfaceView.Renderer> : GLWa
             isKeyguardLocked = ::isKeyguardLocked,
             onUnlock = ::playUnlockAnimation,
             onPrepareForLock = ::prepareForNextUnlock,
-            onScreenOff = { rotateWallpaper() },
+            onScreenOff = {
+                if (!isPreview) {
+                    rotateWallpaper()
+                }
+            },
             onReload = ::reloadWallpaper,
             onConfigUpdate = ::updateRendererConfig
         )
@@ -98,18 +100,29 @@ abstract class AnimatedEffectWallpaperService<R : GLSurfaceView.Renderer> : GLWa
                 setEffectProgress(createdRenderer, progress)
             }
 
-            try {
+            runInitializationStep("load renderer settings") {
+                applyRendererConfig(createdRenderer)
+            }
+            runInitializationStep("attach renderer callbacks") {
                 onRendererAttached(createdRenderer, ::requestRender)
-                updateRendererConfig()
+            }
+
+            try {
                 setRenderer(createdRenderer)
             } catch (failure: RuntimeException) {
-                Log.e(logTag, "Unable to initialize the wallpaper renderer", failure)
+                Log.e(logTag, "Unable to attach the wallpaper renderer", failure)
                 releaseCurrentRenderer()
                 return
             }
 
-            currentNightMode()?.let(::handleThemeChange)
-            events.start(initiallyLocked = isKeyguardLocked())
+            requestRender()
+            notifySystemColorsChanged()
+            runInitializationStep("apply the current theme") {
+                currentNightMode()?.let(::handleThemeChange)
+            }
+            runInitializationStep("start wallpaper event handling") {
+                events.start(initiallyLocked = isKeyguardLocked())
+            }
         }
 
         override fun onDestroy() {
@@ -190,23 +203,30 @@ abstract class AnimatedEffectWallpaperService<R : GLSurfaceView.Renderer> : GLWa
                 return
             }
 
+            runInitializationStep("refresh renderer settings") {
+                applyRendererConfig(currentRenderer)
+            }
             reloadRenderer(currentRenderer)
             requestRender()
             notifySystemColorsChanged()
         }
 
         private fun updateRendererConfig() {
-            timing = readTimingPreferences()
             val currentRenderer = renderer
             if (currentRenderer == null) {
                 Log.w(logTag, "Ignoring configuration update because the renderer is unavailable")
                 return
             }
 
-            val preferences = getSharedPreferences(PREFERENCES_NAME, MODE_PRIVATE)
-            configureRenderer(currentRenderer, preferences)
+            applyRendererConfig(currentRenderer)
             requestRender()
             notifySystemColorsChanged()
+        }
+
+        private fun applyRendererConfig(currentRenderer: R) {
+            timing = readTimingPreferences()
+            val preferences = getSharedPreferences(PREFERENCES_NAME, MODE_PRIVATE)
+            configureRenderer(currentRenderer, preferences)
         }
 
         private fun playUnlockAnimation() {
@@ -356,6 +376,17 @@ abstract class AnimatedEffectWallpaperService<R : GLSurfaceView.Renderer> : GLWa
                 releaseRenderer(currentRenderer)
             } catch (failure: RuntimeException) {
                 Log.e(logTag, "Unable to release the wallpaper renderer", failure)
+            }
+        }
+
+        private inline fun runInitializationStep(
+            step: String,
+            action: () -> Unit
+        ) {
+            try {
+                action()
+            } catch (failure: RuntimeException) {
+                Log.e(logTag, "Unable to $step; continuing with safe defaults", failure)
             }
         }
     }

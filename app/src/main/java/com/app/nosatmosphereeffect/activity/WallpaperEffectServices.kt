@@ -13,6 +13,8 @@ import com.app.nosatmosphereeffect.service.ColorFillReverseService
 import com.app.nosatmosphereeffect.service.ColorFillService
 import com.app.nosatmosphereeffect.service.FrostedReverseService
 import com.app.nosatmosphereeffect.service.FrostedService
+import com.app.nosatmosphereeffect.service.GlassReverseService
+import com.app.nosatmosphereeffect.service.GlassService
 import com.app.nosatmosphereeffect.service.HalftoneReverseService
 import com.app.nosatmosphereeffect.service.HalftoneService
 import com.app.nosatmosphereeffect.service.NeonReverseService
@@ -26,19 +28,24 @@ internal object WallpaperEffectServices {
     private val serviceByEffectId: Map<String, Class<out WallpaperService>> = linkedMapOf(
         "ORIGINAL" to AtmosphereService::class.java,
         "REVERSE" to BlurToSharpService::class.java,
-        "FROSTED" to FrostedService::class.java,
-        "FROSTED_REVERSE" to FrostedReverseService::class.java,
-        "HALFTONE" to HalftoneService::class.java,
-        "HALFTONE_REVERSE" to HalftoneReverseService::class.java,
+        "GLASS" to GlassService::class.java,
+        "GLASS_REVERSE" to GlassReverseService::class.java,
         "COLORFILL" to ColorFillService::class.java,
         "COLORFILL_REVERSE" to ColorFillReverseService::class.java,
         "NEON" to NeonService::class.java,
-        "NEON_REVERSE" to NeonReverseService::class.java
+        "NEON_REVERSE" to NeonReverseService::class.java,
+        "FROSTED" to FrostedService::class.java,
+        "FROSTED_REVERSE" to FrostedReverseService::class.java,
+        "HALFTONE" to HalftoneService::class.java,
+        "HALFTONE_REVERSE" to HalftoneReverseService::class.java
     )
 
     private val effectIdByServiceName = serviceByEffectId.entries.associate { (id, service) ->
         service.name to id
     }
+
+    val supportedEffectIds: List<String>
+        get() = serviceByEffectId.keys.toList()
 
     fun normalize(effectId: String?, fallback: String = DEFAULT_EFFECT_ID): String {
         val safeFallback = fallback.takeIf(serviceByEffectId::containsKey) ?: DEFAULT_EFFECT_ID

@@ -10,6 +10,10 @@
         android:name="android.permission.ACCESS_NETWORK_STATE"
         tools:node="remove" />
 
+    <uses-feature
+        android:glEsVersion="0x00030000"
+        android:required="true" />
+
     <application
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
@@ -88,6 +92,90 @@
         </service>
 
         <service
+            android:name=".service.GlassService"
+            android:enabled="true"
+            android:exported="true"
+            android:label="Glass Effect"
+            android:permission="android.permission.BIND_WALLPAPER">
+            <intent-filter>
+                <action android:name="android.service.wallpaper.WallpaperService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.service.wallpaper"
+                android:resource="@xml/wallpaper" />
+        </service>
+
+        <service
+            android:name=".service.GlassReverseService"
+            android:enabled="true"
+            android:exported="true"
+            android:label="Glass Effect (Reverse)"
+            android:permission="android.permission.BIND_WALLPAPER">
+            <intent-filter>
+                <action android:name="android.service.wallpaper.WallpaperService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.service.wallpaper"
+                android:resource="@xml/wallpaper" />
+        </service>
+
+        <service
+            android:name=".service.ColorFillService"
+            android:enabled="true"
+            android:exported="true"
+            android:label="Color Fill Effect"
+            android:permission="android.permission.BIND_WALLPAPER">
+            <intent-filter>
+                <action android:name="android.service.wallpaper.WallpaperService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.service.wallpaper"
+                android:resource="@xml/wallpaper" />
+        </service>
+
+        <service
+            android:name=".service.ColorFillReverseService"
+            android:enabled="true"
+            android:exported="true"
+            android:label="Color Fill (Reverse) Effect"
+            android:permission="android.permission.BIND_WALLPAPER">
+            <intent-filter>
+                <action android:name="android.service.wallpaper.WallpaperService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.service.wallpaper"
+                android:resource="@xml/wallpaper" />
+        </service>
+
+        <service
+            android:name=".service.NeonService"
+            android:enabled="true"
+            android:exported="true"
+            android:label="Canvas Sketch"
+            android:permission="android.permission.BIND_WALLPAPER">
+            <intent-filter>
+                <action android:name="android.service.wallpaper.WallpaperService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.service.wallpaper"
+                android:resource="@xml/wallpaper" />
+        </service>
+
+        <service
+            android:name=".service.NeonReverseService"
+            android:enabled="true"
+            android:exported="true"
+            android:label="Canvas Sketch (Reverse)"
+            android:permission="android.permission.BIND_WALLPAPER">
+            <intent-filter>
+                <action android:name="android.service.wallpaper.WallpaperService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.service.wallpaper"
+                android:resource="@xml/wallpaper" />
+        </service>
+
+        <service
             android:name=".service.FrostedService"
             android:enabled="true"
             android:exported="true"
@@ -134,65 +222,6 @@
             android:enabled="true"
             android:exported="true"
             android:label="Halftone Print (Reverse) Effect"
-            android:permission="android.permission.BIND_WALLPAPER">
-            <intent-filter>
-                <action android:name="android.service.wallpaper.WallpaperService" />
-            </intent-filter>
-            <meta-data
-                android:name="android.service.wallpaper"
-                android:resource="@xml/wallpaper" />
-        </service>
-
-
-        <service
-            android:name=".service.NeonService"
-            android:enabled="true"
-            android:exported="true"
-            android:label="Canvas Sketch"
-            android:permission="android.permission.BIND_WALLPAPER">
-            <intent-filter>
-                <action android:name="android.service.wallpaper.WallpaperService" />
-            </intent-filter>
-            <meta-data
-                android:name="android.service.wallpaper"
-                android:resource="@xml/wallpaper" />
-        </service>
-
-        <service
-            android:name=".service.NeonReverseService"
-            android:enabled="true"
-            android:exported="true"
-            android:label="Canvas Sketch (Reverse)"
-            android:permission="android.permission.BIND_WALLPAPER">
-            <intent-filter>
-                <action android:name="android.service.wallpaper.WallpaperService" />
-            </intent-filter>
-            <meta-data
-                android:name="android.service.wallpaper"
-                android:resource="@xml/wallpaper" />
-        </service>
-
-
-        <service
-            android:name=".service.ColorFillService"
-            android:enabled="true"
-            android:exported="true"
-            android:label="Color Fill Effect"
-            android:permission="android.permission.BIND_WALLPAPER">
-            <intent-filter>
-                <action android:name="android.service.wallpaper.WallpaperService" />
-            </intent-filter>
-            <meta-data
-                android:name="android.service.wallpaper"
-                android:resource="@xml/wallpaper" />
-        </service>
-
-
-        <service
-            android:name=".service.ColorFillReverseService"
-            android:enabled="true"
-            android:exported="true"
-            android:label="Color Fill (Reverse) Effect"
             android:permission="android.permission.BIND_WALLPAPER">
             <intent-filter>
                 <action android:name="android.service.wallpaper.WallpaperService" />

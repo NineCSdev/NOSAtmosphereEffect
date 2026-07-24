@@ -65,6 +65,7 @@ import com.app.nosatmosphereeffect.ui.components.AtmoOutlinedButton
 import com.app.nosatmosphereeffect.ui.components.AtmoPrimaryButton
 import com.app.nosatmosphereeffect.ui.components.AtmoSegmentedControl
 import com.app.nosatmosphereeffect.ui.components.AtmoTopBar
+import com.app.nosatmosphereeffect.ui.components.SettingSwitchRow
 import com.app.nosatmosphereeffect.ui.theme.LocalAtmoExpressive
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -86,6 +87,9 @@ fun PlaylistEditorScreen(
     onPlaylistSelected: (Int) -> Unit = {},
     applyLabel: String = "Apply playlist",
     applyEnabled: Boolean = entries.isNotEmpty(),
+    showAtmosphereGlassOption: Boolean = false,
+    atmosphereGlassEnabled: Boolean = false,
+    onAtmosphereGlassEnabledChange: (Boolean) -> Unit = {},
     onEditItem: (Int) -> Unit,
     onDeleteItem: (Int) -> Unit,
     onAddMore: () -> Unit,
@@ -170,6 +174,8 @@ fun PlaylistEditorScreen(
                             PlaylistCard(
                                 entry = entry,
                                 effectId = effectId,
+                                atmosphereGlassEnabledOverride =
+                                    atmosphereGlassEnabled,
                                 isActive = page == pagerState.currentPage,
                                 onClick = { onEditItem(page) },
                                 onDelete = { onDeleteItem(page) }
@@ -207,6 +213,14 @@ fun PlaylistEditorScreen(
                         .padding(horizontal = 20.dp, vertical = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
+                    if (showAtmosphereGlassOption) {
+                        SettingSwitchRow(
+                            title = "Add glass effect",
+                            subtitle = "Keeps the Atmosphere transition and finishes on reeded glass.",
+                            checked = atmosphereGlassEnabled,
+                            onCheckedChange = onAtmosphereGlassEnabledChange
+                        )
+                    }
                     androidx.compose.foundation.layout.Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -235,6 +249,7 @@ fun PlaylistEditorScreen(
 private fun PlaylistCard(
     entry: PlaylistEntry,
     effectId: String,
+    atmosphereGlassEnabledOverride: Boolean,
     isActive: Boolean,
     onClick: () -> Unit,
     onDelete: () -> Unit
@@ -271,6 +286,8 @@ private fun PlaylistCard(
             com.app.nosatmosphereeffect.ui.components.WallpaperTransitionPreview(
                 effectId = effectId,
                 wallpaper = thumb,
+                atmosphereGlassEnabledOverride =
+                    atmosphereGlassEnabledOverride,
                 modifier = Modifier.fillMaxSize()
             )
         } else if (thumb != null) {

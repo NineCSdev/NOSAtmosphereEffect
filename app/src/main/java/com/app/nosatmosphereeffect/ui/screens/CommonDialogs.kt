@@ -94,6 +94,7 @@ fun SimpleConfirmDialog(
 fun WallpaperPreviewDialog(
     bitmap: Bitmap,
     effectId: String,
+    atmosphereGlassEnabledOverride: Boolean? = null,
     onConfirm: () -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -173,6 +174,8 @@ fun WallpaperPreviewDialog(
                         effectId = effectId,
                         wallpaper = image,
                         progress = shownProgress,
+                        atmosphereGlassEnabledOverride =
+                            atmosphereGlassEnabledOverride,
                         modifier = Modifier
                             .fillMaxSize()
                             .heightIn(max = 720.dp)
