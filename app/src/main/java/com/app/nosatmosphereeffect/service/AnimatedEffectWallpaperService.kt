@@ -2,6 +2,7 @@ package com.app.nosatmosphereeffect.service
 
 import android.animation.ValueAnimator
 import android.app.KeyguardManager
+import android.app.WallpaperManager
 import android.content.SharedPreferences
 import android.content.res.Configuration
 import android.graphics.Bitmap
@@ -12,10 +13,15 @@ import android.util.Log
 import android.view.SurfaceHolder
 import android.view.animation.LinearInterpolator
 import com.app.nosatmosphereeffect.helper.GLWallpaperService
+import com.app.nosatmosphereeffect.helper.EffectStatePolicy
 import com.app.nosatmosphereeffect.helper.PlaylistRotationController
+import com.app.nosatmosphereeffect.helper.WallpaperBehaviorPolicy
+import com.app.nosatmosphereeffect.helper.WallpaperBehaviorPreferences
+import com.app.nosatmosphereeffect.helper.WallpaperBehaviorSettings
 
 abstract class AnimatedEffectWallpaperService<R : GLSurfaceView.Renderer> : GLWallpaperService() {
 
+    protected abstract val effectId: String
     protected abstract val lockedProgress: Float
     protected abstract val unlockedProgress: Float
     protected abstract val defaultAnimationDurationMs: Long
@@ -30,6 +36,14 @@ abstract class AnimatedEffectWallpaperService<R : GLSurfaceView.Renderer> : GLWa
     protected abstract fun setEffectProgress(renderer: R, progress: Float)
     protected abstract fun reloadRenderer(renderer: R)
     protected abstract fun queuePlaylistTransition(renderer: R, bitmap: Bitmap)
+
+    protected open fun setFixedEffectState(renderer: R, effectApplied: Boolean) {
+        val endpoints = EffectStatePolicy.endpoints(effectId)
+        setEffectProgress(
+            renderer,
+            if (effectApplied) endpoints.appliedProgress else endpoints.originalProgress
+        )
+    }
 
     protected open fun setDrawerBlurred(renderer: R, blurred: Boolean) = Unit
 
@@ -65,6 +79,7 @@ abstract class AnimatedEffectWallpaperService<R : GLSurfaceView.Renderer> : GLWa
             lockDelayMs = defaultLockDelayMs(),
             animationDurationMs = defaultAnimationDurationMs
         )
+        private var behavior = WallpaperBehaviorSettings()
         private var keyguardManager: KeyguardManager? = null
         private var keyguardLookupAttempted = false
         private var keyguardFailureLogged = false
@@ -73,6 +88,7 @@ abstract class AnimatedEffectWallpaperService<R : GLSurfaceView.Renderer> : GLWa
             context = this@AnimatedEffectWallpaperService,
             logTag = logTag,
             timing = { timing },
+            transitionsEnabled = { behavior.transitionsEnabled },
             isKeyguardLocked = ::isKeyguardLocked,
             onUnlock = ::playUnlockAnimation,
             onPrepareForLock = ::prepareForNextUnlock,
@@ -102,6 +118,9 @@ abstract class AnimatedEffectWallpaperService<R : GLSurfaceView.Renderer> : GLWa
 
             runInitializationStep("load renderer settings") {
                 applyRendererConfig(createdRenderer)
+            }
+            if (!behavior.transitionsEnabled) {
+                applyFixedState(createdRenderer, isKeyguardLocked())
             }
             runInitializationStep("attach renderer callbacks") {
                 onRendererAttached(createdRenderer, ::requestRender)
@@ -138,6 +157,23 @@ abstract class AnimatedEffectWallpaperService<R : GLSurfaceView.Renderer> : GLWa
         }
 
         override fun onVisibilityChanged(visible: Boolean) {
+            if (!behavior.transitionsEnabled) {
+                animator?.cancel()
+                animator = null
+                if (blurDrawerWhenHidden) {
+                    renderer?.let { setDrawerBlurred(it, false) }
+                }
+
+                super.onVisibilityChanged(visible)
+                if (!visible) return
+
+                val locked = isKeyguardLocked()
+                events.setLocked(locked)
+                renderer?.let { applyFixedState(it, locked) }
+                requestRender()
+                return
+            }
+
             if (!visible) {
                 if (isDeviceInteractive()) {
                     if (blurDrawerWhenHidden) {
@@ -165,6 +201,20 @@ abstract class AnimatedEffectWallpaperService<R : GLSurfaceView.Renderer> : GLWa
             } else {
                 snapToHomeState()
             }
+        }
+
+        override fun onWallpaperFlagsChanged(which: Int) {
+            super.onWallpaperFlagsChanged(which)
+            if (behavior.transitionsEnabled) return
+
+            renderer?.let { currentRenderer ->
+                applyFixedState(
+                    currentRenderer = currentRenderer,
+                    isLocked = isKeyguardLocked(),
+                    wallpaperFlags = which
+                )
+            }
+            requestRender()
         }
 
         fun handleThemeChange(isNightMode: Boolean) {
@@ -203,9 +253,11 @@ abstract class AnimatedEffectWallpaperService<R : GLSurfaceView.Renderer> : GLWa
                 return
             }
 
+            val transitionsWereEnabled = behavior.transitionsEnabled
             runInitializationStep("refresh renderer settings") {
                 applyRendererConfig(currentRenderer)
             }
+            reconcileBehavior(currentRenderer, transitionsWereEnabled)
             reloadRenderer(currentRenderer)
             requestRender()
             notifySystemColorsChanged()
@@ -218,21 +270,60 @@ abstract class AnimatedEffectWallpaperService<R : GLSurfaceView.Renderer> : GLWa
                 return
             }
 
+            val transitionsWereEnabled = behavior.transitionsEnabled
             applyRendererConfig(currentRenderer)
+            reconcileBehavior(currentRenderer, transitionsWereEnabled)
             requestRender()
             notifySystemColorsChanged()
         }
 
         private fun applyRendererConfig(currentRenderer: R) {
             timing = readTimingPreferences()
+            behavior = WallpaperBehaviorPreferences.read(
+                this@AnimatedEffectWallpaperService
+            )
             val preferences = getSharedPreferences(PREFERENCES_NAME, MODE_PRIVATE)
             configureRenderer(currentRenderer, preferences)
+        }
+
+        private fun reconcileBehavior(
+            currentRenderer: R,
+            transitionsWereEnabled: Boolean
+        ) {
+            events.onTransitionModeChanged()
+            when {
+                !behavior.transitionsEnabled -> {
+                    animator?.cancel()
+                    animator = null
+                    if (blurDrawerWhenHidden) {
+                        setDrawerBlurred(currentRenderer, false)
+                    }
+                    applyFixedState(currentRenderer, isKeyguardLocked())
+                }
+                !transitionsWereEnabled -> {
+                    animator?.cancel()
+                    animator = null
+                    if (isKeyguardLocked()) {
+                        setEffectProgress(currentRenderer, lockedProgress)
+                    } else {
+                        setEffectProgress(currentRenderer, unlockedProgress)
+                    }
+                }
+            }
         }
 
         private fun playUnlockAnimation() {
             val currentRenderer = renderer
             if (currentRenderer == null) {
                 Log.w(logTag, "Ignoring unlock animation because the renderer is unavailable")
+                return
+            }
+
+            if (!behavior.transitionsEnabled) {
+                animator?.cancel()
+                animator = null
+                applyFixedState(currentRenderer, isLocked = false)
+                requestRender()
                 return
             }
 
@@ -253,15 +344,55 @@ abstract class AnimatedEffectWallpaperService<R : GLSurfaceView.Renderer> : GLWa
         private fun snapToHomeState() {
             animator?.cancel()
             animator = null
-            renderer?.let { setEffectProgress(it, unlockedProgress) }
+            renderer?.let { currentRenderer ->
+                if (behavior.transitionsEnabled) {
+                    setEffectProgress(currentRenderer, unlockedProgress)
+                } else {
+                    applyFixedState(currentRenderer, isLocked = false)
+                }
+            }
             requestRender()
         }
 
         private fun prepareForNextUnlock() {
             animator?.cancel()
             animator = null
-            renderer?.let { setEffectProgress(it, lockedProgress) }
+            renderer?.let { currentRenderer ->
+                if (behavior.transitionsEnabled) {
+                    setEffectProgress(currentRenderer, lockedProgress)
+                } else {
+                    applyFixedState(currentRenderer, isLocked = true)
+                }
+            }
             requestRender()
+        }
+
+        private fun applyFixedState(
+            currentRenderer: R,
+            isLocked: Boolean,
+            wallpaperFlags: Int? = currentWallpaperFlags()
+        ) {
+            val surface = WallpaperBehaviorPolicy.resolveSurface(
+                isHomeEngine = wallpaperFlags?.let {
+                    it and WallpaperManager.FLAG_SYSTEM != 0
+                } == true,
+                isLockEngine = wallpaperFlags?.let {
+                    it and WallpaperManager.FLAG_LOCK != 0
+                } == true,
+                isKeyguardLocked = isLocked
+            )
+            val effectApplied = behavior.alwaysAppliedTarget.showsEffectOn(surface)
+            setFixedEffectState(currentRenderer, effectApplied)
+        }
+
+        private fun currentWallpaperFlags(): Int? {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) return null
+            return try {
+                getWallpaperFlags()
+            } catch (failure: RuntimeException) {
+                Log.w(logTag, "Unable to identify the wallpaper destination", failure)
+                null
+            }
         }
 
         private fun readTimingPreferences(): EffectTiming {

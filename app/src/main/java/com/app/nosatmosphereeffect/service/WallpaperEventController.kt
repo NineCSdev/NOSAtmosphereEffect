@@ -18,6 +18,7 @@ internal class WallpaperEventController(
     private val context: Context,
     private val logTag: String,
     private val timing: () -> EffectTiming,
+    private val transitionsEnabled: () -> Boolean,
     private val isKeyguardLocked: () -> Boolean,
     private val onUnlock: () -> Unit,
     private val onPrepareForLock: () -> Unit,
@@ -81,6 +82,12 @@ internal class WallpaperEventController(
         }
     }
 
+    fun onTransitionModeChanged() {
+        if (transitionsEnabled()) return
+        handler.removeCallbacks(unlockChecker)
+        handler.removeCallbacks(prepareForLock)
+    }
+
     fun close() {
         if (closed) return
         closed = true
@@ -92,9 +99,18 @@ internal class WallpaperEventController(
 
     private fun handleScreenOn() {
         if (closed) return
-        locked = true
         handler.removeCallbacks(unlockChecker)
-        handler.post(unlockChecker)
+        if (transitionsEnabled()) {
+            locked = true
+            handler.post(unlockChecker)
+        } else {
+            locked = isKeyguardLocked()
+            if (locked) {
+                runCallback("show the fixed lock-screen state", onPrepareForLock)
+            } else {
+                runCallback("show the fixed home-screen state", onUnlock)
+            }
+        }
     }
 
     private fun handleScreenOff() {
@@ -102,7 +118,11 @@ internal class WallpaperEventController(
         handler.removeCallbacks(unlockChecker)
         handler.removeCallbacks(prepareForLock)
         locked = true
-        handler.postDelayed(prepareForLock, timing().lockDelayMs)
+        if (transitionsEnabled()) {
+            handler.postDelayed(prepareForLock, timing().lockDelayMs)
+        } else {
+            runCallback("show the fixed lock-screen state", onPrepareForLock)
+        }
         runCallback("rotate the wallpaper playlist", onScreenOff)
     }
 

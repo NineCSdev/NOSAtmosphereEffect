@@ -41,6 +41,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import com.app.nosatmosphereeffect.R
+import com.app.nosatmosphereeffect.helper.AlwaysAppliedTarget
 import com.app.nosatmosphereeffect.helper.GlassEffectPolicy
 import com.app.nosatmosphereeffect.helper.GlassTransitionStyle
 import com.app.nosatmosphereeffect.helper.SubjectModelDelivery
@@ -77,6 +78,8 @@ data class AdvancedConfig(
     val poll: String,
     val delay: String,
     val duration: String,
+    val transitionsEnabled: Boolean,
+    val alwaysAppliedTarget: AlwaysAppliedTarget,
     val dimness: Float,
     val blurStrength: Float,
     val enableNoise: Boolean,
@@ -103,6 +106,8 @@ data class AdvancedResult(
     val poll: String,
     val delay: String,
     val duration: String,
+    val transitionsEnabled: Boolean,
+    val alwaysAppliedTarget: AlwaysAppliedTarget,
     val dimness: Float,
     val blurStrength: Float,
     val enableNoise: Boolean,
@@ -147,6 +152,8 @@ fun AdvancedSettingsScreen(
     var poll by remember { mutableStateOf(config.poll) }
     var delay by remember { mutableStateOf(config.delay) }
     var duration by remember { mutableStateOf(config.duration) }
+    var transitionsEnabled by remember { mutableStateOf(config.transitionsEnabled) }
+    var alwaysAppliedTarget by remember { mutableStateOf(config.alwaysAppliedTarget) }
     var dimness by remember { mutableFloatStateOf(config.dimness) }
     var blurStrength by remember { mutableFloatStateOf(config.blurStrength) }
     var rotationIndex by remember { mutableIntStateOf(config.initialRotationIndex) }
@@ -225,6 +232,8 @@ fun AdvancedSettingsScreen(
         poll = poll,
         delay = delay,
         duration = duration,
+        transitionsEnabled = transitionsEnabled,
+        alwaysAppliedTarget = alwaysAppliedTarget,
         dimness = dimness,
         blurStrength = blurStrength,
         enableNoise = noiseEnabled,
@@ -316,6 +325,7 @@ fun AdvancedSettingsScreen(
                 when (tab) {
                     FineTuneTab.Effect -> EffectSettings(
                         config = config,
+                        transitionsEnabled = transitionsEnabled,
                         dotSize = dotSize,
                         onDotSizeChange = { dotSize = it },
                         grayscale = grayscale,
@@ -371,6 +381,10 @@ fun AdvancedSettingsScreen(
                         onDelayChange = { delay = it.filterDigits() },
                         duration = duration,
                         onDurationChange = { duration = it.filterDigits() },
+                        transitionsEnabled = transitionsEnabled,
+                        onTransitionsEnabledChange = { transitionsEnabled = it },
+                        alwaysAppliedTarget = alwaysAppliedTarget,
+                        onAlwaysAppliedTargetChange = { alwaysAppliedTarget = it },
                         onPollInfo = { infoDialog = InfoDialog.Poll },
                         onDelayInfo = { infoDialog = InfoDialog.Delay }
                     )
@@ -406,6 +420,7 @@ fun AdvancedSettingsScreen(
 @Composable
 private fun EffectSettings(
     config: AdvancedConfig,
+    transitionsEnabled: Boolean,
     dotSize: Float,
     onDotSizeChange: (Float) -> Unit,
     grayscale: Boolean,
@@ -451,7 +466,10 @@ private fun EffectSettings(
     onNoiseStrengthChange: (String) -> Unit
 ) {
     SettingsScroll {
-        if (config.showGlass || config.showAtmosphereGlassToggle) {
+        if (
+            config.showGlass ||
+            (config.showAtmosphereGlassToggle && transitionsEnabled)
+        ) {
             SettingsGroup("Glass effect") {
                 if (config.showAtmosphereGlassToggle) {
                     SettingSwitchRow(
@@ -492,7 +510,7 @@ private fun EffectSettings(
                             step = 0.05f,
                             valueText = { "${(it * 100).roundToInt()}%" }
                         )
-                        if (config.showGlass) {
+                        if (config.showGlass && transitionsEnabled) {
                             Spacer(Modifier.height(18.dp))
                             Text(
                                 "Transition style",
@@ -573,7 +591,7 @@ private fun EffectSettings(
             }
         }
 
-        if (config.showColorFill) {
+        if (config.showColorFill && transitionsEnabled) {
             SettingsGroup("Color origin") {
                 LabeledSlider(
                     label = "Horizontal position",
@@ -756,37 +774,88 @@ private fun TimingSettings(
     onDelayChange: (String) -> Unit,
     duration: String,
     onDurationChange: (String) -> Unit,
+    transitionsEnabled: Boolean,
+    onTransitionsEnabledChange: (Boolean) -> Unit,
+    alwaysAppliedTarget: AlwaysAppliedTarget,
+    onAlwaysAppliedTargetChange: (AlwaysAppliedTarget) -> Unit,
     onPollInfo: () -> Unit,
     onDelayInfo: () -> Unit
 ) {
     val info = painterResource(R.drawable.ic_info)
+    val alwaysAppliedDescription = when (alwaysAppliedTarget) {
+        AlwaysAppliedTarget.HOME ->
+            "The effect stays on the Home screen. The Lock screen shows the original."
+        AlwaysAppliedTarget.LOCK ->
+            "The effect stays on the Lock screen. The Home screen shows the original."
+        AlwaysAppliedTarget.BOTH ->
+            "The effect stays on both screens."
+    }
     SettingsScroll {
-        SettingsGroup("Unlock response") {
-            AtmoNumberField(
-                label = "Unlock check interval (ms)",
-                value = poll,
-                onValueChange = onPollChange,
-                helper = "Standard: 50 | Samsung: 30000",
-                infoIcon = info,
-                onInfoClick = onPollInfo
-            )
-            Spacer(Modifier.height(16.dp))
-            AtmoNumberField(
-                label = "Lock delay (ms)",
-                value = delay,
-                onValueChange = onDelayChange,
-                helper = "Standard: 800 | Samsung: 0",
-                infoIcon = info,
-                onInfoClick = onDelayInfo
+        SettingsGroup("Effect behavior") {
+            SettingSwitchRow(
+                title = "Animate transitions",
+                checked = transitionsEnabled,
+                onCheckedChange = onTransitionsEnabledChange,
+                subtitle = if (transitionsEnabled) {
+                    "Changes between effect states when the screen locks or unlocks."
+                } else {
+                    "Keeps the fully applied effect visible on the selected screens."
+                }
             )
         }
-        SettingsGroup("Animation") {
-            AtmoNumberField(
-                label = "Duration (ms)",
-                value = duration,
-                onValueChange = onDurationChange,
-                helper = "Recommended for $activeEffectTitle: $recommendedDurationMs ms"
-            )
+
+        AnimatedVisibility(visible = transitionsEnabled) {
+            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                SettingsGroup("Unlock response") {
+                    AtmoNumberField(
+                        label = "Unlock check interval (ms)",
+                        value = poll,
+                        onValueChange = onPollChange,
+                        helper = "Standard: 50 | Samsung: 30000",
+                        infoIcon = info,
+                        onInfoClick = onPollInfo
+                    )
+                    Spacer(Modifier.height(16.dp))
+                    AtmoNumberField(
+                        label = "Lock delay (ms)",
+                        value = delay,
+                        onValueChange = onDelayChange,
+                        helper = "Standard: 800 | Samsung: 0",
+                        infoIcon = info,
+                        onInfoClick = onDelayInfo
+                    )
+                }
+                SettingsGroup("Animation") {
+                    AtmoNumberField(
+                        label = "Duration (ms)",
+                        value = duration,
+                        onValueChange = onDurationChange,
+                        helper = "Recommended for $activeEffectTitle: $recommendedDurationMs ms"
+                    )
+                }
+            }
+        }
+
+        AnimatedVisibility(visible = !transitionsEnabled) {
+            SettingsGroup("Keep effect applied on") {
+                AtmoSegmentedControl(
+                    options = listOf("Home screen", "Lock screen", "Both"),
+                    selectedIndex = alwaysAppliedTarget.ordinal,
+                    onSelected = { index ->
+                        onAlwaysAppliedTargetChange(
+                            AlwaysAppliedTarget.entries.getOrElse(index) {
+                                AlwaysAppliedTarget.BOTH
+                            }
+                        )
+                    }
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "$alwaysAppliedDescription Atmo Engine remains a live wallpaper.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
     }
 }

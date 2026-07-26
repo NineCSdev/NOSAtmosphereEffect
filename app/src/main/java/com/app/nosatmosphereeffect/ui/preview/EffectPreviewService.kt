@@ -16,6 +16,7 @@ import android.view.ViewOutlineProvider
 import androidx.core.graphics.createBitmap
 import com.app.nosatmosphereeffect.helper.AtmosphereGlassPolicy
 import com.app.nosatmosphereeffect.helper.CanvasSubjectSettings
+import com.app.nosatmosphereeffect.helper.EffectStatePolicy
 import com.app.nosatmosphereeffect.helper.GlassEffectPreferences
 import com.app.nosatmosphereeffect.helper.GlassEffectPolicy
 import com.app.nosatmosphereeffect.helper.SubjectIsolationPolicy
@@ -54,6 +55,7 @@ class EffectPreviewService(
     private val sourceProvider = {
         if (sourceBitmap.isRecycled) null else sourceBitmap.copy(Bitmap.Config.ARGB_8888, false)
     }
+    private var configuredAtmosphereGlassEnabled = false
     private val productionRenderer = createRenderer()
     private val released = AtomicBoolean(false)
     private var resumed = false
@@ -111,22 +113,43 @@ class EffectPreviewService(
 
     fun setProgress(lockToHomeProgress: Float) {
         if (released.get()) return
-        val progress = lockToHomeProgress.coerceIn(0f, 1f)
-        val rendererProgress = when (effectId) {
-            "REVERSE", "FROSTED_REVERSE" -> 1f - progress
-            "GLASS", "GLASS_REVERSE" -> GlassEffectPolicy.shaderProgress(
-                progress,
-                reverse = effectId == "GLASS_REVERSE"
-            )
-            "COLORFILL" -> 1f - progress
-            else -> progress
-        }
+        setRendererProgress(
+            rendererProgress = EffectStatePolicy.transitionProgress(
+                effectId,
+                lockToHomeProgress
+            ),
+            atmosphereGlassEnabled = configuredAtmosphereGlassEnabled
+        )
+    }
 
+    fun setAppliedState(effectApplied: Boolean) {
+        if (released.get()) return
+        val endpoints = EffectStatePolicy.endpoints(effectId)
+        setRendererProgress(
+            rendererProgress = if (effectApplied) {
+                endpoints.appliedProgress
+            } else {
+                endpoints.originalProgress
+            },
+            atmosphereGlassEnabled = configuredAtmosphereGlassEnabled && effectApplied
+        )
+    }
+
+    private fun setRendererProgress(
+        rendererProgress: Float,
+        atmosphereGlassEnabled: Boolean
+    ) {
         view.queueEvent {
             if (released.get()) return@queueEvent
             when (val renderer = productionRenderer) {
-                is AtmosphereRenderer -> renderer.blurStrength = rendererProgress
-                is BlurToSharpRenderer -> renderer.blurStrength = rendererProgress
+                is AtmosphereRenderer -> {
+                    renderer.atmosphereGlassEnabled = atmosphereGlassEnabled
+                    renderer.blurStrength = rendererProgress
+                }
+                is BlurToSharpRenderer -> {
+                    renderer.atmosphereGlassEnabled = atmosphereGlassEnabled
+                    renderer.blurStrength = rendererProgress
+                }
                 is FrostedRenderer -> renderer.blurStrength = rendererProgress
                 is GlassRenderer -> renderer.progress = rendererProgress
                 is HalftoneRenderer -> renderer.blurStrength = rendererProgress
@@ -182,6 +205,7 @@ class EffectPreviewService(
         return when (effectId) {
             "REVERSE" -> BlurToSharpRenderer(appContext, sourceProvider).apply {
                 val glassEnabled = previewAtmosphereGlassEnabled(prefs)
+                configuredAtmosphereGlassEnabled = glassEnabled
                 val glassSettings = previewGlassSettings(prefs)
                 dimLevel = previewFloat(prefs, "dim_level", 0.2f)
                 enableNoise = previewBoolean(prefs, "enable_noise", false)
@@ -256,6 +280,7 @@ class EffectPreviewService(
 
             else -> AtmosphereRenderer(appContext, sourceProvider).apply {
                 val glassEnabled = previewAtmosphereGlassEnabled(prefs)
+                configuredAtmosphereGlassEnabled = glassEnabled
                 val glassSettings = previewGlassSettings(prefs)
                 dimLevel = previewFloat(prefs, "dim_level", 0.2f)
                 enableNoise = previewBoolean(prefs, "enable_noise", false)

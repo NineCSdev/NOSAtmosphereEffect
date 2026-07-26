@@ -11,6 +11,7 @@ abstract class GlassWallpaperService protected constructor(
     reverseEffect: Boolean
 ) : AnimatedEffectWallpaperService<GlassRenderer>() {
 
+    final override val effectId = if (reverseEffect) "GLASS_REVERSE" else "GLASS"
     final override val lockedProgress = GlassEffectPolicy.shaderProgress(0f, reverseEffect)
     final override val unlockedProgress = GlassEffectPolicy.shaderProgress(1f, reverseEffect)
     final override val defaultAnimationDurationMs = 1_200L

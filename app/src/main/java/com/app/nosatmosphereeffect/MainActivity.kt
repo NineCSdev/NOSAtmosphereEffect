@@ -27,6 +27,8 @@ import com.app.nosatmosphereeffect.activity.ThemePlaylistEditorActivity
 import com.app.nosatmosphereeffect.activity.WallpaperEffectServices
 import com.app.nosatmosphereeffect.helper.PlaylistModeManager
 import com.app.nosatmosphereeffect.helper.SystemColorSyncPreferences
+import com.app.nosatmosphereeffect.helper.WallpaperBehaviorPreferences
+import com.app.nosatmosphereeffect.helper.WallpaperBehaviorSettings
 import com.app.nosatmosphereeffect.image.BitmapDecoder
 import com.app.nosatmosphereeffect.ui.model.EffectCatalog
 import com.app.nosatmosphereeffect.ui.screens.MainScreen
@@ -46,6 +48,7 @@ class MainActivity : ComponentActivity() {
     private var isPlaylistModeActive by mutableStateOf(false)
     private var isThemePlaylistModeActive by mutableStateOf(false)
     private var syncColors by mutableStateOf(true)
+    private var wallpaperBehavior by mutableStateOf(WallpaperBehaviorSettings())
     private var expressiveThemeEnabled by mutableStateOf(true)
     private var themeMode by mutableStateOf(AppThemeMode.SYSTEM)
     private var pitchBlackEnabled by mutableStateOf(false)
@@ -92,6 +95,7 @@ class MainActivity : ComponentActivity() {
                     isPlaylistMode = isPlaylistModeActive,
                     isThemePlaylistMode = isThemePlaylistModeActive,
                     syncColors = syncColors,
+                    wallpaperBehavior = wallpaperBehavior,
                     onSyncColorsChange = { updateSyncColors(it) },
                     expressiveThemeEnabled = expressiveThemeEnabled,
                     onExpressiveThemeChange = { updateExpressiveTheme(it) },
@@ -163,6 +167,7 @@ class MainActivity : ComponentActivity() {
                 isPlaylistModeActive && PlaylistModeManager.isThemeMode(this)
 
             syncColors = SystemColorSyncPreferences.isEnabled(this)
+            wallpaperBehavior = WallpaperBehaviorPreferences.read(this)
             loadWallpaperPreview()
         } else {
             activeEffectId = null
@@ -170,6 +175,7 @@ class MainActivity : ComponentActivity() {
             wallpaperActive = false
             isPlaylistModeActive = false
             isThemePlaylistModeActive = false
+            wallpaperBehavior = WallpaperBehaviorSettings()
             statusText = getString(R.string.status_instruction)
         }
     }
@@ -256,9 +262,31 @@ class MainActivity : ComponentActivity() {
 
     private fun getActiveEffectType(): String? {
         val wm = WallpaperManager.getInstance(this)
-        val info = wm.wallpaperInfo ?: return null
-        if (info.packageName != packageName) return null
-        return WallpaperEffectServices.effectIdForService(info.component.className)
+        val homeInfo = try {
+            wm.wallpaperInfo
+        } catch (failure: RuntimeException) {
+            Log.w(TAG, "Unable to inspect the Home screen live wallpaper", failure)
+            null
+        }
+        if (homeInfo?.packageName == packageName) {
+            return WallpaperEffectServices.effectIdForService(
+                homeInfo.component.className
+            )
+        }
+
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            return null
+        }
+        val lockInfo = try {
+            wm.getWallpaperInfo(WallpaperManager.FLAG_LOCK)
+        } catch (failure: RuntimeException) {
+            Log.w(TAG, "Unable to inspect the Lock screen live wallpaper", failure)
+            null
+        }
+        if (lockInfo?.packageName != packageName) return null
+        return WallpaperEffectServices.effectIdForService(
+            lockInfo.component.className
+        )
     }
 
     private fun launchEditExistingPlaylist() {

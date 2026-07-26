@@ -25,6 +25,8 @@ import com.app.nosatmosphereeffect.helper.SubjectModelManager
 import com.app.nosatmosphereeffect.helper.SubjectModelPhase
 import com.app.nosatmosphereeffect.helper.SubjectModelState
 import com.app.nosatmosphereeffect.helper.SubjectIsolationPolicy
+import com.app.nosatmosphereeffect.helper.WallpaperBehaviorPreferences
+import com.app.nosatmosphereeffect.helper.WallpaperBehaviorSettings
 import com.app.nosatmosphereeffect.helper.WallpaperFitHelper
 import com.app.nosatmosphereeffect.ui.screens.AdvancedConfig
 import com.app.nosatmosphereeffect.ui.screens.AdvancedResult
@@ -68,6 +70,7 @@ class AdvancedSettingsActivity : ComponentActivity() {
         val prefs = getSharedPreferences("app_prefs", MODE_PRIVATE)
         val wpPrefs = getSharedPreferences("wallpaper_prefs", Context.MODE_PRIVATE)
         val glassSettings = GlassEffectPreferences.readAndMigrate(prefs)
+        val behaviorSettings = WallpaperBehaviorPreferences.read(this)
 
         val savedRotation = wpPrefs.getLong("rotation_interval_minutes", 0)
         val savedRotationIndex = rotationValues.indexOf(savedRotation).takeIf { it >= 0 } ?: 0
@@ -99,6 +102,8 @@ class AdvancedSettingsActivity : ComponentActivity() {
             poll = if (savedPoll != -1L) savedPoll.toString() else defaultPoll.toString(),
             delay = if (savedDelay != -1L) savedDelay.toString() else defaultDelay.toString(),
             duration = if (savedDuration != -1L) savedDuration.toString() else defaultDuration.toString(),
+            transitionsEnabled = behaviorSettings.transitionsEnabled,
+            alwaysAppliedTarget = behaviorSettings.alwaysAppliedTarget,
             dimness = prefs.getFloat("dim_level", defaultDimness),
             blurStrength = prefs.getFloat("frosted_blur_radius", 200f),
             enableNoise = prefs.getBoolean("enable_noise", false),
@@ -210,6 +215,13 @@ class AdvancedSettingsActivity : ComponentActivity() {
             rotationValues.getOrElse(result.rotationIndex) { rotationValues[0] }
 
         wpPrefs.edit { putLong("rotation_interval_minutes", selectedRotationValue) }
+        WallpaperBehaviorPreferences.write(
+            this,
+            WallpaperBehaviorSettings(
+                transitionsEnabled = result.transitionsEnabled,
+                alwaysAppliedTarget = result.alwaysAppliedTarget
+            )
+        )
 
         prefs.edit {
             putLong("poll_interval", poll)
@@ -271,6 +283,7 @@ class AdvancedSettingsActivity : ComponentActivity() {
     }
 
     private fun resetSettings(prefs: SharedPreferences) {
+        WallpaperBehaviorPreferences.reset(this)
         prefs.edit {
             remove("poll_interval")
             remove("lock_delay")

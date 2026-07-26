@@ -14,6 +14,8 @@ abstract class ColorFillWallpaperService protected constructor(
     private val reverseEffect: Boolean
 ) : AnimatedEffectWallpaperService<ColorFillRenderer>() {
 
+    final override val effectId =
+        if (reverseEffect) "COLORFILL_REVERSE" else "COLORFILL"
     final override val lockedProgress = if (reverseEffect) 0f else 1f
     final override val unlockedProgress = if (reverseEffect) 1f else 0f
     final override val defaultAnimationDurationMs = 1_500L
@@ -48,6 +50,8 @@ abstract class FrostedWallpaperService protected constructor(
     private val reverseEffect: Boolean
 ) : AnimatedEffectWallpaperService<FrostedRenderer>() {
 
+    final override val effectId =
+        if (reverseEffect) "FROSTED_REVERSE" else "FROSTED"
     final override val lockedProgress = if (reverseEffect) 1f else 0f
     final override val unlockedProgress = if (reverseEffect) 0f else 1f
     final override val defaultAnimationDurationMs = 500L
@@ -95,6 +99,8 @@ abstract class HalftoneWallpaperService protected constructor(
     private val reverseEffect: Boolean
 ) : AnimatedEffectWallpaperService<HalftoneRenderer>() {
 
+    final override val effectId =
+        if (reverseEffect) "HALFTONE_REVERSE" else "HALFTONE"
     final override val lockedProgress = 0f
     final override val unlockedProgress = 1f
     final override val defaultAnimationDurationMs = 500L
@@ -147,6 +153,7 @@ abstract class NeonWallpaperService protected constructor(
     private val reverseEffect: Boolean
 ) : AnimatedEffectWallpaperService<NeonRenderer>() {
 
+    final override val effectId = if (reverseEffect) "NEON_REVERSE" else "NEON"
     final override val lockedProgress = 0f
     final override val unlockedProgress = 1f
     final override val defaultAnimationDurationMs = 1_000L

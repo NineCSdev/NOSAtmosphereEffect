@@ -8,6 +8,7 @@ import com.app.nosatmosphereeffect.renderer.BlurToSharpRenderer
 
 class BlurToSharpService : AnimatedEffectWallpaperService<BlurToSharpRenderer>() {
 
+    override val effectId = "REVERSE"
     override val lockedProgress = 1f
     override val unlockedProgress = 0f
     override val defaultAnimationDurationMs = 1_500L
@@ -43,6 +44,16 @@ class BlurToSharpService : AnimatedEffectWallpaperService<BlurToSharpRenderer>()
 
     override fun setEffectProgress(renderer: BlurToSharpRenderer, progress: Float) {
         renderer.blurStrength = progress
+    }
+
+    override fun setFixedEffectState(
+        renderer: BlurToSharpRenderer,
+        effectApplied: Boolean
+    ) {
+        if (!effectApplied) {
+            renderer.atmosphereGlassEnabled = false
+        }
+        super.setFixedEffectState(renderer, effectApplied)
     }
 
     override fun reloadRenderer(renderer: BlurToSharpRenderer) {

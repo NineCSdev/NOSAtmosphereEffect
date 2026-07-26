@@ -8,6 +8,7 @@ import com.app.nosatmosphereeffect.renderer.AtmosphereRenderer
 
 class AtmosphereService : AnimatedEffectWallpaperService<AtmosphereRenderer>() {
 
+    override val effectId = "ORIGINAL"
     override val lockedProgress = 0f
     override val unlockedProgress = 1f
     override val defaultAnimationDurationMs = 2_500L
@@ -41,6 +42,16 @@ class AtmosphereService : AnimatedEffectWallpaperService<AtmosphereRenderer>() {
 
     override fun setEffectProgress(renderer: AtmosphereRenderer, progress: Float) {
         renderer.blurStrength = progress
+    }
+
+    override fun setFixedEffectState(
+        renderer: AtmosphereRenderer,
+        effectApplied: Boolean
+    ) {
+        if (!effectApplied) {
+            renderer.atmosphereGlassEnabled = false
+        }
+        super.setFixedEffectState(renderer, effectApplied)
     }
 
     override fun reloadRenderer(renderer: AtmosphereRenderer) {
