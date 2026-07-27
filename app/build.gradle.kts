@@ -6,11 +6,12 @@ plugins {
 android {
     namespace = "com.app.nosatmosphereeffect"
     compileSdk = 37
+    ndkVersion = "28.2.13676358"
 
     defaultConfig {
         applicationId = "com.saad_khan_rind.atmosphere_effect"
-        versionName = "7.0.4"
-        versionCode = 500704
+        versionName = "7.1.1"
+        versionCode = 500711
     }
 
     flavorDimensions += "apiLevel"
@@ -22,21 +23,21 @@ android {
             dimension = "apiLevel"
             minSdk = 36
             targetSdk = 36
-            versionCode = 500704
+            versionCode = 500711
         }
 
         create("v35") {
             dimension = "apiLevel"
             minSdk = 35
             targetSdk = 36
-            versionCode = 400704
+            versionCode = 400711
         }
 
         create("v33") {
             dimension = "apiLevel"
             minSdk = 33
             targetSdk = 33
-            versionCode = 300704
+            versionCode = 300711
         }
 
         create("play") {
@@ -54,6 +55,13 @@ android {
 
     androidResources {
         noCompress += "tflite"
+        noCompress += "spv"
+    }
+
+    externalNativeBuild {
+        ndkBuild {
+            path = file("src/main/cpp/Android.mk")
+        }
     }
 
     compileOptions {

@@ -4,15 +4,16 @@ import android.content.SharedPreferences
 import android.graphics.Bitmap
 import android.util.Log
 import com.app.nosatmosphereeffect.helper.CanvasSubjectSettings
+import com.app.nosatmosphereeffect.helper.GLWallpaperService
 import com.app.nosatmosphereeffect.helper.SubjectIsolationPolicy
-import com.app.nosatmosphereeffect.renderer.ColorFillRenderer
+import com.app.nosatmosphereeffect.renderer.ColorFillRenderController
 import com.app.nosatmosphereeffect.renderer.FrostedRenderer
 import com.app.nosatmosphereeffect.renderer.HalftoneRenderer
 import com.app.nosatmosphereeffect.renderer.NeonRenderer
 
 abstract class ColorFillWallpaperService protected constructor(
     private val reverseEffect: Boolean
-) : AnimatedEffectWallpaperService<ColorFillRenderer>() {
+) : AnimatedEffectWallpaperService<ColorFillRenderController>() {
 
     final override val effectId =
         if (reverseEffect) "COLORFILL_REVERSE" else "COLORFILL"
@@ -20,35 +21,51 @@ abstract class ColorFillWallpaperService protected constructor(
     final override val unlockedProgress = if (reverseEffect) 1f else 0f
     final override val defaultAnimationDurationMs = 1_500L
 
-    final override fun createEffectRenderer(): ColorFillRenderer {
-        return ColorFillRenderer(applicationContext, isReverse = reverseEffect)
+    final override fun createEffectRenderer(): ColorFillRenderController {
+        return ColorFillRenderController(applicationContext, isReverse = reverseEffect)
+    }
+
+    final override fun attachEffectRenderer(
+        engine: GLWallpaperService.GLEngine,
+        renderer: ColorFillRenderController
+    ) {
+        renderer.attach(engine)
     }
 
     final override fun configureRenderer(
-        renderer: ColorFillRenderer,
+        renderer: ColorFillRenderController,
         preferences: SharedPreferences
     ) {
-        renderer.dimLevel = preferences.getFloat("dim_level", 0f)
-        renderer.originX = preferences.getFloat("origin_x", 0.5f)
-        renderer.originY = preferences.getFloat("origin_y", 0.8f)
+        renderer.configure(
+            dimLevel = preferences.getFloat("dim_level", 0f),
+            originX = preferences.getFloat("origin_x", 0.5f),
+            originY = preferences.getFloat("origin_y", 0.8f)
+        )
     }
 
-    final override fun setEffectProgress(renderer: ColorFillRenderer, progress: Float) {
-        renderer.blurStrength = progress
+    final override fun setEffectProgress(renderer: ColorFillRenderController, progress: Float) {
+        renderer.setProgress(progress)
     }
 
-    final override fun reloadRenderer(renderer: ColorFillRenderer) {
+    final override fun reloadRenderer(renderer: ColorFillRenderController) {
         renderer.reloadTexture()
     }
 
-    final override fun queuePlaylistTransition(renderer: ColorFillRenderer, bitmap: Bitmap) {
+    final override fun queuePlaylistTransition(
+        renderer: ColorFillRenderController,
+        bitmap: Bitmap
+    ) {
         renderer.queuePlaylistTransition(bitmap)
+    }
+
+    final override fun releaseRenderer(renderer: ColorFillRenderController) {
+        renderer.release()
     }
 }
 
 abstract class FrostedWallpaperService protected constructor(
     private val reverseEffect: Boolean
-) : AnimatedEffectWallpaperService<FrostedRenderer>() {
+) : GlAnimatedEffectWallpaperService<FrostedRenderer>() {
 
     final override val effectId =
         if (reverseEffect) "FROSTED_REVERSE" else "FROSTED"
@@ -97,7 +114,7 @@ abstract class FrostedWallpaperService protected constructor(
 
 abstract class HalftoneWallpaperService protected constructor(
     private val reverseEffect: Boolean
-) : AnimatedEffectWallpaperService<HalftoneRenderer>() {
+) : GlAnimatedEffectWallpaperService<HalftoneRenderer>() {
 
     final override val effectId =
         if (reverseEffect) "HALFTONE_REVERSE" else "HALFTONE"
@@ -151,7 +168,7 @@ abstract class HalftoneWallpaperService protected constructor(
 
 abstract class NeonWallpaperService protected constructor(
     private val reverseEffect: Boolean
-) : AnimatedEffectWallpaperService<NeonRenderer>() {
+) : GlAnimatedEffectWallpaperService<NeonRenderer>() {
 
     final override val effectId = if (reverseEffect) "NEON_REVERSE" else "NEON"
     final override val lockedProgress = 0f

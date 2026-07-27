@@ -9,7 +9,7 @@ import com.app.nosatmosphereeffect.renderer.GlassRenderer
 
 abstract class GlassWallpaperService protected constructor(
     reverseEffect: Boolean
-) : AnimatedEffectWallpaperService<GlassRenderer>() {
+) : GlAnimatedEffectWallpaperService<GlassRenderer>() {
 
     final override val effectId = if (reverseEffect) "GLASS_REVERSE" else "GLASS"
     final override val lockedProgress = GlassEffectPolicy.shaderProgress(0f, reverseEffect)

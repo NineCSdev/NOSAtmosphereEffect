@@ -30,7 +30,12 @@ import com.app.nosatmosphereeffect.helper.SystemColorSyncPreferences
 import com.app.nosatmosphereeffect.helper.WallpaperBehaviorPreferences
 import com.app.nosatmosphereeffect.helper.WallpaperBehaviorSettings
 import com.app.nosatmosphereeffect.image.BitmapDecoder
+import com.app.nosatmosphereeffect.renderer.status.RendererRuntimeStatus
+import com.app.nosatmosphereeffect.renderer.status.RendererRuntimeStatusListener
+import com.app.nosatmosphereeffect.renderer.status.RendererRuntimeStatusRepository
 import com.app.nosatmosphereeffect.ui.model.EffectCatalog
+import com.app.nosatmosphereeffect.ui.model.RendererStatusUiModel
+import com.app.nosatmosphereeffect.ui.model.rendererStatusUiModel
 import com.app.nosatmosphereeffect.ui.screens.MainScreen
 import com.app.nosatmosphereeffect.ui.theme.AppearancePreferences
 import com.app.nosatmosphereeffect.ui.theme.AppThemeMode
@@ -54,9 +59,19 @@ class MainActivity : ComponentActivity() {
     private var pitchBlackEnabled by mutableStateOf(false)
     private var activeEffectId by mutableStateOf<String?>(null)
     private var previewBitmap by mutableStateOf<ImageBitmap?>(null)
+    private var rendererRuntimeStatus = RendererRuntimeStatus.idle()
+    private var rendererStatusUi by mutableStateOf<RendererStatusUiModel?>(null)
     private var skipNextResumeStatusRefresh = false
     private var titleTapCount = 0
     private var lastTitleTapTime = 0L
+
+    private val rendererStatusListener = RendererRuntimeStatusListener { status ->
+        runOnUiThread {
+            if (isDestroyed) return@runOnUiThread
+            rendererRuntimeStatus = status
+            refreshRendererStatusUi()
+        }
+    }
 
     private val pickSingleImage =
         registerForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
@@ -75,6 +90,7 @@ class MainActivity : ComponentActivity() {
         expressiveThemeEnabled = AppearancePreferences.isExpressiveEnabled(this)
         themeMode = AppearancePreferences.getThemeMode(this)
         pitchBlackEnabled = AppearancePreferences.isPitchBlackEnabled(this)
+        RendererRuntimeStatusRepository.addListener(this, rendererStatusListener)
 
         statusText = getString(R.string.status_instruction)
         checkWallpaperStatus()
@@ -96,6 +112,7 @@ class MainActivity : ComponentActivity() {
                     isThemePlaylistMode = isThemePlaylistModeActive,
                     syncColors = syncColors,
                     wallpaperBehavior = wallpaperBehavior,
+                    rendererStatus = rendererStatusUi,
                     onSyncColorsChange = { updateSyncColors(it) },
                     expressiveThemeEnabled = expressiveThemeEnabled,
                     onExpressiveThemeChange = { updateExpressiveTheme(it) },
@@ -136,6 +153,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        RendererRuntimeStatusRepository.removeListener(rendererStatusListener)
         ioExecutor.shutdownNow()
         super.onDestroy()
     }
@@ -178,6 +196,15 @@ class MainActivity : ComponentActivity() {
             wallpaperBehavior = WallpaperBehaviorSettings()
             statusText = getString(R.string.status_instruction)
         }
+        refreshRendererStatusUi()
+    }
+
+    private fun refreshRendererStatusUi() {
+        rendererStatusUi = rendererStatusUiModel(
+            wallpaperActive = wallpaperActive,
+            activeEffectId = activeEffectId,
+            runtimeStatus = rendererRuntimeStatus
+        )
     }
 
     private fun updateExpressiveTheme(enabled: Boolean) {

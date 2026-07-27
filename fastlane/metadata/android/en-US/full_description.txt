@@ -1,4 +1,4 @@
-Atmo Engine 7.0.4 brings customizable effects to your live wallpaper, with optional lock-screen-to-home-screen transitions.
+Atmo Engine 7.1.1 brings customizable effects to your live wallpaper, with optional lock-screen-to-home-screen transitions.
 
 Atmo Engine is an open-source live wallpaper studio inspired by the Atmosphere effect in Nothing OS. Choose an image, preview the real effect, fine-tune it, and apply it through Android's live wallpaper screen.
 
@@ -40,6 +40,9 @@ When setting or editing an image for Original or Reverse Atmosphere, enable Add 
 
 MATERIAL 3 INTERFACE
 Use Material Expressive styling with the device's system color palette, or switch to fixed app colors. Appearance controls include System, Light, and Dark modes plus an optional pitch-black background in dark mode.
+
+VULKAN COLOR FILL
+Color Fill automatically uses the highest Vulkan version supported by both the Android loader and the device GPU, from Vulkan 1.4 through 1.1. If Vulkan is unavailable or fails safely, Atmo returns to the equivalent OpenGL ES renderer. An animated status at the bottom of the main screen shows whether Vulkan is genuinely active and, when active, its negotiated version.
 
 OFFLINE-FIRST PRIVACY
 Wallpaper images, crops, sketches, palettes, and playlists are processed and stored on-device. Atmo Engine does not request Internet or network-state permission and contains no developer-operated advertising or analytics.

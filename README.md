@@ -2,15 +2,13 @@
 
 **Atmo Engine** is an open-source Android live wallpaper studio inspired by the distinctive Atmosphere transition in Nothing OS. It offers optional lock-screen-to-home-screen transitions or continuously applied effects, accurate previews, flexible image fitting, and wallpaper playlists without uploading your images.
 
+The current release is **7.1.1**.
+
 ## 📥 Download
-Atmo Engine is available to download from the Play Store, F-Droid and Orion Store.
+Atmo Engine is available from Google Play and Orion Store.
 
 <a href="https://play.google.com/store/apps/details?id=com.saad_khan_rind.atmosphere_effect">
 <img alt="Get it on Google Play" src="https://play.google.com/intl/en_us/badges/static/images/badges/en_badge_web_generic.png" height="80">
-</a>
-
-<a href="https://f-droid.org/packages/com.saad_khan_rind.atmosphere_effect/">
-<img alt="Get it on F-Droid" src="https://fdroid.gitlab.io/artwork/badge/get-it-on.png" height="80">
 </a>
 
 ## ⚠️ Device Support & Disclaimer
@@ -110,7 +108,13 @@ Disabling transitions does not disable other live-wallpaper features. Playlists 
 
 Atmo Engine uses Jetpack Compose and Material 3 throughout the setup flow. Material Expressive styling follows the device's system color palette when enabled, while the appearance panel also supports fixed colors, System/Light/Dark modes, and an optional pitch-black dark background.
 
-Effect cards, the active-wallpaper dashboard, crop screens, and playlist cards use live previews driven by the real effect implementations. This lets you inspect the selected wallpaper and effect behavior before applying it through Android's live wallpaper screen.
+Effect cards, the active-wallpaper dashboard, crop screens, and playlist cards use live previews driven by the real effect implementations. This lets you inspect the selected wallpaper and effect behavior before applying it through Android's live wallpaper screen. Controls use short, finite, meaning-aware motion: for example, Settings rotates, Help tilts, and Back nudges in its travel direction. Motion and related haptics follow the existing Material Expressive preference and stop immediately when expressive motion is disabled.
+
+### Color Fill graphics backend
+
+Color Fill and Color Fill Reverse use a native Vulkan renderer when the device and driver support it. At runtime, Atmo negotiates the highest common core API exposed by the Android Vulkan loader and a render-capable physical device, from Vulkan 1.4 down through 1.1. Selection is automatic and applies only to those two effects; every other effect continues to use OpenGL ES 3.0.
+
+Atmo does not use Shizuku, change Android's global graphics settings, or restart other apps. The wallpaper service probes Vulkan inside its own process, creates the Vulkan surface only for Color Fill, and switches the active wallpaper engine back to the equivalent OpenGL ES renderer if native setup, texture upload, or presentation fails. A failed Vulkan backend remains disabled for that device and app version so reopening the preview cannot enter a repeated failure loop. In-app effect cards continue using OpenGL ES; Android's live-wallpaper preview and the applied Color Fill wallpaper exercise the native backend. The animated renderer footer at the bottom of the main screen reports Vulkan and its negotiated version only after the wallpaper has successfully presented a Vulkan frame. During initialization it makes no active claim, and once OpenGL ES is genuinely active it identifies that backend instead.
 
 
 ## Advanced Customization
@@ -170,23 +174,23 @@ I've made a Telegram group for discussing issues and feature suggestions. You ca
 
 ## Build & Installation
 
-This project is built using Kotlin and Gradle.
+This project is built using Kotlin, C++17, the Android NDK, and Gradle. The project pins NDK `28.2.13676358`; Android Studio or Gradle can install that accepted SDK component automatically. The Vulkan shader sources live in `app/src/main/shaders/colorfill`, while their packaged SPIR-V binaries live in `app/src/main/assets/shaders/vulkan/colorfill`.
 
 Atmo Engine keeps one shared codebase and combines two flavor dimensions:
 
-All artifacts in the table below use version name **7.0.4**.
+All artifacts in the table below use version name **7.1.1**.
 
 | Flavor | Minimum Android | Target SDK | Version code | Intended release |
 | --- | ---: |-----------:|-------------:| --- |
-| `v33Play` | Android 13 / API 33 |     API 33 |     `300704` | ML Kit APK |
-| `v33Fdroid` | Android 13 / API 33 |     API 33 |     `300704` | FOSS APK for F-Droid |
-| `v35Play` | Android 15 / API 35 |     API 36 |     `400704` | Google Play ML Kit AAB |
-| `v36Play` | Android 16 / API 36 |     API 36 |     `500704` | ML Kit APK |
-| `v36Fdroid` | Android 16 / API 36 |     API 36 |     `500704` | FOSS APK |
+| `v33Play` | Android 13 / API 33 |     API 33 |     `300711` | ML Kit APK |
+| `v33Fdroid` | Android 13 / API 33 |     API 33 |     `300711` | FOSS APK for F-Droid |
+| `v35Play` | Android 15 / API 35 |     API 36 |     `400711` | Google Play ML Kit AAB |
+| `v36Play` | Android 16 / API 36 |     API 36 |     `500711` | ML Kit APK |
+| `v36Fdroid` | Android 16 / API 36 |     API 36 |     `500711` | FOSS APK |
 
 The `play` source set contains only the ML Kit implementation and explicit model-download controller. The `fdroid` source set contains only [U2NetP](https://github.com/xuebinqin/U-2-Net), its model files, and the source-built FOSS LiteRT runtime. UI, effects, playlists, palette behavior, and settings remain shared in `main`. Model and runtime provenance is recorded in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
-Stable and beta release workflows produce exactly five artifacts: Android 16+ ML Kit and FOSS APKs, Android 13+ ML Kit and FOSS APKs, and an Android 15+ ML Kit AAB for Google Play. CI inspects every archive before signing: ML Kit artifacts must not contain the [U2NetP model](https://github.com/xuebinqin/U-2-Net) or LiteRT native runtime, both FOSS APKs must contain them, and each ML Kit APK must remain smaller than its matching FOSS APK and below 10 MiB.
+Stable and beta release workflows produce exactly five artifacts: Android 16+ ML Kit and FOSS APKs, Android 13+ ML Kit and FOSS APKs, and an Android 15+ ML Kit AAB for Google Play. CI installs the pinned NDK and inspects every archive before signing: all four Vulkan libraries and both Color Fill shaders must be present, ML Kit artifacts must not contain the [U2NetP model](https://github.com/xuebinqin/U-2-Net) or LiteRT native runtime, both FOSS APKs must contain them, and each ML Kit APK must remain smaller than its matching FOSS APK and below 10 MiB.
 
 1.  Clone the repository.
 2.  Open in the latest stable Android Studio.

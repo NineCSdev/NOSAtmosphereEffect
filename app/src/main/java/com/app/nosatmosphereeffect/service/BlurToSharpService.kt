@@ -6,7 +6,7 @@ import com.app.nosatmosphereeffect.helper.AtmosphereGlassPolicy
 import com.app.nosatmosphereeffect.helper.GlassEffectPreferences
 import com.app.nosatmosphereeffect.renderer.BlurToSharpRenderer
 
-class BlurToSharpService : AnimatedEffectWallpaperService<BlurToSharpRenderer>() {
+class BlurToSharpService : GlAnimatedEffectWallpaperService<BlurToSharpRenderer>() {
 
     override val effectId = "REVERSE"
     override val lockedProgress = 1f

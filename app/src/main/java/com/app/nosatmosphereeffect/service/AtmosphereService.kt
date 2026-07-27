@@ -6,7 +6,7 @@ import com.app.nosatmosphereeffect.helper.AtmosphereGlassPolicy
 import com.app.nosatmosphereeffect.helper.GlassEffectPreferences
 import com.app.nosatmosphereeffect.renderer.AtmosphereRenderer
 
-class AtmosphereService : AnimatedEffectWallpaperService<AtmosphereRenderer>() {
+class AtmosphereService : GlAnimatedEffectWallpaperService<AtmosphereRenderer>() {
 
     override val effectId = "ORIGINAL"
     override val lockedProgress = 0f
