@@ -2,8 +2,6 @@
 
 **Atmo Engine** is an open-source Android live wallpaper studio inspired by the distinctive Atmosphere transition in Nothing OS. It offers optional lock-screen-to-home-screen transitions or continuously applied effects, accurate previews, flexible image fitting, and wallpaper playlists without uploading your images.
 
-The current release is **7.1.1**.
-
 ## 📥 Download
 Atmo Engine is available from Google Play and Orion Store.
 
