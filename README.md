@@ -1,6 +1,6 @@
 # Atmo Engine
 
-**Atmo Engine** is an open-source Android live wallpaper studio inspired by the distinctive Atmosphere transition in Nothing OS. It adds animated lock-screen-to-home-screen effects, accurate previews, flexible image fitting, and wallpaper playlists without uploading your images.
+**Atmo Engine** is an open-source Android live wallpaper studio inspired by the distinctive Atmosphere transition in Nothing OS. It offers optional lock-screen-to-home-screen transitions or continuously applied effects, accurate previews, flexible image fitting, and wallpaper playlists without uploading your images.
 
 ## 📥 Download
 Atmo Engine is available to download from the Play Store, F-Droid and Orion Store.
@@ -39,28 +39,34 @@ Open the app and choose your desired atmosphere style from the selection screen:
 
 * **Original Atmosphere:** Signature style. A sharp wallpaper flows into drifting ambient clouds and blur.
 * **Reverse Atmosphere:** Mysterious reveal. Deep ambient clouds clear to reveal the wallpaper.
-* **Simple Frosted:** Modern minimalism. Applies a clean, uniform frosted glass blur (no clouds).
-* **Simple Frosted (Reverse):** Elegant clarity. Wakes up from a heavy frosted blur into a crystal clear wallpaper.
-* **Halftone Print:** Retro aesthetic. Sharp view dissolves into comic-book CMYK dots when locked.
-* **Halftone Print (Reverse):** Retro aesthetic. CMYK dots seamlessly expand into continuous color when unlocked.
+* **Glass Effect:** Strong, continuous reeded-glass refraction can appear one rib at a time from right to left or fade in.
+* **Glass Effect (Reverse):** The reeded glass can clear from left to right or fade out.
 * **Color Fill:** Liquid awakening. Colors flow outward from your fingerprint.
 * **Color Fill (Reverse):** Fluid drain. Colors wash away into grayscale.
 * **Canvas Sketch:** A soft monochrome sketch transitions into the full wallpaper when unlocked.
 * **Canvas Sketch (Reverse):** The full wallpaper transitions back into its monochrome sketch.
+* **Simple Frosted:** Modern minimalism. Applies a clean, uniform frosted glass blur (no clouds).
+* **Simple Frosted (Reverse):** Elegant clarity. Wakes up from a heavy frosted blur into a crystal clear wallpaper.
+* **Halftone Print:** Retro aesthetic. Sharp view dissolves into comic-book CMYK dots when locked.
+* **Halftone Print (Reverse):** Retro aesthetic. CMYK dots seamlessly expand into continuous color when unlocked.
 
-#### Canvas Sketch and Subject Segmentation
+#### Atmosphere with Glass
 
-Canvas Sketch processes wallpaper pixels on-device. For wallpapers with a prominent person, character, animal, or object, optional subject segmentation can isolate that subject before drawing the sketch. Model delivery depends on the app distribution:
+For Original or Reverse Atmosphere, enable **Add glass effect** while setting the image or from **Fine tuning → Effect**. The Fine Tune screen also exposes the rib count, rib thickness, and **Background only** subject isolation while Glass is enabled. With transitions enabled, the animation remains an Atmosphere transition: Original Atmosphere moves from the glass-treated image into its ambient state, while Reverse Atmosphere finishes on the glass-treated image. With transitions disabled, Atmo holds the fully atmospheric effect state on the selected screen or screens, while any screen assigned the original remains genuinely unchanged.
+
+#### Subject Isolation for Canvas, Glass, and Halftone
+
+Canvas Sketch, Glass Effect, Atmosphere with Glass, and Halftone Print share the same on-device subject model. Canvas Sketch can use **Subject segmentation** to anchor its sketch to a prominent person, character, animal, or object. Glass and Halftone provide **Background only**, which keeps the detected foreground subject clear while applying the selected effect behind it. Model delivery depends on the app distribution:
 
 * **Google Play build:** Uses the higher-quality ML Kit subject model supplied by Google Play services. The model is not downloaded automatically by Atmo Engine. Fine Tuning shows its real installed status and provides an explicit **Download subject model** button. After installation, segmentation runs on-device and works offline.
 * **F-Droid build:** Includes the open-source [U2NetP model](https://github.com/xuebinqin/U-2-Net) and a source-built FOSS LiteRT runtime in the APK. It is ready immediately, requires no download, and does not depend on ML Kit or Google Play services.
 
-1. Open **Fine Tuning** for Canvas Sketch.
+1. Open **Fine Tuning** for Canvas Sketch, Glass Effect, or Halftone Print.
 2. In the Google Play build, download the optional model if it is not already installed.
-3. Turn on **Subject Segmentation**.
+3. Turn on **Subject segmentation** for Canvas Sketch or **Background only** for Glass or Halftone.
 4. Preview or apply the wallpaper normally.
 
-If no confident foreground subject is found, Canvas Sketch automatically falls back to sketching the complete wallpaper. Wallpaper image contents and generated masks never leave the device. Atmo Engine does not request the `INTERNET` or `ACCESS_NETWORK_STATE` permission. In the Google Play build, Google Play services may use its own network access only when the user requests the optional model download.
+If Canvas Sketch cannot find a confident foreground subject, it falls back to sketching the complete wallpaper. A background-only effect waits for a usable mask instead of applying across an unprotected subject. Wallpaper image contents and generated masks never leave the device. Atmo Engine does not request the `INTERNET` or `ACCESS_NETWORK_STATE` permission. In the Google Play build, Google Play services may use its own network access only when the user requests the optional model download.
 
 ### 2\. Select Image & Playlist Mode
 After selecting an effect, you will be prompted to choose your wallpaper mode:
@@ -78,17 +84,33 @@ After selecting an effect, you will be prompted to choose your wallpaper mode:
 Please follow these simple steps to apply the wallpaper:
 
 1. **Apply the Wallpaper:** Once you are happy with your crop or playlist selection, tap the **"Apply"** button.
-2. **Review Instructions:** A dialog box will appear with instructions to set the wallpaper to both screens. Tap **"Set Wallpaper"** to proceed.
+2. **Review Instructions:** A dialog box will explain the live-wallpaper setup. Tap **"Set Wallpaper"** to proceed.
 3. **Set Wallpaper:** The app will redirect you to the Android System's Live Wallpaper preview screen. Tap **"Set Wallpaper"** (or the checkmark/apply icon, depending on your device).
-4. **MANDATORY Selection:** When prompted, you must select **"Home screen and Lock screen"**.
-   > *Why? Both screens must be controlled by the live wallpaper to ensure a smooth transition when you unlock your device.*
-5. **Finish:** Setup is complete! Lock and unlock your screen to see the applied effect in action.
+4. **Choose Both Screens:** Select **"Home screen and Lock screen"**. Atmo must remain the live wallpaper on both screens so it can show either the effect or the original image on each one.
+5. **Finish:** Setup is complete. Lock and unlock the screen to test an enabled transition, or use Fine tuning to keep the effect fully applied on the selected screen or screens.
+
+#### Transitions or a Continuously Applied Effect
+
+Open **Fine tuning → Timing** and use **Animate transitions** to choose how the wallpaper behaves:
+
+* **On:** Atmo performs the selected lock-screen-to-home-screen transition.
+* **Off:** Atmo keeps the effect fully applied on the selected screen or screens and renders the original image on any other screen, with no unlock transition. This is still a live wallpaper; Atmo does not export or install a baked static image.
+
+When transitions are off, **Keep effect applied on** controls what the same live-wallpaper service renders:
+
+* **Home screen:** The selected effect stays on Home while Atmo renders the original image on Lock.
+* **Lock screen:** The selected effect stays on Lock while Atmo renders the original image on Home.
+* **Both:** The selected effect stays visible on both Home and Lock.
+
+These choices do not install a static wallpaper and do not move Atmo to only one destination. Atmo remains the live wallpaper on both screens; only the rendered state changes.
+
+Disabling transitions does not disable other live-wallpaper features. Playlists and theme playlists continue rotating, Fine Tune controls remain available, **Background only** subject isolation continues working, and wallpaper scrolling remains active where the launcher supports it.
 
 ## Interface and Previews
 
 Atmo Engine uses Jetpack Compose and Material 3 throughout the setup flow. Material Expressive styling follows the device's system color palette when enabled, while the appearance panel also supports fixed colors, System/Light/Dark modes, and an optional pitch-black dark background.
 
-Effect cards, the active-wallpaper dashboard, crop screens, and playlist cards use live previews driven by the real effect implementations. This lets you inspect the selected wallpaper and transition before applying it through Android's live wallpaper screen.
+Effect cards, the active-wallpaper dashboard, crop screens, and playlist cards use live previews driven by the real effect implementations. This lets you inspect the selected wallpaper and effect behavior before applying it through Android's live wallpaper screen.
 
 
 ## Advanced Customization
@@ -97,6 +119,9 @@ Take full control of the animation and look. You can now tweak the following set
 * **Dimness Level:** Adjust the darkening overlay to ensure your home screen icons remain readable against bright wallpapers.
 * **Blob Saturation:** (Original Atmosphere & Reverse Atmosphere Effects Only) Adjusts the color intensity of the drifting atmospheric clouds. Increase to make the colors vibrant and punchy, or decrease to zero for a muted, grayscale cloud effect.
 * **Blob Contrast:** (Original Atmosphere & Reverse Atmosphere Effects Only) Adjusts the harshness of the atmospheric clouds. Higher values create distinct, separated color pools, while lower values blend the colors softly and smoothly together.
+* **Add Glass Effect:** (Original Atmosphere & Reverse Atmosphere Only) Available while setting or editing an image and in Fine Tune. Uses a customizable reeded-glass image for the clear side of the Atmosphere transition. The always-applied mode keeps the fully atmospheric effect state on the selected screen or screens, while any screen assigned the original remains genuinely unchanged.
+* **Glass Lines:** (Glass Effects Only) Adjusts the number of refractive ribs and the shape of each rib.
+* **Glass Transition Style:** (Glass Effects Only) Choose right-to-left or fade-in for Glass Effect, and left-to-right or fade-out for Glass Effect Reverse.
 * **Blur Strength:** (Frosted Effects Only) Use the slider to fine-tune the intensity of the blur radius, from a light mist to heavy glass.
 * **Noise Grain:** Enable a film-grain texture on top of the blur. You can customize:
     * **Noise Strength:** How visible the grain is.
@@ -106,11 +131,13 @@ Take full control of the animation and look. You can now tweak the following set
 * **Fingerprint Location:** (Color Fill Effects Only) Two sliders to adjust the horizontal and vertical position of effect start place sync with the fingerprint location.
 * **Sketch Detail:** (Canvas Sketch Only) Controls how many wallpaper contours are retained.
 * **Line Thickness:** (Canvas Sketch Only) Adjusts the width of the monochrome sketch lines.
-* **Subject Segmentation:** (Canvas Sketch Only) Optionally limits the sketch to a detected foreground subject using ML Kit in Google Play builds or bundled [U2NetP](https://github.com/xuebinqin/U-2-Net) in F-Droid builds.
+* **Subject Segmentation:** (Canvas Sketch Only) Optionally anchors the sketch to a detected foreground subject.
+* **Background Only:** (Glass and Halftone Effects Only) Keeps the detected subject clear while applying reeded glass or halftone printing to the background. Canvas, Glass, and Halftone share ML Kit in Google Play builds or bundled [U2NetP](https://github.com/xuebinqin/U-2-Net) in F-Droid builds.
 ### Animation & Behavior
-* **Animation Duration:** Control the total transition duration.
-* **Lock Delay (Anti-Flicker):** Adds a configurable pause before the wallpaper resets when you lock the phone. This prevents the visual glitch where the wallpaper "snaps" back to its initial state before the screen turns fully black.
-* **Unlock Check Interval:** Adjusts how frequently the app detects unlock events. Tuning this eliminates "delayed start" issues, ensuring the animation begins immediately when you wake your device.
+* **Animate Transitions:** Turn lock-to-home animation on, or keep the effect fully applied on the selected screen or screens and the original image on any other screen, with no unlock transition.
+* **Animation Duration:** Control the total transition duration while transitions are enabled.
+* **Lock Delay (Anti-Flicker):** While transitions are enabled, adds a configurable pause before the wallpaper resets when you lock the phone. This prevents the visual glitch where the wallpaper "snaps" back to its initial state before the screen turns fully black.
+* **Unlock Check Interval:** While transitions are enabled, adjusts how frequently the app detects unlock events. Tuning this eliminates "delayed start" issues, ensuring the animation begins immediately when you wake your device.
 * **Sync System Colors:** Publishes a locally extracted wallpaper palette to Android whenever a single wallpaper or playlist image changes. Whether the wider system theme refreshes is ultimately controlled by the device manufacturer.
 ### Playlist & Rotation
 (Available when using Playlist or Theme Playlists mode)
@@ -147,13 +174,15 @@ This project is built using Kotlin and Gradle.
 
 Atmo Engine keeps one shared codebase and combines two flavor dimensions:
 
+All artifacts in the table below use version name **7.0.4**.
+
 | Flavor | Minimum Android | Target SDK | Version code | Intended release |
 | --- | ---: |-----------:|-------------:| --- |
-| `v33Play` | Android 13 / API 33 |     API 33 |     `300702` | ML Kit APK |
-| `v33Fdroid` | Android 13 / API 33 |     API 33 |     `300702` | FOSS APK for F-Droid |
-| `v35Play` | Android 15 / API 35 |     API 36 |     `400702` | Google Play ML Kit AAB |
-| `v36Play` | Android 16 / API 36 |     API 36 |     `500702` | ML Kit APK |
-| `v36Fdroid` | Android 16 / API 36 |     API 36 |     `500702` | FOSS APK |
+| `v33Play` | Android 13 / API 33 |     API 33 |     `300704` | ML Kit APK |
+| `v33Fdroid` | Android 13 / API 33 |     API 33 |     `300704` | FOSS APK for F-Droid |
+| `v35Play` | Android 15 / API 35 |     API 36 |     `400704` | Google Play ML Kit AAB |
+| `v36Play` | Android 16 / API 36 |     API 36 |     `500704` | ML Kit APK |
+| `v36Fdroid` | Android 16 / API 36 |     API 36 |     `500704` | FOSS APK |
 
 The `play` source set contains only the ML Kit implementation and explicit model-download controller. The `fdroid` source set contains only [U2NetP](https://github.com/xuebinqin/U-2-Net), its model files, and the source-built FOSS LiteRT runtime. UI, effects, playlists, palette behavior, and settings remain shared in `main`. Model and runtime provenance is recorded in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
@@ -174,7 +203,7 @@ Stable and beta release workflows produce exactly five artifacts: Android 16+ ML
 
 Release signing keys are intentionally not stored in the repository. Configure your Play upload key locally before uploading either AAB; F-Droid builds and signs its own APK.
 
-F-Droid should select both `v33` and `fdroid` in its build metadata. See [FDROID_BUILD.md](FDROID_BUILD.md) for the scanner-safe recipe used to remove the unselected Play-only integration before F-Droid builds.
+F-Droid should select both `v33` and `fdroid` in its build metadata.
 
 <!-- end list -->
 

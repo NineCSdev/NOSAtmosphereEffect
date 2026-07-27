@@ -9,13 +9,7 @@ uniform vec2 uOrigin;        // Fingerprint location (X, Y)
 uniform float uAspectRatio;
 uniform float uDimLevel;
 
-// ----------------------------------------------------------------------------
-// Spilled-paint reveal.
-// Colour floods out from the fingerprint like paint poured on the floor: the
-// edge is built from fractal noise so it bulges into lobes and breaks into
-// viscous fingers, a couple of droplets fling out ahead and get swallowed, and
-// a faint wet sheen rides the advancing rim.
-// ----------------------------------------------------------------------------
+// Fractal noise shapes the paint front, detached droplets, and wet rim.
 
 float hash(vec2 p) {
     p = fract(p * vec2(123.34, 345.45));
@@ -71,7 +65,6 @@ float paintCoverage(vec2 uv, vec2 origin, float aspect, float progress, out floa
     float ang = atan(d.y, d.x);
     vec2 circ = vec2(cos(ang), sin(ang));
 
-    // Growing radius (slight overshoot so it settles just before the end).
     float R = progress * reach * 1.42;
 
     // Big lobes: radius wobbles with direction (seamless around the circle) and
@@ -93,7 +86,6 @@ float paintCoverage(vec2 uv, vec2 origin, float aspect, float progress, out floa
         float r = DROP_SIZE[i] * reach * appear;
         if (r > 0.0001) {
             float dd = length(uv - c);
-            // wobble the droplet edge a little too
             float dn = (fbm(uv * 11.0 + float(i) * 3.7) - 0.5) * 0.25;
             cover = max(cover, 1.0 - smoothstep(r * (0.6 + dn), r, dd));
         }
@@ -115,16 +107,14 @@ void main() {
     vec2 origin = uOrigin;
     origin.x *= uAspectRatio;
 
-    // 0.0 (all B&W) -> 1.0 (fully colour)
     float progress = 1.0 - uBlurStrength;
 
     float rim;
     float cover = paintCoverage(uv, origin, uAspectRatio, progress, rim);
 
     vec3 finalColor = mix(bwColor, color.rgb, cover);
-    finalColor += rim * 0.10; // glossy wet edge
+    finalColor += rim * 0.10;
 
-    // Standard lock-screen dimming.
     finalColor *= mix(1.0, 1.0 - uDimLevel, uBlurStrength);
 
     fragColor = vec4(finalColor, color.a);

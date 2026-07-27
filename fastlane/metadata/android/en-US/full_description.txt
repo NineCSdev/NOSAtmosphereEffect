@@ -1,15 +1,29 @@
-Turn your lock-screen-to-home-screen transition into part of the wallpaper.
+Atmo Engine 7.0.4 brings customizable effects to your live wallpaper, with optional lock-screen-to-home-screen transitions.
 
-Atmo Engine is an open-source live wallpaper studio inspired by the Atmosphere effect in Nothing OS. Choose an image, preview the real animation, fine-tune it, and apply it through Android's live wallpaper screen.
+Atmo Engine is an open-source live wallpaper studio inspired by the Atmosphere effect in Nothing OS. Choose an image, preview the real effect, fine-tune it, and apply it through Android's live wallpaper screen.
 
-ANIMATED EFFECTS
-• Original and Reverse Atmosphere
-• Simple Frosted and Reverse Frosted
-• Halftone Print and Reverse Halftone
+EFFECTS
+• Original and Reverse Atmosphere, with an optional reeded-glass clear state
+• Glass Effect with right-to-left or fade-in transitions
+• Reverse Glass with left-to-right or fade-out transitions
 • Color Fill and Reverse Color Fill
 • Canvas Sketch and Reverse Canvas Sketch
+• Simple Frosted and Reverse Frosted
+• Halftone Print and Reverse Halftone
 
-Each effect uses the same renderer in its preview and the live wallpaper, so you can see how your image and transition will look before applying it.
+Each effect uses the same renderer in its preview and the live wallpaper, so you can see how your image and effect behavior will look before applying it.
+
+TRANSITIONS OR CONTINUOUS EFFECTS
+In Fine tuning > Timing, use Animate transitions to switch between the normal lock-to-home animation and a mode that keeps the effect fully applied on the selected screen or screens, with the original image on any other screen and no unlock transition.
+
+This mode remains a live wallpaper; it does not create a baked static image. Playlists and theme playlists continue rotating, Fine Tune controls and Background only subject isolation continue working, and wallpaper scrolling remains available where the launcher supports it.
+
+Keep Atmo selected for Home screen and Lock screen in Android's live-wallpaper picker. Atmo remains the active live wallpaper on both screens; when transitions are off, Keep effect applied on controls what it renders:
+• Home screen: effect on Home, original image on Lock.
+• Lock screen: original image on Home, effect on Lock.
+• Both: effect on both Home and Lock.
+
+No option installs a static wallpaper or removes the live service from either screen.
 
 WALLPAPER MODES
 • Single Image for a focused setup
@@ -19,7 +33,10 @@ WALLPAPER MODES
 Theme Playlists switch collections when the device appearance changes, then continue rotating within the active collection at your chosen interval. Every playlist image can keep its own crop, zoom, fit, and scrolling position.
 
 FINE TUNING
-Adjust animation duration, dimness, blur, grain, atmosphere contrast and saturation, halftone detail, Canvas Sketch lines, fingerprint position, image fit, and playlist timing. Recommendations automatically follow the selected effect.
+Turn transitions on or off, then adjust animation duration, dimness, Glass line count, thickness and transition style, blur, grain, atmosphere contrast and saturation, halftone detail, Canvas Sketch lines, fingerprint position, image fit, and playlist timing. Glass and Halftone can use subject isolation to apply their effect to the background only. Recommendations automatically follow the selected effect.
+
+ATMOSPHERE + GLASS
+When setting or editing an image for Original or Reverse Atmosphere, enable Add glass effect to use a reeded-glass image on the clear side. With transitions enabled, the animation remains the normal Atmosphere transition. With transitions disabled, Atmo holds the fully atmospheric effect state on the selected screen or screens; any screen assigned the original remains genuinely unchanged.
 
 MATERIAL 3 INTERFACE
 Use Material Expressive styling with the device's system color palette, or switch to fixed app colors. Appearance controls include System, Light, and Dark modes plus an optional pitch-black background in dark mode.
@@ -27,7 +44,7 @@ Use Material Expressive styling with the device's system color palette, or switc
 OFFLINE-FIRST PRIVACY
 Wallpaper images, crops, sketches, palettes, and playlists are processed and stored on-device. Atmo Engine does not request Internet or network-state permission and contains no developer-operated advertising or analytics.
 
-Canvas Sketch can optionally isolate a prominent person, character, animal, or object, then falls back to the complete wallpaper when no confident subject is found. Google Play builds use the higher-quality optional ML Kit subject model: Fine Tuning checks its installed state and downloads it through Google Play services only after you tap the download button. After installation, processing is on-device and works offline. F-Droid builds instead bundle the open-source U2NetP model and need no model download or Google Play services.
+Canvas Sketch, Glass, and Halftone share optional on-device subject isolation. Canvas Sketch can anchor its drawing to a prominent person, character, animal, or object. The Background only option for Glass and Halftone keeps that subject clear while processing the background. Google Play builds use the higher-quality optional ML Kit subject model: Fine Tuning checks its installed state and downloads it through Google Play services only after you tap the download button. After installation, processing is on-device and works offline. F-Droid builds instead bundle the open-source U2NetP model and need no model download or Google Play services.
 
 Sync System Colors publishes a locally extracted wallpaper palette through Android's wallpaper API whenever the active image changes. System-wide color refresh behavior is controlled by the phone manufacturer.
 

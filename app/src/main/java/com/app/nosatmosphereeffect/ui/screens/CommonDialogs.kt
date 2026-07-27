@@ -57,13 +57,14 @@ import androidx.compose.ui.window.DialogProperties
 import com.app.nosatmosphereeffect.ui.components.AtmoPrimaryButton
 import com.app.nosatmosphereeffect.ui.components.AtmoTextButton
 import com.app.nosatmosphereeffect.ui.components.WallpaperTransitionPreview
+import com.app.nosatmosphereeffect.helper.AlwaysAppliedTarget
+import com.app.nosatmosphereeffect.helper.WallpaperBehaviorPreferences
 import com.app.nosatmosphereeffect.ui.model.EffectCatalog
 import com.app.nosatmosphereeffect.ui.preview.EffectPreviewService
 import com.app.nosatmosphereeffect.ui.theme.LocalAtmoExpressive
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 
-/** A simple two-action confirmation dialog themed to match Atmo Engine. */
 @Composable
 fun SimpleConfirmDialog(
     title: String,
@@ -95,19 +96,21 @@ fun SimpleConfirmDialog(
 fun WallpaperPreviewDialog(
     bitmap: Bitmap,
     effectId: String,
+    atmosphereGlassEnabledOverride: Boolean? = null,
     onConfirm: () -> Unit,
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
-    var playing by remember { mutableStateOf(true) }
+    val behavior = remember(context) { WallpaperBehaviorPreferences.read(context) }
+    var playing by remember { mutableStateOf(behavior.transitionsEnabled) }
     var manualProgress by remember { mutableFloatStateOf(0f) }
     val automaticProgress = remember(effectId, bitmap) { Animatable(0f) }
     val duration = remember(effectId) {
         EffectPreviewService.durationMillis(context, effectId)
     }
 
-    LaunchedEffect(playing, effectId, bitmap, duration) {
-        if (!playing) return@LaunchedEffect
+    LaunchedEffect(playing, effectId, bitmap, duration, behavior.transitionsEnabled) {
+        if (!playing || !behavior.transitionsEnabled) return@LaunchedEffect
         automaticProgress.snapTo(manualProgress)
         while (isActive) {
             automaticProgress.animateTo(
@@ -123,7 +126,16 @@ fun WallpaperPreviewDialog(
         }
     }
 
-    val shownProgress = if (playing) automaticProgress.value else manualProgress
+    val shownProgress = if (!behavior.transitionsEnabled) {
+        when (behavior.alwaysAppliedTarget) {
+            AlwaysAppliedTarget.LOCK -> 0f
+            AlwaysAppliedTarget.HOME, AlwaysAppliedTarget.BOTH -> 1f
+        }
+    } else if (playing) {
+        automaticProgress.value
+    } else {
+        manualProgress
+    }
     val image = remember(bitmap) { bitmap.asImageBitmap() }
 
     BackHandler(onBack = onDismiss)
@@ -154,7 +166,14 @@ fun WallpaperPreviewDialog(
                     )
                     Spacer(Modifier.width(8.dp))
                     androidx.compose.foundation.layout.Column(Modifier.weight(1f)) {
-                        Text("Transition preview", style = MaterialTheme.typography.titleLarge)
+                        Text(
+                            if (behavior.transitionsEnabled) {
+                                "Transition preview"
+                            } else {
+                                "Always-applied preview"
+                            },
+                            style = MaterialTheme.typography.titleLarge
+                        )
                         Text(
                             EffectCatalog.find(effectId).title,
                             style = MaterialTheme.typography.bodySmall,
@@ -173,7 +192,9 @@ fun WallpaperPreviewDialog(
                     WallpaperTransitionPreview(
                         effectId = effectId,
                         wallpaper = image,
-                        progress = shownProgress,
+                        progress = if (behavior.transitionsEnabled) shownProgress else null,
+                        atmosphereGlassEnabledOverride =
+                            atmosphereGlassEnabledOverride,
                         modifier = Modifier
                             .fillMaxSize()
                             .heightIn(max = 720.dp)
@@ -186,34 +207,51 @@ fun WallpaperPreviewDialog(
                         .navigationBarsPadding()
                         .padding(horizontal = 20.dp, vertical = 12.dp)
                 ) {
-                    Surface(
-                        shape = RoundedCornerShape(28.dp),
-                        color = MaterialTheme.colorScheme.surfaceContainerLow
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                    if (behavior.transitionsEnabled) {
+                        Surface(
+                            shape = RoundedCornerShape(28.dp),
+                            color = MaterialTheme.colorScheme.surfaceContainerLow
                         ) {
-                            AnimatedIconAction(
-                                icon = if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                                description = if (playing) "Pause preview" else "Play preview",
-                                onClick = {
-                                    if (playing) manualProgress = automaticProgress.value
-                                    playing = !playing
-                                }
-                            )
-                            Slider(
-                                value = shownProgress,
-                                onValueChange = {
-                                    playing = false
-                                    manualProgress = it
-                                },
-                                modifier = Modifier.weight(1f)
-                            )
+                            Row(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                AnimatedIconAction(
+                                    icon = if (playing) {
+                                        Icons.Rounded.Pause
+                                    } else {
+                                        Icons.Rounded.PlayArrow
+                                    },
+                                    description = if (playing) {
+                                        "Pause preview"
+                                    } else {
+                                        "Play preview"
+                                    },
+                                    onClick = {
+                                        if (playing) {
+                                            manualProgress = automaticProgress.value
+                                        }
+                                        playing = !playing
+                                    }
+                                )
+                                Slider(
+                                    value = shownProgress,
+                                    onValueChange = {
+                                        playing = false
+                                        manualProgress = it
+                                    },
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
                         }
                     }
                     Text(
-                        "Next: choose Home screen and lock screen in the system picker.",
+                        if (behavior.transitionsEnabled) {
+                            "Next: choose Home screen and Lock screen in the system picker."
+                        } else {
+                            "Next: choose Home screen and Lock screen. Atmo stays live on both; " +
+                                "the Fine Tune target controls which screen shows the effect."
+                        },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
@@ -229,10 +267,6 @@ fun WallpaperPreviewDialog(
     }
 }
 
-/**
- * Full-screen blocking overlay with a spinner + message. Drawn on top of the
- * current screen while a long-running task (e.g. building a playlist) runs.
- */
 @Composable
 fun ProcessingOverlay(message: String) {
     val noRipple = remember { MutableInteractionSource() }

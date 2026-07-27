@@ -9,10 +9,7 @@ uniform vec2 uOrigin;
 uniform float uAspectRatio;
 uniform float uDimLevel;
 
-// ----------------------------------------------------------------------------
-// Spilled-paint reveal (reverse): grey floods out from the fingerprint over the
-// colour image, with the same lobed/fingered organic edge and droplets.
-// ----------------------------------------------------------------------------
+// Reverse reveal reuses the same noisy paint front with grayscale as the fill.
 
 float hash(vec2 p) {
     p = fract(p * vec2(123.34, 345.45));
@@ -102,15 +99,13 @@ void main() {
     vec2 origin = uOrigin;
     origin.x *= uAspectRatio;
 
-    // 0.0 (colour) -> 1.0 (fully B&W)
     float progress = uBlurStrength;
 
     float rim;
     float cover = paintCoverage(uv, origin, uAspectRatio, progress, rim);
 
-    // Paint here is the desaturated version spreading over colour.
     vec3 finalColor = mix(color.rgb, bwColor, cover);
-    finalColor += rim * 0.06; // subtle wet edge
+    finalColor += rim * 0.06;
 
     finalColor *= mix(1.0, 1.0 - uDimLevel, uBlurStrength);
 

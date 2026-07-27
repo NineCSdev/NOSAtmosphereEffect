@@ -82,6 +82,8 @@ import com.app.nosatmosphereeffect.ui.components.AtmoSegmentedControl
 import com.app.nosatmosphereeffect.ui.components.AtmoTonalButton
 import com.app.nosatmosphereeffect.ui.components.SettingSwitchRow
 import com.app.nosatmosphereeffect.ui.components.WallpaperTransitionPreview
+import com.app.nosatmosphereeffect.helper.AlwaysAppliedTarget
+import com.app.nosatmosphereeffect.helper.WallpaperBehaviorSettings
 import com.app.nosatmosphereeffect.ui.model.EffectCatalog
 import com.app.nosatmosphereeffect.ui.preview.EffectPreviewSettingsMode
 import com.app.nosatmosphereeffect.ui.theme.AppThemeMode
@@ -98,6 +100,7 @@ fun MainScreen(
     isPlaylistMode: Boolean,
     isThemePlaylistMode: Boolean,
     syncColors: Boolean,
+    wallpaperBehavior: WallpaperBehaviorSettings,
     onSyncColorsChange: (Boolean) -> Unit,
     expressiveThemeEnabled: Boolean,
     onExpressiveThemeChange: (Boolean) -> Unit,
@@ -131,7 +134,15 @@ fun MainScreen(
                             label = "wallpaperStatusLabel"
                         ) { active ->
                             Text(
-                                if (active) "Wallpaper active" else "Wallpaper studio",
+                                if (active) {
+                                    if (wallpaperBehavior.transitionsEnabled) {
+                                        "Wallpaper active"
+                                    } else {
+                                        "Live · effect always applied"
+                                    }
+                                } else {
+                                    "Wallpaper studio"
+                                },
                                 style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -182,6 +193,7 @@ fun MainScreen(
                                 previewBitmap = previewBitmap,
                                 isPlaylistMode = isPlaylistMode,
                                 isThemePlaylistMode = isThemePlaylistMode,
+                                wallpaperBehavior = wallpaperBehavior,
                                 onChangeEffect = onChangeEffect,
                                 onChangeImage = { showImageSheet = true }
                             )
@@ -487,6 +499,7 @@ private fun ActiveWallpaperPanel(
     previewBitmap: ImageBitmap?,
     isPlaylistMode: Boolean,
     isThemePlaylistMode: Boolean,
+    wallpaperBehavior: WallpaperBehaviorSettings,
     onChangeEffect: () -> Unit,
     onChangeImage: () -> Unit
 ) {
@@ -546,7 +559,18 @@ private fun ActiveWallpaperPanel(
                 overflow = TextOverflow.Ellipsis
             )
             Text(
-                effect.transition,
+                if (wallpaperBehavior.transitionsEnabled) {
+                    effect.transition
+                } else {
+                    when (wallpaperBehavior.alwaysAppliedTarget) {
+                        AlwaysAppliedTarget.HOME ->
+                            "Always applied on Home · original on Lock"
+                        AlwaysAppliedTarget.LOCK ->
+                            "Always applied on Lock · original on Home"
+                        AlwaysAppliedTarget.BOTH ->
+                            "Always applied on Home and Lock"
+                    }
+                },
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )

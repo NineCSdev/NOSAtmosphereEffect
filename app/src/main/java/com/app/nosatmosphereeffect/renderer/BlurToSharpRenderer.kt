@@ -7,7 +7,10 @@ import android.graphics.Color
 import android.opengl.GLES30
 import android.opengl.GLSurfaceView
 import android.opengl.GLUtils
+import android.util.Log
 import androidx.core.graphics.createBitmap
+import com.app.nosatmosphereeffect.helper.GlassEffectPolicy
+import com.app.nosatmosphereeffect.helper.SubjectMaskCoordinator
 import com.app.nosatmosphereeffect.helper.WallpaperFitHelper
 import com.app.nosatmosphereeffect.helper.WallpaperScrollRenderer
 import java.io.File
@@ -27,17 +30,15 @@ class BlurToSharpRenderer(
     private val previewSource: (() -> Bitmap?)? = null
 ) : GLSurfaceView.Renderer, WallpaperScrollRenderer {
 
-    // --- Wallpaper scrolling (home-screen parallax) ---
     @Volatile private var scrollOffsetX: Float = 0.5f
     private var currentWindowX: Float = 1f
     private var nextWindowX: Float = 1f
 
     override fun setWallpaperOffset(xOffset: Float) {
-        scrollOffsetX = xOffset.coerceIn(0f, 1f)
+        scrollOffsetX = if (xOffset.isFinite()) xOffset.coerceIn(0f, 1f) else 0.5f
     }
-    // ---------------------------------------------------
 
-    // --- App-drawer / recents blur (driven by wallpaper visibility, not zoom) ---
+    // Wallpaper visibility is independent from zoom and blurStrength.
     // The home resting state of this effect is sharp. When the wallpaper leaves view
     // while the screen is still on (app drawer, recents, another app on top), the
     // engine flips this on and we blend the whole frame toward the pre-computed
@@ -49,31 +50,48 @@ class BlurToSharpRenderer(
     fun setDrawerBlurred(blurred: Boolean) {
         drawerBlur = if (blurred) 1f else 0f
     }
-    // ----------------------------------------------------------------------------
 
-    // --- RING BUFFER LOGIC ---
     private class TextureSet {
         var sharpId = 0
         var blurId = 0
+        var maskId = 0
         var width = 0
         var height = 0
+        var generation = 0L
+        var hasSubject = false
         fun isValid() = sharpId != 0 && blurId != 0
-        fun reset() { sharpId = 0; blurId = 0; width = 0; height = 0 }
+        fun reset() {
+            sharpId = 0
+            blurId = 0
+            maskId = 0
+            width = 0
+            height = 0
+            generation = 0L
+            hasSubject = false
+        }
     }
 
     private var currentSet = TextureSet()
-    private var nextSet = TextureSet() // The "Back Buffer"
+    private var nextSet = TextureSet()
 
-    @Volatile private var pendingPlaylistBitmap: Bitmap? = null
+    private val pendingLock = Any()
+    private var pendingPlaylistBitmap: Bitmap? = null
+    @Volatile private var released = false
+    @Volatile var onRenderRetryRequested: (() -> Unit)? = null
+    @Volatile var onSubjectMaskUpdated: (() -> Unit)? = null
+    private var renderFailureLogged = false
+    private var renderRetryCount = 0
+    private var generationCounter = 0L
+    private val subjectMasks = SubjectMaskCoordinator(context) {
+        onSubjectMaskUpdated?.invoke()
+    }
 
-    // Track temp texture dimensions for safe memory overwriting
+    // Texture storage can only be reused while its dimensions still match.
     private var tempTextureWidth: Int = 0
     private var tempTextureHeight: Int = 0
-    // -------------------------
 
-    // --- RAM FIX: Cached Buffer for Pixel Reading ---
+    // Reused to avoid allocating a new GPU readback buffer for every image.
     private var cachedDownloadBuffer: ByteBuffer? = null
-    // ------------------------------------------------
 
     @Volatile var blurStrength: Float = 0.0f
         set(value) {
@@ -91,6 +109,15 @@ class BlurToSharpRenderer(
 
     @Volatile var blobSaturation: Float = 1.0f
     @Volatile var blobContrast: Float = 1.0f
+    @Volatile var atmosphereGlassEnabled: Boolean = false
+    @Volatile var glassLineCount: Int = GlassEffectPolicy.DEFAULT_LINE_COUNT
+        set(value) {
+            field = GlassEffectPolicy.sanitizeLineCount(value)
+        }
+    @Volatile var glassLineThickness: Float = GlassEffectPolicy.DEFAULT_LINE_THICKNESS
+        set(value) {
+            field = GlassEffectPolicy.sanitizeLineThickness(value)
+        }
 
     private var programId: Int = 0
     private var blurProgramId: Int = 0
@@ -98,12 +125,10 @@ class BlurToSharpRenderer(
     private var fboId: Int = 0
     private var aspectRatio: Float = 1.0f
 
-    // --- DISPLAY FIT: actual surface size + the size the textures were fitted for ---
     @Volatile private var surfaceWidth: Int = 0
     @Volatile private var surfaceHeight: Int = 0
     private var fittedForWidth: Int = -1
     private var fittedForHeight: Int = -1
-    // --------------------------------------------------------------------------------
 
     data class BlobPhysics(
         val color: FloatArray,
@@ -131,137 +156,263 @@ class BlurToSharpRenderer(
     private lateinit var vertexBuffer: FloatBuffer
 
     fun reloadTexture() {
-        needsReload = true
+        if (!released) {
+            needsReload = true
+        }
     }
 
+    fun configureGlassBackgroundOnly(enabled: Boolean) {
+        val changed = subjectMasks.configure(enabled)
+        if (
+            enabled &&
+            currentSet.isValid() &&
+            (changed || !currentSet.hasSubject)
+        ) {
+            needsReload = true
+        }
+    }
+
+    internal val glassBackgroundOnlyEnabled: Boolean
+        get() = subjectMasks.enabled
+
     fun queuePlaylistTransition(bitmap: Bitmap) {
-        pendingPlaylistBitmap = bitmap
+        if (bitmap.isRecycled) return
+
+        var rejected = false
+        val replaced = synchronized(pendingLock) {
+            if (released) {
+                rejected = true
+                null
+            } else {
+                pendingPlaylistBitmap.also { pendingPlaylistBitmap = bitmap }
+            }
+        }
+
+        if (rejected) {
+            bitmap.recycle()
+        }
+        if (replaced != null && replaced !== bitmap && !replaced.isRecycled) {
+            replaced.recycle()
+        }
+    }
+
+    fun release() {
+        val pending = synchronized(pendingLock) {
+            if (released) return
+            released = true
+            pendingPlaylistBitmap.also { pendingPlaylistBitmap = null }
+        }
+        onRenderRetryRequested = null
+        onSubjectMaskUpdated = null
+        subjectMasks.close()
+        if (pending != null && !pending.isRecycled) {
+            pending.recycle()
+        }
     }
 
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
+        if (released) return
+
         vertexBuffer = ByteBuffer.allocateDirect(vertices.size * 4)
             .order(ByteOrder.nativeOrder())
             .asFloatBuffer()
             .put(vertices)
         vertexBuffer.position(0)
 
-        val vertexCode = loadShaderFromAssets("shaders/reverseAtmosphere/atmosphere_blur_to_sharp.vert")
-        val fragmentCode = loadShaderFromAssets("shaders/reverseAtmosphere/atmosphere_blur_to_sharp.frag")
-        programId = createProgram(vertexCode, fragmentCode)
-
-        val blurFragCode = """
-            #version 300 es
-            precision highp float;
-            in vec2 vTexCoord;
-            out vec4 fragColor;
-            uniform sampler2D uTexture;
-            uniform vec2 uDirection;
-            uniform float uRadius;
-            void main() {
-                vec2 texelSize = 1.0 / vec2(textureSize(uTexture, 0));
-                vec3 result = vec3(0.0);
-                float totalWeight = 0.0;
-                for(float i = -uRadius; i <= uRadius; i++) {
-                    vec2 offset = uDirection * i * texelSize;
-                    float weight = 1.0 - abs(i) / uRadius;
-                    result += texture(uTexture, vTexCoord + offset).rgb * weight;
-                    totalWeight += weight;
-                }
-                fragColor = vec4(result / totalWeight, 1.0);
-            }
-        """.trimIndent()
-        blurProgramId = createProgram(vertexCode, blurFragCode)
-
-        val fbo = IntArray(1)
-        GLES30.glGenFramebuffers(1, fbo, 0)
-        fboId = fbo[0]
-
-        // GL context is fresh: any previously held texture handles are invalid.
         currentSet.reset()
         nextSet.reset()
+        subjectMasks.discardPending()
         tempTextureId = 0
         tempTextureWidth = 0
         tempTextureHeight = 0
-        needsReload = true
+        programId = 0
+        blurProgramId = 0
+        fboId = 0
+        renderFailureLogged = false
+        renderRetryCount = 0
+
+        try {
+            val vertexCode = loadShaderFromAssets(
+                "shaders/reverseAtmosphere/atmosphere_blur_to_sharp.vert"
+            )
+            val fragmentCode = loadShaderFromAssets(
+                "shaders/reverseAtmosphere/atmosphere_blur_to_sharp.frag"
+            )
+            programId = createProgram(vertexCode, fragmentCode)
+
+            val blurFragCode = """
+                #version 300 es
+                precision highp float;
+                in vec2 vTexCoord;
+                out vec4 fragColor;
+                uniform sampler2D uTexture;
+                uniform vec2 uDirection;
+                uniform float uRadius;
+                void main() {
+                    vec2 texelSize = 1.0 / vec2(textureSize(uTexture, 0));
+                    vec3 result = vec3(0.0);
+                    float totalWeight = 0.0;
+                    for(float i = -uRadius; i <= uRadius; i++) {
+                        vec2 offset = uDirection * i * texelSize;
+                        float weight = 1.0 - abs(i) / uRadius;
+                        result += texture(uTexture, vTexCoord + offset).rgb * weight;
+                        totalWeight += weight;
+                    }
+                    fragColor = vec4(result / totalWeight, 1.0);
+                }
+            """.trimIndent()
+            blurProgramId = createProgram(vertexCode, blurFragCode)
+
+            val fbo = IntArray(1)
+            GLES30.glGenFramebuffers(1, fbo, 0)
+            check(fbo[0] != 0) {
+                "OpenGL did not create the Reverse Atmosphere framebuffer"
+            }
+            fboId = fbo[0]
+            needsReload = true
+        } catch (failure: Exception) {
+            Log.e(TAG, "Unable to initialize the Reverse Atmosphere renderer", failure)
+            if (programId != 0) GLES30.glDeleteProgram(programId)
+            if (blurProgramId != 0) GLES30.glDeleteProgram(blurProgramId)
+            programId = 0
+            blurProgramId = 0
+            needsReload = false
+        }
     }
 
     private fun loadAndApplyTextures() {
-        // Destroy ONLY current set
-        if (currentSet.isValid()) {
-            val ids = intArrayOf(currentSet.sharpId, currentSet.blurId)
-            GLES30.glDeleteTextures(2, ids, 0)
-            currentSet.reset()
-        }
-        // Destroy temp if exists
-        if (tempTextureId != 0) {
-            GLES30.glDeleteTextures(1, intArrayOf(tempTextureId), 0)
-            tempTextureId = 0
-            tempTextureWidth = 0
-            tempTextureHeight = 0
-        }
-
-        fittedForWidth = surfaceWidth
-        fittedForHeight = surfaceHeight
         val render = WallpaperFitHelper.loadForRender(context, surfaceWidth, surfaceHeight, previewSource)
         val sharpBitmap = render.bitmap
-        currentWindowX = render.windowX
+        val replacement = TextureSet()
+        var blurredBitmap: Bitmap? = null
+        try {
+            replacement.width = sharpBitmap.width
+            replacement.height = sharpBitmap.height
+            replacement.generation = nextGeneration()
+            replacement.sharpId = uploadTexture(sharpBitmap)
 
-        currentSet.width = sharpBitmap.width
-        currentSet.height = sharpBitmap.height
+            tempTextureId = createEmptyTexture(
+                sharpBitmap.width,
+                sharpBitmap.height,
+                tempTextureId,
+                tempTextureWidth,
+                tempTextureHeight
+            )
+            tempTextureWidth = sharpBitmap.width
+            tempTextureHeight = sharpBitmap.height
+            replacement.blurId = gpuBlur(
+                replacement.sharpId,
+                sharpBitmap.width,
+                sharpBitmap.height,
+                200f
+            )
+            blurredBitmap = downloadTexture(
+                replacement.blurId,
+                sharpBitmap.width,
+                sharpBitmap.height
+            )
+            initBaseBlobs(blurredBitmap)
 
-        // Populate Current Set
-        currentSet.sharpId = uploadTexture(sharpBitmap)
-
-        tempTextureWidth = sharpBitmap.width
-        tempTextureHeight = sharpBitmap.height
-        tempTextureId = createEmptyTexture(sharpBitmap.width, sharpBitmap.height)
-
-        currentSet.blurId = gpuBlur(currentSet.sharpId, sharpBitmap.width, sharpBitmap.height, 200f)
-
-        val blurredBitmap = downloadTexture(currentSet.blurId, sharpBitmap.width, sharpBitmap.height)
-        initBaseBlobs(blurredBitmap)
-
-        sharpBitmap.recycle()
-        blurredBitmap.recycle()
+            deleteTextureSet(currentSet)
+            currentSet = replacement
+            currentWindowX = render.windowX
+            fittedForWidth = surfaceWidth
+            fittedForHeight = surfaceHeight
+            requestSubjectMask(sharpBitmap, currentSet.generation)
+        } catch (failure: Exception) {
+            deleteTextureSet(replacement)
+            throw failure
+        } finally {
+            if (!sharpBitmap.isRecycled) sharpBitmap.recycle()
+            if (blurredBitmap != null && !blurredBitmap.isRecycled) {
+                blurredBitmap.recycle()
+            }
+        }
     }
 
     private fun processPlaylistTransition() {
-        val raw = pendingPlaylistBitmap ?: return
-        // Fit the incoming image to the current surface (display settings + foldables + scroll)
-        val render = WallpaperFitHelper.fitForRender(context, raw, surfaceWidth, surfaceHeight)
-        val bitmap = render.bitmap
-        nextWindowX = render.windowX
-        fittedForWidth = surfaceWidth
-        fittedForHeight = surfaceHeight
+        val raw = synchronized(pendingLock) {
+            pendingPlaylistBitmap.also { pendingPlaylistBitmap = null }
+        } ?: return
+        if (released) {
+            if (!raw.isRecycled) raw.recycle()
+            return
+        }
 
-        // Overwrite the existing nextSet IDs instead of deleting them. Pass dimensions.
-        nextSet.sharpId = uploadTexture(bitmap, nextSet.sharpId, nextSet.width, nextSet.height)
+        var bitmap: Bitmap? = null
+        var blurredBitmap: Bitmap? = null
+        try {
+            val render = WallpaperFitHelper.fitForRender(
+                context,
+                raw,
+                surfaceWidth,
+                surfaceHeight
+            )
+            bitmap = render.bitmap
+            nextWindowX = render.windowX
+            fittedForWidth = surfaceWidth
+            fittedForHeight = surfaceHeight
 
-        tempTextureId = createEmptyTexture(bitmap.width, bitmap.height, tempTextureId, tempTextureWidth, tempTextureHeight)
-        tempTextureWidth = bitmap.width
-        tempTextureHeight = bitmap.height
+            // Reuse queued texture IDs; dimensions determine whether storage is reallocated.
+            deleteMaskTexture(nextSet)
+            nextSet.sharpId = uploadTexture(
+                bitmap,
+                nextSet.sharpId,
+                nextSet.width,
+                nextSet.height
+            )
 
-        nextSet.blurId = gpuBlur(nextSet.sharpId, bitmap.width, bitmap.height, 200f, nextSet.blurId, nextSet.width, nextSet.height)
+            tempTextureId = createEmptyTexture(
+                bitmap.width,
+                bitmap.height,
+                tempTextureId,
+                tempTextureWidth,
+                tempTextureHeight
+            )
+            tempTextureWidth = bitmap.width
+            tempTextureHeight = bitmap.height
 
-        nextSet.width = bitmap.width
-        nextSet.height = bitmap.height
+            nextSet.blurId = gpuBlur(
+                nextSet.sharpId,
+                bitmap.width,
+                bitmap.height,
+                200f,
+                nextSet.blurId,
+                nextSet.width,
+                nextSet.height
+            )
 
-        val blurredBitmap = downloadTexture(nextSet.blurId, bitmap.width, bitmap.height)
-        initBaseBlobs(blurredBitmap)
+            nextSet.width = bitmap.width
+            nextSet.height = bitmap.height
+            nextSet.generation = nextGeneration()
+            nextSet.hasSubject = false
 
-        blurredBitmap.recycle()
-        bitmap.recycle() // Done with raw bitmap
+            blurredBitmap = downloadTexture(nextSet.blurId, bitmap.width, bitmap.height)
+            initBaseBlobs(blurredBitmap)
 
-        // SWAP! Old current becomes next
-        val temp = currentSet
-        currentSet = nextSet
-        nextSet = temp
-        val tmpWin = currentWindowX
-        currentWindowX = nextWindowX
-        nextWindowX = tmpWin
-
-        pendingPlaylistBitmap = null
-        reRollTargets()
+            val temp = currentSet
+            currentSet = nextSet
+            nextSet = temp
+            val tmpWin = currentWindowX
+            currentWindowX = nextWindowX
+            nextWindowX = tmpWin
+            reRollTargets()
+            requestSubjectMask(bitmap, currentSet.generation)
+        } catch (failure: RuntimeException) {
+            Log.e(TAG, "Unable to apply the next Reverse Atmosphere playlist image", failure)
+            deleteTextureSet(nextSet)
+            needsReload = true
+        } finally {
+            if (blurredBitmap != null && !blurredBitmap.isRecycled) {
+                blurredBitmap.recycle()
+            }
+            if (bitmap != null && !bitmap.isRecycled) {
+                bitmap.recycle()
+            }
+            if (raw !== bitmap && !raw.isRecycled) {
+                raw.recycle()
+            }
+        }
     }
 
     private fun initBaseBlobs(blurred: Bitmap) {
@@ -345,40 +496,50 @@ class BlurToSharpRenderer(
     }
 
     override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {
-        GLES30.glViewport(0, 0, width, height)
-        aspectRatio = width.toFloat() / height.toFloat()
-        surfaceWidth = width
-        surfaceHeight = height
-        // The surface size changed (fold/unfold, rotation, different display):
-        // re-fit the wallpaper so it is not stretched to the new dimensions.
-        if (width != fittedForWidth || height != fittedForHeight) {
+        surfaceWidth = width.coerceAtLeast(0)
+        surfaceHeight = height.coerceAtLeast(0)
+        GLES30.glViewport(0, 0, surfaceWidth, surfaceHeight)
+        aspectRatio = if (surfaceHeight > 0) {
+            surfaceWidth.toFloat() / surfaceHeight.toFloat()
+        } else {
+            1f
+        }
+        if (surfaceWidth != fittedForWidth || surfaceHeight != fittedForHeight) {
             needsReload = true
         }
     }
 
     override fun onDrawFrame(gl: GL10?) {
-        if (pendingPlaylistBitmap != null) {
-            processPlaylistTransition()
-        }
-
-        if (needsReload) {
-            needsReload = false
-            loadAndApplyTextures()
-        }
-
-        // Restore viewport after temp texture manipulation
-        if (surfaceWidth > 0 && surfaceHeight > 0) {
-            GLES30.glViewport(0, 0, surfaceWidth, surfaceHeight)
-        }
-
-        if (!currentSet.isValid()) {
-            GLES30.glClearColor(0f, 0f, 0f, 1f)
-            GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
+        if (released) return
+        if (programId == 0 || blurProgramId == 0 || fboId == 0) {
+            clearFrame()
             return
         }
+        try {
+            processPlaylistTransition()
 
-        GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
-        GLES30.glUseProgram(programId)
+            if (needsReload) {
+                needsReload = false
+                try {
+                    loadAndApplyTextures()
+                } catch (failure: Exception) {
+                    needsReload = true
+                    throw failure
+                }
+            }
+            applyPendingSubjectMask()
+
+            if (surfaceWidth > 0 && surfaceHeight > 0) {
+                GLES30.glViewport(0, 0, surfaceWidth, surfaceHeight)
+            }
+
+            if (!currentSet.isValid()) {
+                clearFrame()
+                return
+            }
+
+            GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
+            GLES30.glUseProgram(programId)
 
         val t = blurStrength.coerceIn(0f, 1f)
 
@@ -422,6 +583,26 @@ class BlurToSharpRenderer(
         GLES30.glUniform1f(GLES30.glGetUniformLocation(programId, "uNoiseStrength"), noiseStrength)
         GLES30.glUniform1f(GLES30.glGetUniformLocation(programId, "uSaturation"), blobSaturation)
         GLES30.glUniform1f(GLES30.glGetUniformLocation(programId, "uContrast"), blobContrast)
+        GLES30.glUniform1f(
+            GLES30.glGetUniformLocation(programId, "uAtmosphereGlassEnabled"),
+            if (atmosphereGlassEnabled) 1f else 0f
+        )
+        GLES30.glUniform1f(
+            GLES30.glGetUniformLocation(programId, "uGlassLineCount"),
+            glassLineCount.toFloat()
+        )
+        GLES30.glUniform1f(
+            GLES30.glGetUniformLocation(programId, "uGlassLineThickness"),
+            glassLineThickness
+        )
+        GLES30.glUniform1f(
+            GLES30.glGetUniformLocation(programId, "uBackgroundOnly"),
+            if (subjectMasks.enabled) 1f else 0f
+        )
+        GLES30.glUniform1f(
+            GLES30.glGetUniformLocation(programId, "uHasSubject"),
+            if (subjectMasks.enabled && currentSet.hasSubject) 1f else 0f
+        )
 
         // Drawer/recents blur (0 = in view, sharp; 1 = out of view, blurred).
         GLES30.glUniform1f(GLES30.glGetUniformLocation(programId, "uDrawerBlur"), drawerBlur)
@@ -438,9 +619,25 @@ class BlurToSharpRenderer(
         GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, currentSet.blurId)
         GLES30.glUniform1i(GLES30.glGetUniformLocation(programId, "uTextureBlur"), 1)
 
-        val aPosLoc = GLES30.glGetAttribLocation(programId, "aPosition")
-        val aTexLoc = GLES30.glGetAttribLocation(programId, "aTexCoord")
-        drawQuad(aPosLoc, aTexLoc)
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE2)
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, currentSet.maskId)
+        GLES30.glUniform1i(GLES30.glGetUniformLocation(programId, "uSubjectMask"), 2)
+
+            val aPosLoc = GLES30.glGetAttribLocation(programId, "aPosition")
+            val aTexLoc = GLES30.glGetAttribLocation(programId, "aTexCoord")
+            drawQuad(aPosLoc, aTexLoc)
+            throwOnGlError("drawing a Reverse Atmosphere frame")
+            renderFailureLogged = false
+            renderRetryCount = 0
+        } catch (failure: Exception) {
+            if (!renderFailureLogged) {
+                Log.e(TAG, "Unable to draw the Reverse Atmosphere wallpaper", failure)
+                renderFailureLogged = true
+            }
+            if (!currentSet.isValid()) needsReload = true
+            clearFrame()
+            requestBoundedRetry()
+        }
     }
 
     private fun createEmptyTexture(width: Int, height: Int, existingTextureId: Int = 0, existingWidth: Int = 0, existingHeight: Int = 0): Int {
@@ -451,7 +648,6 @@ class BlurToSharpRenderer(
         GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_S, GLES30.GL_CLAMP_TO_EDGE)
         GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_T, GLES30.GL_CLAMP_TO_EDGE)
 
-        // Only call glTexImage2D if it's a new ID or the dimensions have changed
         if (existingTextureId == 0 || existingWidth != width || existingHeight != height) {
             GLES30.glTexImage2D(GLES30.GL_TEXTURE_2D, 0, GLES30.GL_RGBA, width, height, 0, GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, null)
         }
@@ -511,37 +707,220 @@ class BlurToSharpRenderer(
     }
 
     private fun uploadTexture(bitmap: Bitmap, existingTextureId: Int = 0, existingWidth: Int = 0, existingHeight: Int = 0): Int {
-        val textureHandle = if (existingTextureId != 0) intArrayOf(existingTextureId) else { val arr = IntArray(1); GLES30.glGenTextures(1, arr, 0); arr }
-        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, textureHandle[0])
-        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, GLES30.GL_LINEAR)
-        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, GLES30.GL_LINEAR)
-        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_S, GLES30.GL_CLAMP_TO_EDGE)
-        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_T, GLES30.GL_CLAMP_TO_EDGE)
+        val isNewTexture = existingTextureId == 0
+        val textureId = if (isNewTexture) {
+            IntArray(1).also { GLES30.glGenTextures(1, it, 0) }[0]
+        } else {
+            existingTextureId
+        }
+        check(textureId != 0) { "OpenGL did not create a Reverse Atmosphere texture" }
+        try {
+            GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, textureId)
+            GLES30.glTexParameteri(
+                GLES30.GL_TEXTURE_2D,
+                GLES30.GL_TEXTURE_MIN_FILTER,
+                GLES30.GL_LINEAR
+            )
+            GLES30.glTexParameteri(
+                GLES30.GL_TEXTURE_2D,
+                GLES30.GL_TEXTURE_MAG_FILTER,
+                GLES30.GL_LINEAR
+            )
+            GLES30.glTexParameteri(
+                GLES30.GL_TEXTURE_2D,
+                GLES30.GL_TEXTURE_WRAP_S,
+                GLES30.GL_CLAMP_TO_EDGE
+            )
+            GLES30.glTexParameteri(
+                GLES30.GL_TEXTURE_2D,
+                GLES30.GL_TEXTURE_WRAP_T,
+                GLES30.GL_CLAMP_TO_EDGE
+            )
+            GLUtils.texImage2D(GLES30.GL_TEXTURE_2D, 0, bitmap, 0)
+            throwOnGlError("uploading a Reverse Atmosphere texture")
+            return textureId
+        } catch (failure: RuntimeException) {
+            if (isNewTexture) {
+                GLES30.glDeleteTextures(1, intArrayOf(textureId), 0)
+            }
+            throw failure
+        }
+    }
 
-        GLUtils.texImage2D(GLES30.GL_TEXTURE_2D, 0, bitmap, 0)
+    private fun uploadMaskTexture(bitmap: Bitmap, existingTextureId: Int = 0): Int {
+        val isNewTexture = existingTextureId == 0
+        val textureId = if (isNewTexture) {
+            IntArray(1).also { GLES30.glGenTextures(1, it, 0) }[0]
+        } else {
+            existingTextureId
+        }
+        check(textureId != 0) {
+            "OpenGL did not create a Reverse Atmosphere subject mask"
+        }
+        try {
+            GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, textureId)
+            GLES30.glTexParameteri(
+                GLES30.GL_TEXTURE_2D,
+                GLES30.GL_TEXTURE_MIN_FILTER,
+                GLES30.GL_LINEAR
+            )
+            GLES30.glTexParameteri(
+                GLES30.GL_TEXTURE_2D,
+                GLES30.GL_TEXTURE_MAG_FILTER,
+                GLES30.GL_LINEAR
+            )
+            GLES30.glTexParameteri(
+                GLES30.GL_TEXTURE_2D,
+                GLES30.GL_TEXTURE_WRAP_S,
+                GLES30.GL_CLAMP_TO_EDGE
+            )
+            GLES30.glTexParameteri(
+                GLES30.GL_TEXTURE_2D,
+                GLES30.GL_TEXTURE_WRAP_T,
+                GLES30.GL_CLAMP_TO_EDGE
+            )
+            GLUtils.texImage2D(GLES30.GL_TEXTURE_2D, 0, bitmap, 0)
+            throwOnGlError("uploading a Reverse Atmosphere subject mask")
+            return textureId
+        } catch (failure: RuntimeException) {
+            if (isNewTexture) {
+                GLES30.glDeleteTextures(1, intArrayOf(textureId), 0)
+            }
+            throw failure
+        }
+    }
 
-        return textureHandle[0]
+    private fun applyPendingSubjectMask() {
+        val pending = subjectMasks.takePending() ?: return
+        try {
+            if (pending.generation != currentSet.generation || !subjectMasks.enabled) {
+                return
+            }
+            currentSet.maskId = uploadMaskTexture(pending.bitmap, currentSet.maskId)
+            currentSet.hasSubject = true
+        } catch (failure: RuntimeException) {
+            Log.w(TAG, "Unable to upload the Reverse Atmosphere subject mask", failure)
+            deleteMaskTexture(currentSet)
+        } finally {
+            if (!pending.bitmap.isRecycled) {
+                pending.bitmap.recycle()
+            }
+        }
+    }
+
+    private fun requestSubjectMask(bitmap: Bitmap, generation: Long) {
+        try {
+            subjectMasks.request(bitmap, generation)
+        } catch (failure: RuntimeException) {
+            Log.w(TAG, "Unable to request the Reverse Atmosphere subject mask", failure)
+        }
     }
 
     private fun createProgram(vertexSource: String, fragmentSource: String): Int {
-        val vertexShader = loadShader(GLES30.GL_VERTEX_SHADER, vertexSource)
-        val fragmentShader = loadShader(GLES30.GL_FRAGMENT_SHADER, fragmentSource)
-        val program = GLES30.glCreateProgram()
-        GLES30.glAttachShader(program, vertexShader)
-        GLES30.glAttachShader(program, fragmentShader)
-        GLES30.glLinkProgram(program)
-        return program
+        val vertexShader = compileShader(GLES30.GL_VERTEX_SHADER, vertexSource, "vertex")
+        val fragmentShader = try {
+            compileShader(GLES30.GL_FRAGMENT_SHADER, fragmentSource, "fragment")
+        } catch (failure: RuntimeException) {
+            GLES30.glDeleteShader(vertexShader)
+            throw failure
+        }
+
+        var program = 0
+        try {
+            program = GLES30.glCreateProgram()
+            check(program != 0) {
+                "OpenGL did not create a Reverse Atmosphere shader program"
+            }
+            GLES30.glAttachShader(program, vertexShader)
+            GLES30.glAttachShader(program, fragmentShader)
+            GLES30.glLinkProgram(program)
+            val status = IntArray(1)
+            GLES30.glGetProgramiv(program, GLES30.GL_LINK_STATUS, status, 0)
+            if (status[0] == 0) {
+                val details = GLES30.glGetProgramInfoLog(program).ifBlank {
+                    "No linker diagnostics were returned"
+                }
+                throw IllegalStateException(
+                    "Reverse Atmosphere shader link failed: $details"
+                )
+            }
+            return program
+        } catch (failure: RuntimeException) {
+            if (program != 0) GLES30.glDeleteProgram(program)
+            throw failure
+        } finally {
+            GLES30.glDeleteShader(vertexShader)
+            GLES30.glDeleteShader(fragmentShader)
+        }
     }
 
-    private fun loadShader(type: Int, source: String): Int {
+    private fun compileShader(type: Int, source: String, label: String): Int {
         val shader = GLES30.glCreateShader(type)
+        check(shader != 0) {
+            "OpenGL did not create the Reverse Atmosphere $label shader"
+        }
         GLES30.glShaderSource(shader, source)
         GLES30.glCompileShader(shader)
+        val status = IntArray(1)
+        GLES30.glGetShaderiv(shader, GLES30.GL_COMPILE_STATUS, status, 0)
+        if (status[0] == 0) {
+            val details = GLES30.glGetShaderInfoLog(shader).ifBlank {
+                "No compiler diagnostics were returned"
+            }
+            GLES30.glDeleteShader(shader)
+            throw IllegalStateException(
+                "Reverse Atmosphere $label shader compilation failed: $details"
+            )
+        }
         return shader
     }
 
     private fun loadShaderFromAssets(path: String): String {
         return context.assets.open(path).bufferedReader().use { it.readText() }
+    }
+
+    private fun deleteTextureSet(set: TextureSet) {
+        if (set.sharpId != 0) {
+            GLES30.glDeleteTextures(1, intArrayOf(set.sharpId), 0)
+        }
+        if (set.blurId != 0) {
+            GLES30.glDeleteTextures(1, intArrayOf(set.blurId), 0)
+        }
+        if (set.maskId != 0) {
+            GLES30.glDeleteTextures(1, intArrayOf(set.maskId), 0)
+        }
+        set.reset()
+    }
+
+    private fun deleteMaskTexture(set: TextureSet) {
+        if (set.maskId != 0) {
+            GLES30.glDeleteTextures(1, intArrayOf(set.maskId), 0)
+        }
+        set.maskId = 0
+        set.hasSubject = false
+    }
+
+    private fun nextGeneration(): Long {
+        generationCounter++
+        return generationCounter
+    }
+
+    private fun clearFrame() {
+        GLES30.glClearColor(0f, 0f, 0f, 1f)
+        GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
+    }
+
+    private fun throwOnGlError(operation: String) {
+        val error = GLES30.glGetError()
+        check(error == GLES30.GL_NO_ERROR) {
+            "OpenGL error 0x${error.toString(16)} while $operation"
+        }
+    }
+
+    private fun requestBoundedRetry() {
+        if (renderRetryCount >= MAX_RENDER_RETRIES) return
+        renderRetryCount++
+        onRenderRetryRequested?.invoke()
     }
 
     data class ColorCluster(val color: Int, val centerX: Float, val centerY: Float)
@@ -594,5 +973,10 @@ class BlurToSharpRenderer(
             buckets.add(sorted.subList(median, sorted.size).toMutableList())
         }
         return buckets
+    }
+
+    private companion object {
+        const val TAG = "BlurToSharpRenderer"
+        const val MAX_RENDER_RETRIES = 3
     }
 }

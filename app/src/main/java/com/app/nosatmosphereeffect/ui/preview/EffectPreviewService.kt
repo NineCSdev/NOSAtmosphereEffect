@@ -10,14 +10,21 @@ import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.PixelFormat
 import android.opengl.GLSurfaceView
+import android.util.Log
 import android.view.View
 import android.view.ViewOutlineProvider
 import androidx.core.graphics.createBitmap
+import com.app.nosatmosphereeffect.helper.AtmosphereGlassPolicy
 import com.app.nosatmosphereeffect.helper.CanvasSubjectSettings
+import com.app.nosatmosphereeffect.helper.EffectStatePolicy
+import com.app.nosatmosphereeffect.helper.GlassEffectPreferences
+import com.app.nosatmosphereeffect.helper.GlassEffectPolicy
+import com.app.nosatmosphereeffect.helper.SubjectIsolationPolicy
 import com.app.nosatmosphereeffect.renderer.AtmosphereRenderer
 import com.app.nosatmosphereeffect.renderer.BlurToSharpRenderer
 import com.app.nosatmosphereeffect.renderer.ColorFillRenderer
 import com.app.nosatmosphereeffect.renderer.FrostedRenderer
+import com.app.nosatmosphereeffect.renderer.GlassRenderer
 import com.app.nosatmosphereeffect.renderer.HalftoneRenderer
 import com.app.nosatmosphereeffect.renderer.NeonRenderer
 import com.app.nosatmosphereeffect.ui.model.EffectCatalog
@@ -39,7 +46,8 @@ class EffectPreviewService(
     source: Bitmap?,
     cornerRadiusPx: Float,
     private val settingsMode: EffectPreviewSettingsMode =
-        EffectPreviewSettingsMode.SAVED_ACTIVE
+        EffectPreviewSettingsMode.SAVED_ACTIVE,
+    private val atmosphereGlassEnabledOverride: Boolean? = null
 ) {
     private val appContext = context.applicationContext
     private val sourceBitmap = source?.copy(Bitmap.Config.ARGB_8888, false)
@@ -47,6 +55,7 @@ class EffectPreviewService(
     private val sourceProvider = {
         if (sourceBitmap.isRecycled) null else sourceBitmap.copy(Bitmap.Config.ARGB_8888, false)
     }
+    private var configuredAtmosphereGlassEnabled = false
     private val productionRenderer = createRenderer()
     private val released = AtomicBoolean(false)
     private var resumed = false
@@ -66,24 +75,83 @@ class EffectPreviewService(
                 if (!released.get()) view.post { view.requestRender() }
             }
         }
+        if (productionRenderer is AtmosphereRenderer) {
+            productionRenderer.onSubjectMaskUpdated = {
+                if (!released.get()) view.post { view.requestRender() }
+            }
+            productionRenderer.onRenderRetryRequested = ::requestRenderRetry
+        }
+        if (productionRenderer is BlurToSharpRenderer) {
+            productionRenderer.onSubjectMaskUpdated = {
+                if (!released.get()) view.post { view.requestRender() }
+            }
+            productionRenderer.onRenderRetryRequested = ::requestRenderRetry
+        }
+        if (productionRenderer is GlassRenderer) {
+            productionRenderer.onSubjectMaskUpdated = {
+                if (!released.get()) view.post { view.requestRender() }
+            }
+            productionRenderer.onRenderRetryRequested = ::requestRenderRetry
+        }
+        if (productionRenderer is HalftoneRenderer) {
+            productionRenderer.onSubjectMaskUpdated = {
+                if (!released.get()) view.post { view.requestRender() }
+            }
+            productionRenderer.onRenderRetryRequested = ::requestRenderRetry
+        }
         setProgress(0f)
+    }
+
+    private fun requestRenderRetry() {
+        if (!released.get()) {
+            view.postDelayed(
+                { if (!released.get()) view.requestRender() },
+                RENDER_RETRY_DELAY_MS
+            )
+        }
     }
 
     fun setProgress(lockToHomeProgress: Float) {
         if (released.get()) return
-        val progress = lockToHomeProgress.coerceIn(0f, 1f)
-        val rendererProgress = when (effectId) {
-            "REVERSE", "FROSTED_REVERSE" -> 1f - progress
-            "COLORFILL" -> 1f - progress
-            else -> progress
-        }
+        setRendererProgress(
+            rendererProgress = EffectStatePolicy.transitionProgress(
+                effectId,
+                lockToHomeProgress
+            ),
+            atmosphereGlassEnabled = configuredAtmosphereGlassEnabled
+        )
+    }
 
+    fun setAppliedState(effectApplied: Boolean) {
+        if (released.get()) return
+        val endpoints = EffectStatePolicy.endpoints(effectId)
+        setRendererProgress(
+            rendererProgress = if (effectApplied) {
+                endpoints.appliedProgress
+            } else {
+                endpoints.originalProgress
+            },
+            atmosphereGlassEnabled = configuredAtmosphereGlassEnabled && effectApplied
+        )
+    }
+
+    private fun setRendererProgress(
+        rendererProgress: Float,
+        atmosphereGlassEnabled: Boolean
+    ) {
         view.queueEvent {
             if (released.get()) return@queueEvent
             when (val renderer = productionRenderer) {
-                is AtmosphereRenderer -> renderer.blurStrength = rendererProgress
-                is BlurToSharpRenderer -> renderer.blurStrength = rendererProgress
+                is AtmosphereRenderer -> {
+                    renderer.atmosphereGlassEnabled = atmosphereGlassEnabled
+                    renderer.blurStrength = rendererProgress
+                }
+                is BlurToSharpRenderer -> {
+                    renderer.atmosphereGlassEnabled = atmosphereGlassEnabled
+                    renderer.blurStrength = rendererProgress
+                }
                 is FrostedRenderer -> renderer.blurStrength = rendererProgress
+                is GlassRenderer -> renderer.progress = rendererProgress
                 is HalftoneRenderer -> renderer.blurStrength = rendererProgress
                 is ColorFillRenderer -> renderer.blurStrength = rendererProgress
                 is NeonRenderer -> renderer.blurStrength = rendererProgress
@@ -109,22 +177,48 @@ class EffectPreviewService(
         if (!released.compareAndSet(false, true)) return
         if (resumed) {
             resumed = false
-            view.onPause()
+            try {
+                view.onPause()
+            } catch (failure: RuntimeException) {
+                Log.w(TAG, "Unable to pause the effect preview", failure)
+            }
         }
-        (productionRenderer as? NeonRenderer)?.release()
-        sourceBitmap.recycle()
+        try {
+            (view as PreviewSurfaceView).destroy()
+        } catch (failure: RuntimeException) {
+            Log.w(TAG, "Unable to stop the effect preview GL thread", failure)
+        }
+        when (val renderer = productionRenderer) {
+            is AtmosphereRenderer -> renderer.release()
+            is BlurToSharpRenderer -> renderer.release()
+            is NeonRenderer -> renderer.release()
+            is GlassRenderer -> renderer.release()
+            is HalftoneRenderer -> renderer.release()
+        }
+        if (!sourceBitmap.isRecycled) {
+            sourceBitmap.recycle()
+        }
     }
 
     private fun createRenderer(): GLSurfaceView.Renderer {
         val prefs = appContext.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
         return when (effectId) {
             "REVERSE" -> BlurToSharpRenderer(appContext, sourceProvider).apply {
+                val glassEnabled = previewAtmosphereGlassEnabled(prefs)
+                configuredAtmosphereGlassEnabled = glassEnabled
+                val glassSettings = previewGlassSettings(prefs)
                 dimLevel = previewFloat(prefs, "dim_level", 0.2f)
                 enableNoise = previewBoolean(prefs, "enable_noise", false)
                 noiseScale = previewFloat(prefs, "noise_scale", 2000f)
                 noiseStrength = previewFloat(prefs, "noise_strength", 0.06f)
                 blobSaturation = previewFloat(prefs, "blob_saturation", 1f)
                 blobContrast = previewFloat(prefs, "blob_contrast", 1f)
+                atmosphereGlassEnabled = glassEnabled
+                glassLineCount = glassSettings.lineCount
+                glassLineThickness = glassSettings.lineThickness
+                configureGlassBackgroundOnly(
+                    glassEnabled && glassSettings.backgroundOnly
+                )
             }
 
             "FROSTED", "FROSTED_REVERSE" -> FrostedRenderer(appContext, sourceProvider).apply {
@@ -135,6 +229,15 @@ class EffectPreviewService(
                 blurRadius = previewFloat(prefs, "frosted_blur_radius", 200f)
             }
 
+            "GLASS", "GLASS_REVERSE" -> GlassRenderer(appContext, sourceProvider).apply {
+                val glassSettings = previewGlassSettings(prefs)
+                dimLevel = previewFloat(prefs, "dim_level", 0f)
+                lineCount = glassSettings.lineCount
+                lineThickness = glassSettings.lineThickness
+                transitionStyle = glassSettings.transitionStyle
+                configureBackgroundOnly(glassSettings.backgroundOnly)
+            }
+
             "HALFTONE", "HALFTONE_REVERSE" -> HalftoneRenderer(
                 appContext,
                 isReverse = effectId == "HALFTONE_REVERSE",
@@ -143,6 +246,13 @@ class EffectPreviewService(
                 dimLevel = previewFloat(prefs, "dim_level", 0f)
                 dotSize = previewFloat(prefs, "halftone_dot_size", 12f)
                 grayscale = previewBoolean(prefs, "halftone_grayscale", false)
+                configureBackgroundOnly(
+                    previewBoolean(
+                        prefs,
+                        SubjectIsolationPolicy.HALFTONE_BACKGROUND_ONLY_KEY,
+                        false
+                    )
+                )
             }
 
             "COLORFILL", "COLORFILL_REVERSE" -> ColorFillRenderer(
@@ -169,37 +279,74 @@ class EffectPreviewService(
             }
 
             else -> AtmosphereRenderer(appContext, sourceProvider).apply {
+                val glassEnabled = previewAtmosphereGlassEnabled(prefs)
+                configuredAtmosphereGlassEnabled = glassEnabled
+                val glassSettings = previewGlassSettings(prefs)
                 dimLevel = previewFloat(prefs, "dim_level", 0.2f)
                 enableNoise = previewBoolean(prefs, "enable_noise", false)
                 noiseScale = previewFloat(prefs, "noise_scale", 2000f)
                 noiseStrength = previewFloat(prefs, "noise_strength", 0.06f)
                 blobSaturation = previewFloat(prefs, "blob_saturation", 1f)
                 blobContrast = previewFloat(prefs, "blob_contrast", 1f)
+                atmosphereGlassEnabled = glassEnabled
+                glassLineCount = glassSettings.lineCount
+                glassLineThickness = glassSettings.lineThickness
+                configureGlassBackgroundOnly(
+                    glassEnabled && glassSettings.backgroundOnly
+                )
             }
         }
+    }
+
+    private fun previewGlassSettings(preferences: SharedPreferences) =
+        if (settingsMode == EffectPreviewSettingsMode.SAVED_ACTIVE) {
+            GlassEffectPreferences.readAndMigrate(preferences)
+        } else {
+            GlassEffectPolicy.resolveStoredSettings(
+                lineCount = GlassEffectPolicy.DEFAULT_LINE_COUNT,
+                lineThickness = GlassEffectPolicy.DEFAULT_LINE_THICKNESS,
+                presetVersion = GlassEffectPolicy.CURRENT_PRESET_VERSION
+            )
+        }
+
+    private fun previewAtmosphereGlassEnabled(preferences: SharedPreferences): Boolean {
+        return atmosphereGlassEnabledOverride ?: previewBoolean(
+            preferences,
+            AtmosphereGlassPolicy.ENABLED_KEY,
+            false
+        )
     }
 
     private fun previewFloat(
         preferences: SharedPreferences,
         key: String,
         defaultValue: Float
-    ): Float = if (settingsMode == EffectPreviewSettingsMode.SAVED_ACTIVE) {
-        preferences.getFloat(key, defaultValue)
-    } else {
-        defaultValue
+    ): Float {
+        if (settingsMode != EffectPreviewSettingsMode.SAVED_ACTIVE) return defaultValue
+        return try {
+            preferences.getFloat(key, defaultValue)
+        } catch (_: ClassCastException) {
+            defaultValue
+        }
     }
 
     private fun previewBoolean(
         preferences: SharedPreferences,
         key: String,
         defaultValue: Boolean
-    ): Boolean = if (settingsMode == EffectPreviewSettingsMode.SAVED_ACTIVE) {
-        preferences.getBoolean(key, defaultValue)
-    } else {
-        defaultValue
+    ): Boolean {
+        if (settingsMode != EffectPreviewSettingsMode.SAVED_ACTIVE) return defaultValue
+        return try {
+            preferences.getBoolean(key, defaultValue)
+        } catch (_: ClassCastException) {
+            defaultValue
+        }
     }
 
     companion object {
+        private const val TAG = "EffectPreviewService"
+        private const val RENDER_RETRY_DELAY_MS = 80L
+
         fun durationMillis(
             context: Context,
             effectId: String,
@@ -209,8 +356,15 @@ class EffectPreviewService(
             if (settingsMode == EffectPreviewSettingsMode.EFFECT_DEFAULTS) {
                 return fallback.coerceIn(150L, 10_000L).toInt()
             }
-            val saved = context.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
-                .getLong("anim_duration", -1L)
+            val preferences = context.getSharedPreferences(
+                "app_prefs",
+                Context.MODE_PRIVATE
+            )
+            val saved = try {
+                preferences.getLong("anim_duration", -1L)
+            } catch (_: ClassCastException) {
+                -1L
+            }
             return (if (saved > 0L) saved else fallback).coerceIn(150L, 10_000L).toInt()
         }
 
@@ -276,6 +430,8 @@ class EffectPreviewService(
 
     private class PreviewSurfaceView(context: Context, private val radius: Float) :
         GLSurfaceView(context) {
+        private var destroyStarted = false
+
         init {
             clipToOutline = true
             outlineProvider = object : ViewOutlineProvider() {
@@ -288,6 +444,16 @@ class EffectPreviewService(
         override fun onSizeChanged(width: Int, height: Int, oldWidth: Int, oldHeight: Int) {
             super.onSizeChanged(width, height, oldWidth, oldHeight)
             invalidateOutline()
+        }
+
+        fun destroy() {
+            onDetachedFromWindow()
+        }
+
+        override fun onDetachedFromWindow() {
+            if (destroyStarted) return
+            destroyStarted = true
+            super.onDetachedFromWindow()
         }
     }
 }

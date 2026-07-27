@@ -2,12 +2,21 @@ package com.app.nosatmosphereeffect.helper
 
 import android.content.Context
 import android.graphics.Bitmap
-import androidx.core.content.edit
+import android.net.Uri
+import android.util.Log
+import com.app.nosatmosphereeffect.storage.FileTransactions
+import com.app.nosatmosphereeffect.storage.UriFiles
+import com.app.nosatmosphereeffect.storage.WallpaperStorageCoordinator
 import java.io.File
+import java.io.IOException
+import java.util.concurrent.Executors
 
 /** A single rotation pipeline used by every effect service. */
 object PlaylistRotationController {
-    private val rotationLock = Any()
+    private const val TAG = "PlaylistRotation"
+    private val rotationExecutor = Executors.newSingleThreadExecutor { task ->
+        Thread(task, "wallpaper-playlist-rotation")
+    }
 
     fun rotateAsync(
         context: Context,
@@ -18,18 +27,26 @@ object PlaylistRotationController {
         notifyColorsChanged: () -> Unit
     ) {
         val appContext = context.applicationContext
-        Thread {
-            synchronized(rotationLock) {
-                rotate(
-                    context = appContext,
-                    isThemeChange = isThemeChange,
-                    currentNightMode = currentNightMode,
-                    queueTransition = queueTransition,
-                    requestRender = requestRender,
-                    notifyColorsChanged = notifyColorsChanged
-                )
+        try {
+            rotationExecutor.execute {
+                try {
+                    WallpaperStorageCoordinator.runExclusive {
+                        rotate(
+                            context = appContext,
+                            isThemeChange = isThemeChange,
+                            currentNightMode = currentNightMode,
+                            queueTransition = queueTransition,
+                            requestRender = requestRender,
+                            notifyColorsChanged = notifyColorsChanged
+                        )
+                    }
+                } catch (error: Exception) {
+                    Log.e(TAG, "Playlist rotation failed", error)
+                }
             }
-        }.start()
+        } catch (error: RuntimeException) {
+            Log.e(TAG, "Could not schedule playlist rotation", error)
+        }
     }
 
     private fun rotate(
@@ -47,38 +64,39 @@ object PlaylistRotationController {
         val prefs = context.getSharedPreferences("wallpaper_prefs", Context.MODE_PRIVATE)
         val isNightMode = if (isThemeChange) currentNightMode
             else PlaylistModeManager.currentNightMode(context)
-        val nextThemeState = if (isNightMode) 1 else 0
-        val themeChanged = mode == PlaylistModeManager.MODE_THEME &&
-            prefs.getInt(PlaylistModeManager.KEY_ACTIVE_THEME, -1) != nextThemeState
-        if (isThemeChange && !themeChanged) return
 
         val playlistDir = PlaylistModeManager.activePlaylistDir(context, isNightMode)
         val playlistFiles = PlaylistModeManager.imageFiles(playlistDir)
-        if (playlistFiles.isEmpty()) return
-        if (!themeChanged && playlistFiles.size <= 1) return
-
-        if (!themeChanged) {
-            val intervalMinutes = prefs.getLong("rotation_interval_minutes", 0L).coerceAtLeast(0L)
-            if (intervalMinutes > 0L) {
-                val elapsedMinutes = (
-                    System.currentTimeMillis() - prefs.getLong("last_rotation_timestamp", 0L)
-                    ) / 60_000L
-                if (elapsedMinutes < intervalMinutes) return
-            }
-        }
+        val nowMillis = System.currentTimeMillis()
+        val decision = PlaylistRotationPolicy.decide(
+            mode = mode,
+            isThemeChange = isThemeChange,
+            isNightMode = isNightMode,
+            activeThemeState = prefs.getInt(PlaylistModeManager.KEY_ACTIVE_THEME, -1),
+            playlistSize = playlistFiles.size,
+            intervalMinutes = prefs.getLong("rotation_interval_minutes", 0L),
+            lastRotationMillis = prefs.getLong("last_rotation_timestamp", 0L),
+            nowMillis = nowMillis
+        )
+        if (!decision.shouldRotate) return
 
         val lastKey = PlaylistModeManager.lastImagePreferenceKey(mode, isNightMode)
         val lastUsedName = prefs.getString(lastKey, null)
-        val candidates = playlistFiles.filterNot { it.name == lastUsedName }
-        val selected = candidates.ifEmpty { playlistFiles }.random()
+        val eligibleNames = PlaylistRotationPolicy.eligibleNames(
+            playlistFiles.map(File::getName),
+            lastUsedName
+        ).toSet()
+        val selected = playlistFiles.filter { it.name in eligibleNames }.random()
         if (!stageAndPromote(context, selected, isNightMode, queueTransition)) return
 
-        prefs.edit {
-            putString(lastKey, selected.name)
-            putLong("last_rotation_timestamp", System.currentTimeMillis())
-            if (mode == PlaylistModeManager.MODE_THEME) {
-                putInt(PlaylistModeManager.KEY_ACTIVE_THEME, if (isNightMode) 1 else 0)
-            }
+        val editor = prefs.edit()
+            .putString(lastKey, selected.name)
+            .putLong("last_rotation_timestamp", nowMillis)
+        if (mode == PlaylistModeManager.MODE_THEME) {
+            editor.putInt(PlaylistModeManager.KEY_ACTIVE_THEME, if (isNightMode) 1 else 0)
+        }
+        if (!editor.commit()) {
+            Log.w(TAG, "Rotated wallpaper, but could not persist the playlist position")
         }
         requestRender()
         notifyColorsChanged()
@@ -90,10 +108,11 @@ object PlaylistRotationController {
         isNightMode: Boolean,
         queueTransition: (Bitmap) -> Unit
     ): Boolean {
+        var decodedBitmap: Bitmap? = null
         return try {
             val nextFile = File(context.filesDir, WallpaperFitHelper.NEXT_WALLPAPER_FILE)
-            selected.copyTo(nextFile, overwrite = true)
-            WallpaperFitHelper.stageNextSource(
+            UriFiles.copyAtomically(context, Uri.fromFile(selected), nextFile)
+            val hasSource = WallpaperFitHelper.stageNextSource(
                 filesDir = context.filesDir,
                 playlistFileName = selected.name,
                 originalsDirectoryName = PlaylistModeManager.activeOriginalsDirName(
@@ -108,18 +127,36 @@ object PlaylistRotationController {
             )
 
             val bitmap = WallpaperFitHelper.decodeNextForDisplay(context) ?: return false
+            decodedBitmap = bitmap
             val activeFile = File(context.filesDir, WallpaperFitHelper.ACTIVE_WALLPAPER_FILE)
-            if (activeFile.exists() && !activeFile.delete()) return false
-            if (!nextFile.renameTo(activeFile)) {
-                nextFile.copyTo(activeFile, overwrite = true)
-                nextFile.delete()
+            val nextSource = File(context.filesDir, WallpaperFitHelper.NEXT_SOURCE_FILE)
+            val activeSource = File(context.filesDir, WallpaperFitHelper.ACTIVE_SOURCE_FILE)
+            if (hasSource) {
+                FileTransactions.replaceFiles(
+                    listOf(
+                        nextFile to activeFile,
+                        nextSource to activeSource
+                    )
+                )
+            } else {
+                FileTransactions.deleteRecursively(activeSource)
+                FileTransactions.moveReplacing(nextFile, activeFile)
             }
-            WallpaperFitHelper.promoteNextSource(context.filesDir)
             WallpaperFitHelper.promoteNextMode(context)
             queueTransition(bitmap)
+            decodedBitmap = null
             true
-        } catch (failure: Throwable) {
-            failure.printStackTrace()
+        } catch (error: IOException) {
+            decodedBitmap?.takeUnless(Bitmap::isRecycled)?.recycle()
+            Log.e(TAG, "Could not rotate to ${selected.name}", error)
+            false
+        } catch (error: SecurityException) {
+            decodedBitmap?.takeUnless(Bitmap::isRecycled)?.recycle()
+            Log.e(TAG, "Storage access was denied while rotating to ${selected.name}", error)
+            false
+        } catch (error: RuntimeException) {
+            decodedBitmap?.takeUnless(Bitmap::isRecycled)?.recycle()
+            Log.e(TAG, "Could not prepare ${selected.name} for rendering", error)
             false
         }
     }

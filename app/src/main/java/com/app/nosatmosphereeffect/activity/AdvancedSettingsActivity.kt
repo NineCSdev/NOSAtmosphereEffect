@@ -2,7 +2,9 @@ package com.app.nosatmosphereeffect.activity
 
 import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
 import android.os.Bundle
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -13,12 +15,18 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.core.content.edit
+import com.app.nosatmosphereeffect.helper.AtmosphereGlassPolicy
 import com.app.nosatmosphereeffect.helper.CanvasSubjectSettings
+import com.app.nosatmosphereeffect.helper.GlassEffectPreferences
+import com.app.nosatmosphereeffect.helper.GlassEffectPolicy
 import com.app.nosatmosphereeffect.helper.SubjectModelBuild
 import com.app.nosatmosphereeffect.helper.SubjectModelDelivery
 import com.app.nosatmosphereeffect.helper.SubjectModelManager
 import com.app.nosatmosphereeffect.helper.SubjectModelPhase
 import com.app.nosatmosphereeffect.helper.SubjectModelState
+import com.app.nosatmosphereeffect.helper.SubjectIsolationPolicy
+import com.app.nosatmosphereeffect.helper.WallpaperBehaviorPreferences
+import com.app.nosatmosphereeffect.helper.WallpaperBehaviorSettings
 import com.app.nosatmosphereeffect.helper.WallpaperFitHelper
 import com.app.nosatmosphereeffect.ui.screens.AdvancedConfig
 import com.app.nosatmosphereeffect.ui.screens.AdvancedResult
@@ -48,8 +56,11 @@ class AdvancedSettingsActivity : ComponentActivity() {
         val isColorFill = activeEffect.contains("COLORFILL")
         val isNeon = activeEffect.contains("NEON")
         val isFrosted = activeEffect.contains("FROSTED")
-        val showNoiseSwitch = !isHalftone && !isColorFill && !isNeon
+        val isGlass = activeEffect.contains("GLASS")
+        val isAtmosphere = AtmosphereGlassPolicy.supportsEffect(activeEffect)
+        val showNoiseSwitch = !isHalftone && !isColorFill && !isNeon && !isGlass
         val showBlob = activeEffect == "ORIGINAL" || activeEffect == "REVERSE"
+        val usesSubjectModel = isNeon || isGlass || isHalftone || isAtmosphere
 
         val defaultDuration = EffectCatalog.recommendedDurationMillis(activeEffect)
         val defaultDimness = EffectCatalog.defaultDimness(activeEffect)
@@ -58,6 +69,8 @@ class AdvancedSettingsActivity : ComponentActivity() {
 
         val prefs = getSharedPreferences("app_prefs", MODE_PRIVATE)
         val wpPrefs = getSharedPreferences("wallpaper_prefs", Context.MODE_PRIVATE)
+        val glassSettings = GlassEffectPreferences.readAndMigrate(prefs)
+        val behaviorSettings = WallpaperBehaviorPreferences.read(this)
 
         val savedRotation = wpPrefs.getLong("rotation_interval_minutes", 0)
         val savedRotationIndex = rotationValues.indexOf(savedRotation).takeIf { it >= 0 } ?: 0
@@ -74,6 +87,13 @@ class AdvancedSettingsActivity : ComponentActivity() {
             showColorFill = isColorFill,
             showNeon = isNeon,
             showFrosted = isFrosted,
+            showGlass = isGlass,
+            showAtmosphereGlassToggle = isAtmosphere,
+            atmosphereGlassEnabled = AtmosphereGlassPolicy.resolveEnabled(
+                activeEffect,
+                prefs.readBoolean(AtmosphereGlassPolicy.ENABLED_KEY, false)
+            ),
+            glassReverse = activeEffect == "GLASS_REVERSE",
             showNoiseSwitch = showNoiseSwitch,
             showBlob = showBlob,
             isPlaylistMode = isPlaylistMode,
@@ -82,6 +102,8 @@ class AdvancedSettingsActivity : ComponentActivity() {
             poll = if (savedPoll != -1L) savedPoll.toString() else defaultPoll.toString(),
             delay = if (savedDelay != -1L) savedDelay.toString() else defaultDelay.toString(),
             duration = if (savedDuration != -1L) savedDuration.toString() else defaultDuration.toString(),
+            transitionsEnabled = behaviorSettings.transitionsEnabled,
+            alwaysAppliedTarget = behaviorSettings.alwaysAppliedTarget,
             dimness = prefs.getFloat("dim_level", defaultDimness),
             blurStrength = prefs.getFloat("frosted_blur_radius", 200f),
             enableNoise = prefs.getBoolean("enable_noise", false),
@@ -95,8 +117,16 @@ class AdvancedSettingsActivity : ComponentActivity() {
             contrast = prefs.getFloat("blob_contrast", 1.0f),
             neonSensitivity = prefs.getFloat("neon_sensitivity", 0.5f),
             neonLineWidth = prefs.getFloat("neon_line_width", 1.5f),
+            glassLineCount = glassSettings.lineCount,
+            glassLineThickness = glassSettings.lineThickness,
+            glassTransitionStyle = glassSettings.transitionStyle,
+            glassBackgroundOnly = glassSettings.backgroundOnly,
+            halftoneBackgroundOnly = prefs.readBoolean(
+                SubjectIsolationPolicy.HALFTONE_BACKGROUND_ONLY_KEY,
+                false
+            ),
             subjectSegmentationEnabled =
-                prefs.getBoolean(CanvasSubjectSettings.ENABLED_KEY, false),
+                prefs.readBoolean(CanvasSubjectSettings.ENABLED_KEY, false),
             scrollEnabled = WallpaperFitHelper.isScrollEnabled(this)
         )
 
@@ -110,7 +140,7 @@ class AdvancedSettingsActivity : ComponentActivity() {
                 SubjectModelBuild.delivery == SubjectModelDelivery.BUNDLED_FOSS
             ) 100 else null
         )
-        if (isNeon) {
+        if (usesSubjectModel) {
             subjectModelManager = SubjectModelManager(applicationContext)
         }
 
@@ -133,8 +163,8 @@ class AdvancedSettingsActivity : ComponentActivity() {
                         }
                     }
                 }
-                LaunchedEffect(isNeon) {
-                    if (isNeon) {
+                LaunchedEffect(usesSubjectModel) {
+                    if (usesSubjectModel) {
                         subjectModelManager?.checkAvailability(updateSubjectModelState)
                     }
                 }
@@ -150,7 +180,15 @@ class AdvancedSettingsActivity : ComponentActivity() {
                         manager.download(updateSubjectModelState)
                     },
                     onApply = { result ->
-                        applySettings(result, prefs, wpPrefs, defaultPoll, defaultDelay, defaultDuration)
+                        applySettings(
+                            result,
+                            prefs,
+                            wpPrefs,
+                            defaultPoll,
+                            defaultDelay,
+                            defaultDuration,
+                            updateAtmosphereGlass = isAtmosphere
+                        )
                     },
                     onReset = { resetSettings(prefs) },
                     onBack = { finish() }
@@ -161,11 +199,12 @@ class AdvancedSettingsActivity : ComponentActivity() {
 
     private fun applySettings(
         result: AdvancedResult,
-        prefs: android.content.SharedPreferences,
-        wpPrefs: android.content.SharedPreferences,
+        prefs: SharedPreferences,
+        wpPrefs: SharedPreferences,
         defaultPoll: Long,
         defaultDelay: Long,
-        defaultDuration: Long
+        defaultDuration: Long,
+        updateAtmosphereGlass: Boolean
     ) {
         val poll = result.poll.toLongOrNull() ?: defaultPoll
         val delay = result.delay.toLongOrNull() ?: defaultDelay
@@ -176,6 +215,13 @@ class AdvancedSettingsActivity : ComponentActivity() {
             rotationValues.getOrElse(result.rotationIndex) { rotationValues[0] }
 
         wpPrefs.edit { putLong("rotation_interval_minutes", selectedRotationValue) }
+        WallpaperBehaviorPreferences.write(
+            this,
+            WallpaperBehaviorSettings(
+                transitionsEnabled = result.transitionsEnabled,
+                alwaysAppliedTarget = result.alwaysAppliedTarget
+            )
+        )
 
         prefs.edit {
             putLong("poll_interval", poll)
@@ -194,6 +240,32 @@ class AdvancedSettingsActivity : ComponentActivity() {
             putFloat("origin_y", result.originY)
             putFloat("neon_sensitivity", result.neonSensitivity)
             putFloat("neon_line_width", result.neonLineWidth)
+            if (updateAtmosphereGlass) {
+                putBoolean(
+                    AtmosphereGlassPolicy.ENABLED_KEY,
+                    result.atmosphereGlassEnabled
+                )
+            }
+            putInt(
+                GlassEffectPolicy.LINE_COUNT_KEY,
+                GlassEffectPolicy.sanitizeLineCount(result.glassLineCount)
+            )
+            putFloat(
+                GlassEffectPolicy.LINE_THICKNESS_KEY,
+                GlassEffectPolicy.sanitizeLineThickness(result.glassLineThickness)
+            )
+            putString(
+                GlassEffectPolicy.TRANSITION_STYLE_KEY,
+                result.glassTransitionStyle.storedValue
+            )
+            putBoolean(
+                GlassEffectPolicy.BACKGROUND_ONLY_KEY,
+                result.glassBackgroundOnly
+            )
+            putBoolean(
+                SubjectIsolationPolicy.HALFTONE_BACKGROUND_ONLY_KEY,
+                result.halftoneBackgroundOnly
+            )
             putBoolean(CanvasSubjectSettings.ENABLED_KEY, result.subjectSegmentationEnabled)
         }
 
@@ -210,7 +282,8 @@ class AdvancedSettingsActivity : ComponentActivity() {
         sendUpdateBroadcast()
     }
 
-    private fun resetSettings(prefs: android.content.SharedPreferences) {
+    private fun resetSettings(prefs: SharedPreferences) {
+        WallpaperBehaviorPreferences.reset(this)
         prefs.edit {
             remove("poll_interval")
             remove("lock_delay")
@@ -228,6 +301,13 @@ class AdvancedSettingsActivity : ComponentActivity() {
             remove("origin_y")
             remove("neon_sensitivity")
             remove("neon_line_width")
+            remove(AtmosphereGlassPolicy.ENABLED_KEY)
+            remove(GlassEffectPolicy.LINE_COUNT_KEY)
+            remove(GlassEffectPolicy.LINE_THICKNESS_KEY)
+            remove(GlassEffectPolicy.TRANSITION_STYLE_KEY)
+            remove(GlassEffectPolicy.BACKGROUND_ONLY_KEY)
+            remove(GlassEffectPolicy.PRESET_VERSION_KEY)
+            remove(SubjectIsolationPolicy.HALFTONE_BACKGROUND_ONLY_KEY)
             remove(CanvasSubjectSettings.ENABLED_KEY)
         }
         sendUpdateBroadcast()
@@ -245,5 +325,27 @@ class AdvancedSettingsActivity : ComponentActivity() {
         sendBroadcast(intent)
         Toast.makeText(this, "Settings Applied!", Toast.LENGTH_SHORT).show()
         finish()
+    }
+
+    private fun SharedPreferences.readFloat(key: String, fallback: Float): Float {
+        return try {
+            getFloat(key, fallback)
+        } catch (failure: ClassCastException) {
+            Log.w(TAG, "Preference '$key' has the wrong type; using $fallback", failure)
+            fallback
+        }
+    }
+
+    private fun SharedPreferences.readBoolean(key: String, fallback: Boolean): Boolean {
+        return try {
+            getBoolean(key, fallback)
+        } catch (failure: ClassCastException) {
+            Log.w(TAG, "Preference '$key' has the wrong type; using $fallback", failure)
+            fallback
+        }
+    }
+
+    private companion object {
+        const val TAG = "AdvancedSettings"
     }
 }
