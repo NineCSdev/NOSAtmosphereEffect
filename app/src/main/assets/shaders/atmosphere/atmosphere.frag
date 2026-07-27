@@ -2,6 +2,7 @@
 precision highp float;
 // hashU needs 32-bit ints; ES 3.00 defaults to mediump (only 16 bits guaranteed).
 precision highp int;
+
 in vec2 vTexCoord;
 in vec2 vEffectCoord;
 out vec4 fragColor;
@@ -153,7 +154,7 @@ uint hashU(uvec2 p) {
 }
 
 float random(vec2 co) {
-    return fract(sin(dot(co.xy, vec2(12.9898, 78.233))) * 43758.5453);
+    return float(hashU(uvec2(co)) & 0xFFFFFFu) / float(0x1000000u);
 }
 
 void main() {
