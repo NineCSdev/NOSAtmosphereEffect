@@ -1,6 +1,7 @@
 #version 300 es
 precision highp float;
-
+// hashU needs 32-bit ints; ES 3.00 defaults to mediump (only 16 bits guaranteed).
+precision highp int;
 in vec2 vTexCoord;
 in vec2 vEffectCoord;
 out vec4 fragColor;
@@ -138,6 +139,17 @@ vec3 adjustColor(vec3 color) {
     float luminance = dot(color, vec3(0.299, 0.587, 0.114));
     color = mix(vec3(luminance), color, max(uSaturation, 0.0));
     return clamp(color, 0.0, 1.0);
+}
+
+// Bit-mixing hash, replacing fract(sin(dot(...))) -- that idiom collapses to a repeating pattern
+// at the coordinate magnitudes this grain grid produces (see #85).
+// uint overflow is defined wrapping in GLSL ES.
+uint hashU(uvec2 p) {
+    uint h = p.x * 73856093u ^ p.y * 19349663u;
+    h ^= h >> 13;
+    h *= 0x85ebca6bu;
+    h ^= h >> 16;
+    return h;
 }
 
 float random(vec2 co) {
