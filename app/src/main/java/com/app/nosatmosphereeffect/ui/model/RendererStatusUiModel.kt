@@ -12,12 +12,14 @@ enum class RendererBackendUi {
 
 data class RendererStatusUiModel(
     val backend: RendererBackendUi,
-    val vulkanVersion: String?
+    val vulkanVersion: String?,
+    val fallbackReason: String? = null
 ) {
     init {
         require(
             when (backend) {
-                RendererBackendUi.VULKAN -> !vulkanVersion.isNullOrBlank()
+                RendererBackendUi.VULKAN ->
+                    !vulkanVersion.isNullOrBlank() && fallbackReason == null
                 RendererBackendUi.OPENGL_ES -> vulkanVersion == null
             }
         ) { "The renderer backend and Vulkan version must describe the same active state" }
@@ -30,7 +32,7 @@ data class RendererStatusUiModel(
         fun vulkanActive(version: String?): RendererStatusUiModel {
             val normalizedVersion = version?.trim().orEmpty()
             return if (normalizedVersion.isEmpty()) {
-                openGlFallback()
+                openGlActive()
             } else {
                 RendererStatusUiModel(
                     backend = RendererBackendUi.VULKAN,
@@ -39,10 +41,15 @@ data class RendererStatusUiModel(
             }
         }
 
-        fun openGlFallback(): RendererStatusUiModel = RendererStatusUiModel(
-            backend = RendererBackendUi.OPENGL_ES,
-            vulkanVersion = null
-        )
+        fun openGlActive(fallbackReason: String? = null): RendererStatusUiModel =
+            RendererStatusUiModel(
+                backend = RendererBackendUi.OPENGL_ES,
+                vulkanVersion = null,
+                fallbackReason = fallbackReason
+                    ?.trim()
+                    ?.takeIf(String::isNotEmpty)
+                    ?.take(500)
+            )
     }
 }
 
@@ -52,26 +59,19 @@ fun rendererStatusUiModel(
     runtimeStatus: RendererRuntimeStatus
 ): RendererStatusUiModel? {
     if (!wallpaperActive || activeEffectId == null) return null
-    if (activeEffectId !in VULKAN_EFFECT_IDS) {
-        return RendererStatusUiModel.openGlFallback()
-    }
     if (runtimeStatus.effectId != activeEffectId) return null
+    if (runtimeStatus.phase != RendererRuntimePhase.ACTIVE) return null
 
-    if (runtimeStatus.isVulkanActive) {
-        val version = runtimeStatus.activeVulkanApiVersion
-            ?.let(VulkanApiVersion::fromEncoded)
-            ?: return null
-        return RendererStatusUiModel.vulkanActive(version.toString())
-    }
-
-    return if (
-        runtimeStatus.phase == RendererRuntimePhase.ACTIVE &&
-        runtimeStatus.activeBackend == GraphicsBackend.OPENGL_ES
-    ) {
-        RendererStatusUiModel.openGlFallback()
-    } else {
-        null
+    return when (runtimeStatus.activeBackend) {
+        GraphicsBackend.VULKAN -> {
+            val version = runtimeStatus.activeVulkanApiVersion
+                ?.let(VulkanApiVersion::fromEncoded)
+                ?: return null
+            RendererStatusUiModel.vulkanActive(version.toString())
+        }
+        GraphicsBackend.OPENGL_ES -> RendererStatusUiModel.openGlActive(
+            runtimeStatus.fallbackReason
+        )
+        null -> null
     }
 }
-
-private val VULKAN_EFFECT_IDS = setOf("COLORFILL", "COLORFILL_REVERSE")

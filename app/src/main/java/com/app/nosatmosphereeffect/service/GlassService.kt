@@ -3,13 +3,14 @@ package com.app.nosatmosphereeffect.service
 import android.content.SharedPreferences
 import android.graphics.Bitmap
 import android.util.Log
+import com.app.nosatmosphereeffect.helper.GLWallpaperService
 import com.app.nosatmosphereeffect.helper.GlassEffectPreferences
 import com.app.nosatmosphereeffect.helper.GlassEffectPolicy
-import com.app.nosatmosphereeffect.renderer.GlassRenderer
+import com.app.nosatmosphereeffect.renderer.GlassRenderController
 
 abstract class GlassWallpaperService protected constructor(
-    reverseEffect: Boolean
-) : GlAnimatedEffectWallpaperService<GlassRenderer>() {
+    private val reverseEffect: Boolean
+) : AnimatedEffectWallpaperService<GlassRenderController>() {
 
     final override val effectId = if (reverseEffect) "GLASS_REVERSE" else "GLASS"
     final override val lockedProgress = GlassEffectPolicy.shaderProgress(0f, reverseEffect)
@@ -17,43 +18,50 @@ abstract class GlassWallpaperService protected constructor(
     final override val defaultAnimationDurationMs = 1_200L
     final override val initialProgress: Float? = if (reverseEffect) 1f else null
 
-    final override fun createEffectRenderer(): GlassRenderer {
-        return GlassRenderer(applicationContext)
+    final override fun createEffectRenderer(): GlassRenderController {
+        return GlassRenderController(applicationContext, reverseEffect)
+    }
+
+    final override fun attachEffectRenderer(
+        engine: GLWallpaperService.GLEngine,
+        renderer: GlassRenderController
+    ) {
+        renderer.attach(engine)
     }
 
     final override fun configureRenderer(
-        renderer: GlassRenderer,
+        renderer: GlassRenderController,
         preferences: SharedPreferences
     ) {
-        renderer.dimLevel = preferences.readFloat("dim_level", 0f)
         val settings = GlassEffectPreferences.readAndMigrate(preferences)
-        renderer.lineCount = settings.lineCount
-        renderer.lineThickness = settings.lineThickness
-        renderer.transitionStyle = settings.transitionStyle
-        renderer.configureBackgroundOnly(settings.backgroundOnly)
+        renderer.configure(
+            dimLevel = preferences.readFloat("dim_level", 0f),
+            lineCount = settings.lineCount,
+            lineThickness = settings.lineThickness,
+            transitionStyle = settings.transitionStyle,
+            backgroundOnly = settings.backgroundOnly
+        )
     }
 
-    final override fun setEffectProgress(renderer: GlassRenderer, progress: Float) {
-        renderer.progress = progress
+    final override fun setEffectProgress(
+        renderer: GlassRenderController,
+        progress: Float
+    ) {
+        renderer.setProgress(progress)
     }
 
-    final override fun reloadRenderer(renderer: GlassRenderer) {
+    final override fun reloadRenderer(renderer: GlassRenderController) {
         renderer.reloadTexture()
     }
 
-    final override fun queuePlaylistTransition(renderer: GlassRenderer, bitmap: Bitmap) {
+    final override fun queuePlaylistTransition(
+        renderer: GlassRenderController,
+        bitmap: Bitmap
+    ) {
         renderer.queuePlaylistTransition(bitmap)
     }
 
-    final override fun onRendererAttached(
-        renderer: GlassRenderer,
-        requestRender: () -> Unit
-    ) {
-        renderer.onRenderRetryRequested = requestRender
-        renderer.onSubjectMaskUpdated = requestRender
-    }
-
-    final override fun releaseRenderer(renderer: GlassRenderer) {
+    final override fun releaseRenderer(renderer: GlassRenderController) {
         renderer.release()
     }
 

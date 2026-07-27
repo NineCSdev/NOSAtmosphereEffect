@@ -11,7 +11,7 @@ EFFECTS
 • Simple Frosted and Reverse Frosted
 • Halftone Print and Reverse Halftone
 
-Each effect uses the same renderer in its preview and the live wallpaper, so you can see how your image and effect behavior will look before applying it.
+Each effect has a lightweight preview matched to the live wallpaper's settings, so you can see how your image and effect behavior will look before applying it.
 
 TRANSITIONS OR CONTINUOUS EFFECTS
 In Fine tuning > Timing, use Animate transitions to switch between the normal lock-to-home animation and a mode that keeps the effect fully applied on the selected screen or screens, with the original image on any other screen and no unlock transition.
@@ -41,8 +41,8 @@ When setting or editing an image for Original or Reverse Atmosphere, enable Add 
 MATERIAL 3 INTERFACE
 Use Material Expressive styling with the device's system color palette, or switch to fixed app colors. Appearance controls include System, Light, and Dark modes plus an optional pitch-black background in dark mode.
 
-VULKAN COLOR FILL
-Color Fill automatically uses the highest Vulkan version supported by both the Android loader and the device GPU, from Vulkan 1.4 through 1.1. If Vulkan is unavailable or fails safely, Atmo returns to the equivalent OpenGL ES renderer. An animated status at the bottom of the main screen shows whether Vulkan is genuinely active and, when active, its negotiated version.
+AUTOMATIC VULKAN RENDERING
+Every live effect and reverse effect automatically uses the highest Vulkan version supported by both the Android loader and the installed GPU driver, from Vulkan 1.4 through 1.1. If Vulkan is unavailable or an effect fails safely, Atmo returns that effect to its equivalent OpenGL ES renderer without disabling Vulkan for the others. An animated status at the bottom of the main screen shows the backend that genuinely presented the live wallpaper and, when Vulkan is active, its negotiated version.
 
 OFFLINE-FIRST PRIVACY
 Wallpaper images, crops, sketches, palettes, and playlists are processed and stored on-device. Atmo Engine does not request Internet or network-state permission and contains no developer-operated advertising or analytics.

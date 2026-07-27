@@ -9,16 +9,50 @@ import org.junit.Test
 
 class RendererRuntimeStatusRepositoryTest {
     @Test
+    fun everyWallpaperEffectCanPublishEitherRuntimeBackend() {
+        ALL_EFFECT_IDS.forEach { effectId ->
+            val openGlTracker = tracker()
+            val openGlSession = openGlTracker.recordSelection(
+                effectId = effectId,
+                selectedBackend = GraphicsBackend.OPENGL_ES,
+                vulkanCapability = VulkanDeviceCapability.UNKNOWN,
+                probedVulkanApiVersion = null
+            )
+            val openGl = openGlTracker.recordOpenGlActive(openGlSession)
+
+            assertEquals(effectId, openGl.effectId)
+            assertEquals(GraphicsBackend.OPENGL_ES, openGl.activeBackend)
+            assertFalse(openGl.isVulkanActive)
+
+            val vulkanTracker = tracker()
+            val vulkanSession = vulkanTracker.recordSelection(
+                effectId = effectId,
+                selectedBackend = GraphicsBackend.VULKAN,
+                vulkanCapability = VulkanDeviceCapability.SUPPORTED,
+                probedVulkanApiVersion = VULKAN_1_3
+            )
+            vulkanTracker.recordVulkanInitializing(vulkanSession)
+            val vulkan = vulkanTracker.recordVulkanActive(vulkanSession, VULKAN_1_2)
+
+            assertEquals(effectId, vulkan.effectId)
+            assertEquals(GraphicsBackend.VULKAN, vulkan.activeBackend)
+            assertEquals(VULKAN_1_2, vulkan.activeVulkanApiVersion)
+            assertTrue(vulkan.isVulkanActive)
+        }
+    }
+
+    @Test
     fun selectionAndInitializationNeverClaimVulkanIsActive() {
         val tracker = tracker()
 
-        val selected = tracker.recordSelection(
+        val session = tracker.recordSelection(
             effectId = COLOR_FILL,
             selectedBackend = GraphicsBackend.VULKAN,
             vulkanCapability = VulkanDeviceCapability.SUPPORTED,
             probedVulkanApiVersion = VULKAN_1_3
         )
-        val initializing = tracker.recordVulkanInitializing(COLOR_FILL)
+        val selected = tracker.currentStatus()
+        val initializing = tracker.recordVulkanInitializing(session)
 
         assertEquals(RendererRuntimePhase.SELECTED, selected.phase)
         assertEquals(GraphicsBackend.VULKAN, selected.selectedBackend)
@@ -32,15 +66,15 @@ class RendererRuntimeStatusRepositoryTest {
     @Test
     fun firstSuccessfulPresentCanPublishTheActiveVulkanVersion() {
         val tracker = tracker()
-        tracker.recordSelection(
+        val session = tracker.recordSelection(
             effectId = COLOR_FILL,
             selectedBackend = GraphicsBackend.VULKAN,
             vulkanCapability = VulkanDeviceCapability.SUPPORTED,
             probedVulkanApiVersion = VULKAN_1_3
         )
-        tracker.recordVulkanInitializing(COLOR_FILL)
+        tracker.recordVulkanInitializing(session)
 
-        val active = tracker.recordVulkanActive(COLOR_FILL, VULKAN_1_2)
+        val active = tracker.recordVulkanActive(session, VULKAN_1_2)
 
         assertEquals(RendererRuntimePhase.ACTIVE, active.phase)
         assertEquals(GraphicsBackend.VULKAN, active.activeBackend)
@@ -52,16 +86,16 @@ class RendererRuntimeStatusRepositoryTest {
     @Test
     fun openGlFallbackRetainsSelectionAndReasonButClearsVulkanVersion() {
         val tracker = tracker()
-        tracker.recordSelection(
+        val session = tracker.recordSelection(
             effectId = COLOR_FILL,
             selectedBackend = GraphicsBackend.VULKAN,
             vulkanCapability = VulkanDeviceCapability.SUPPORTED,
             probedVulkanApiVersion = VULKAN_1_3
         )
-        tracker.recordVulkanInitializing(COLOR_FILL)
+        tracker.recordVulkanInitializing(session)
 
         val fallback = tracker.recordOpenGlActive(
-            effectId = COLOR_FILL,
+            session = session,
             reason = "  Swapchain creation failed  "
         )
 
@@ -77,13 +111,14 @@ class RendererRuntimeStatusRepositoryTest {
     fun anOpenGlSelectionCanDescribeAnUnsupportedDeviceWithoutPretendingItIsActive() {
         val tracker = tracker()
 
-        val selected = tracker.recordSelection(
+        tracker.recordSelection(
             effectId = COLOR_FILL,
             selectedBackend = GraphicsBackend.OPENGL_ES,
             vulkanCapability = VulkanDeviceCapability.UNSUPPORTED,
             probedVulkanApiVersion = null,
             fallbackReason = "Vulkan 1.1 is not advertised by this device"
         )
+        val selected = tracker.currentStatus()
 
         assertEquals(VulkanDeviceCapability.UNSUPPORTED, selected.vulkanCapability)
         assertEquals(GraphicsBackend.OPENGL_ES, selected.selectedBackend)
@@ -95,13 +130,13 @@ class RendererRuntimeStatusRepositoryTest {
     fun persistedActiveStateNeedsConfirmationFromTheNewProcess() {
         val store = FakeStore()
         val firstProcess = tracker(store = store, processSessionId = "process-a")
-        firstProcess.recordSelection(
+        val firstSession = firstProcess.recordSelection(
             effectId = COLOR_FILL,
             selectedBackend = GraphicsBackend.VULKAN,
             vulkanCapability = VulkanDeviceCapability.SUPPORTED,
             probedVulkanApiVersion = VULKAN_1_3
         )
-        firstProcess.recordVulkanActive(COLOR_FILL, VULKAN_1_2)
+        firstProcess.recordVulkanActive(firstSession, VULKAN_1_2)
 
         val secondProcess = tracker(store = store, processSessionId = "process-b")
         val restored = secondProcess.currentStatus()
@@ -112,7 +147,13 @@ class RendererRuntimeStatusRepositoryTest {
         assertNull(restored.activeVulkanApiVersion)
         assertFalse(restored.isVulkanActive)
 
-        val confirmed = secondProcess.recordVulkanActive(COLOR_FILL, VULKAN_1_2)
+        val secondSession = secondProcess.recordSelection(
+            effectId = COLOR_FILL,
+            selectedBackend = GraphicsBackend.VULKAN,
+            vulkanCapability = VulkanDeviceCapability.SUPPORTED,
+            probedVulkanApiVersion = VULKAN_1_3
+        )
+        val confirmed = secondProcess.recordVulkanActive(secondSession, VULKAN_1_2)
         assertTrue(confirmed.isVulkanActive)
     }
 
@@ -123,16 +164,16 @@ class RendererRuntimeStatusRepositoryTest {
         val listener = RendererRuntimeStatusListener(observed::add)
 
         tracker.addListener(listener)
-        tracker.recordSelection(
+        val session = tracker.recordSelection(
             effectId = COLOR_FILL,
             selectedBackend = GraphicsBackend.OPENGL_ES,
             vulkanCapability = VulkanDeviceCapability.UNSUPPORTED,
             probedVulkanApiVersion = null,
             fallbackReason = "No compatible Vulkan driver"
         )
-        tracker.recordOpenGlActive(COLOR_FILL, "No compatible Vulkan driver")
+        tracker.recordOpenGlActive(session, "No compatible Vulkan driver")
         tracker.removeListener(listener)
-        tracker.recordReleased(COLOR_FILL)
+        tracker.recordReleased(session)
 
         assertEquals(
             listOf(
@@ -147,14 +188,16 @@ class RendererRuntimeStatusRepositoryTest {
     @Test
     fun aLateCallbackFromAnotherEffectCannotReplaceTheCurrentStatus() {
         val tracker = tracker()
-        val glassSelection = tracker.recordSelection(
+        tracker.recordSelection(
             effectId = "GLASS",
             selectedBackend = GraphicsBackend.OPENGL_ES,
             vulkanCapability = VulkanDeviceCapability.SUPPORTED,
             probedVulkanApiVersion = VULKAN_1_3
         )
+        val glassSelection = tracker.currentStatus()
+        val colorFillSession = RendererRuntimeSession("unregistered")
 
-        val result = tracker.recordVulkanActive(COLOR_FILL, VULKAN_1_2)
+        val result = tracker.recordVulkanActive(colorFillSession, VULKAN_1_2)
 
         assertEquals(glassSelection, result)
         assertEquals("GLASS", tracker.currentStatus().effectId)
@@ -164,15 +207,15 @@ class RendererRuntimeStatusRepositoryTest {
     @Test
     fun releasingAnOldEffectCannotClearTheNewRenderer() {
         val tracker = tracker()
-        tracker.recordSelection(
+        val glassSession = tracker.recordSelection(
             effectId = "GLASS",
             selectedBackend = GraphicsBackend.OPENGL_ES,
             vulkanCapability = VulkanDeviceCapability.SUPPORTED,
             probedVulkanApiVersion = VULKAN_1_3
         )
-        tracker.recordOpenGlActive("GLASS")
+        tracker.recordOpenGlActive(glassSession)
 
-        val result = tracker.recordReleased(COLOR_FILL)
+        val result = tracker.recordReleased(RendererRuntimeSession("unregistered"))
 
         assertEquals(RendererRuntimePhase.ACTIVE, result.phase)
         assertEquals("GLASS", result.effectId)
@@ -182,7 +225,7 @@ class RendererRuntimeStatusRepositoryTest {
     @Test
     fun releasingOneOfTwoEnginesForTheSameEffectKeepsTheOtherActive() {
         val tracker = tracker()
-        repeat(2) {
+        val sessions = List(2) {
             tracker.recordSelection(
                 effectId = COLOR_FILL,
                 selectedBackend = GraphicsBackend.VULKAN,
@@ -190,16 +233,109 @@ class RendererRuntimeStatusRepositoryTest {
                 probedVulkanApiVersion = VULKAN_1_3
             )
         }
-        tracker.recordVulkanActive(COLOR_FILL, VULKAN_1_2)
+        tracker.recordVulkanActive(sessions.first(), VULKAN_1_2)
 
-        val afterFirstRelease = tracker.recordReleased(COLOR_FILL)
-        val afterFinalRelease = tracker.recordReleased(COLOR_FILL)
+        val afterFirstRelease = tracker.recordReleased(sessions.last())
+        val afterFinalRelease = tracker.recordReleased(sessions.first())
 
         assertEquals(RendererRuntimePhase.ACTIVE, afterFirstRelease.phase)
         assertTrue(afterFirstRelease.isVulkanActive)
         assertEquals(RendererRuntimePhase.RELEASED, afterFinalRelease.phase)
         assertNull(afterFinalRelease.activeBackend)
         assertFalse(afterFinalRelease.isVulkanActive)
+    }
+
+    @Test
+    fun openGlCallbackCannotOverwriteAnotherLiveVulkanEngineForTheSameEffect() {
+        val tracker = tracker()
+        val vulkanSession = tracker.recordSelection(
+            effectId = COLOR_FILL,
+            selectedBackend = GraphicsBackend.VULKAN,
+            vulkanCapability = VulkanDeviceCapability.SUPPORTED,
+            probedVulkanApiVersion = VULKAN_1_3
+        )
+        val fallbackSession = tracker.recordSelection(
+            effectId = COLOR_FILL,
+            selectedBackend = GraphicsBackend.VULKAN,
+            vulkanCapability = VulkanDeviceCapability.SUPPORTED,
+            probedVulkanApiVersion = VULKAN_1_3
+        )
+        tracker.recordVulkanActive(vulkanSession, VULKAN_1_2)
+
+        val aggregate = tracker.recordOpenGlActive(
+            fallbackSession,
+            "The second engine failed"
+        )
+
+        assertTrue(aggregate.isVulkanActive)
+        assertEquals(GraphicsBackend.VULKAN, aggregate.activeBackend)
+        assertNull(aggregate.fallbackReason)
+    }
+
+    @Test
+    fun releasingVulkanEngineRevealsRemainingOpenGlFallback() {
+        val tracker = tracker()
+        val vulkanSession = tracker.recordSelection(
+            effectId = COLOR_FILL,
+            selectedBackend = GraphicsBackend.VULKAN,
+            vulkanCapability = VulkanDeviceCapability.SUPPORTED,
+            probedVulkanApiVersion = VULKAN_1_3
+        )
+        val fallbackSession = tracker.recordSelection(
+            effectId = COLOR_FILL,
+            selectedBackend = GraphicsBackend.VULKAN,
+            vulkanCapability = VulkanDeviceCapability.SUPPORTED,
+            probedVulkanApiVersion = VULKAN_1_3
+        )
+        tracker.recordVulkanActive(vulkanSession, VULKAN_1_2)
+        tracker.recordOpenGlActive(fallbackSession, "Swapchain creation failed")
+
+        val aggregate = tracker.recordReleased(vulkanSession)
+
+        assertEquals(RendererRuntimePhase.ACTIVE, aggregate.phase)
+        assertEquals(GraphicsBackend.OPENGL_ES, aggregate.activeBackend)
+        assertEquals("Swapchain creation failed", aggregate.fallbackReason)
+        assertFalse(aggregate.isVulkanActive)
+    }
+
+    @Test
+    fun unresolvedVulkanEnginePreventsPrematureOpenGlClaim() {
+        val tracker = tracker()
+        val openGlSession = tracker.recordSelection(
+            effectId = COLOR_FILL,
+            selectedBackend = GraphicsBackend.OPENGL_ES,
+            vulkanCapability = VulkanDeviceCapability.UNSUPPORTED,
+            probedVulkanApiVersion = null
+        )
+        tracker.recordOpenGlActive(openGlSession)
+        val vulkanSession = tracker.recordSelection(
+            effectId = COLOR_FILL,
+            selectedBackend = GraphicsBackend.VULKAN,
+            vulkanCapability = VulkanDeviceCapability.SUPPORTED,
+            probedVulkanApiVersion = VULKAN_1_3
+        )
+
+        val initializing = tracker.recordVulkanInitializing(vulkanSession)
+
+        assertEquals(RendererRuntimePhase.INITIALIZING, initializing.phase)
+        assertNull(initializing.activeBackend)
+        assertFalse(initializing.isVulkanActive)
+    }
+
+    @Test
+    fun callbacksAndDuplicateReleaseForAClosedSessionAreIgnored() {
+        val tracker = tracker()
+        val session = tracker.recordSelection(
+            effectId = COLOR_FILL,
+            selectedBackend = GraphicsBackend.VULKAN,
+            vulkanCapability = VulkanDeviceCapability.SUPPORTED,
+            probedVulkanApiVersion = VULKAN_1_3
+        )
+        val released = tracker.recordReleased(session)
+
+        assertEquals(released, tracker.recordVulkanActive(session, VULKAN_1_2))
+        assertEquals(released, tracker.recordOpenGlActive(session))
+        assertEquals(released, tracker.recordReleased(session))
     }
 
     @Test
@@ -215,7 +351,13 @@ class RendererRuntimeStatusRepositoryTest {
             )
         }
         expectIllegalArgument {
-            tracker.recordVulkanActive(COLOR_FILL, 0)
+            val session = tracker.recordSelection(
+                effectId = COLOR_FILL,
+                selectedBackend = GraphicsBackend.VULKAN,
+                vulkanCapability = VulkanDeviceCapability.SUPPORTED,
+                probedVulkanApiVersion = VULKAN_1_3
+            )
+            tracker.recordVulkanActive(session, 0)
         }
     }
 
@@ -236,12 +378,13 @@ class RendererRuntimeStatusRepositoryTest {
         )
         tracker.addListener { error("detached screen") }
 
-        val status = tracker.recordSelection(
+        tracker.recordSelection(
             effectId = COLOR_FILL,
             selectedBackend = GraphicsBackend.OPENGL_ES,
             vulkanCapability = VulkanDeviceCapability.UNSUPPORTED,
             probedVulkanApiVersion = null
         )
+        val status = tracker.currentStatus()
 
         assertEquals(RendererRuntimePhase.SELECTED, status.phase)
         assertEquals(3, reportedFailures)
@@ -282,5 +425,19 @@ class RendererRuntimeStatusRepositoryTest {
         const val COLOR_FILL = "COLORFILL"
         const val VULKAN_1_2 = 0x00402000
         const val VULKAN_1_3 = 0x00403000
+        val ALL_EFFECT_IDS = listOf(
+            "ORIGINAL",
+            "REVERSE",
+            "GLASS",
+            "GLASS_REVERSE",
+            "COLORFILL",
+            "COLORFILL_REVERSE",
+            "NEON",
+            "NEON_REVERSE",
+            "FROSTED",
+            "FROSTED_REVERSE",
+            "HALFTONE",
+            "HALFTONE_REVERSE"
+        )
     }
 }

@@ -78,6 +78,10 @@ fun interface RendererRuntimeStatusListener {
     fun onRendererRuntimeStatusChanged(status: RendererRuntimeStatus)
 }
 
+class RendererRuntimeSession internal constructor(
+    internal val id: String
+)
+
 object RendererRuntimeStatusRepository {
     private const val TAG = "RendererRuntimeStatus"
     private const val PREFS_NAME = "renderer_runtime_status"
@@ -95,7 +99,7 @@ object RendererRuntimeStatusRepository {
         vulkanCapability: VulkanDeviceCapability,
         probedVulkanApiVersion: Int?,
         fallbackReason: String? = null
-    ): RendererRuntimeStatus {
+    ): RendererRuntimeSession {
         return tracker(context).recordSelection(
             effectId = effectId,
             selectedBackend = selectedBackend,
@@ -107,32 +111,32 @@ object RendererRuntimeStatusRepository {
 
     fun recordVulkanInitializing(
         context: Context,
-        effectId: String
+        session: RendererRuntimeSession
     ): RendererRuntimeStatus {
-        return tracker(context).recordVulkanInitializing(effectId)
+        return tracker(context).recordVulkanInitializing(session)
     }
 
     fun recordVulkanActive(
         context: Context,
-        effectId: String,
+        session: RendererRuntimeSession,
         packedVersion: Int
     ): RendererRuntimeStatus {
-        return tracker(context).recordVulkanActive(effectId, packedVersion)
+        return tracker(context).recordVulkanActive(session, packedVersion)
     }
 
     fun recordOpenGlActive(
         context: Context,
-        effectId: String,
+        session: RendererRuntimeSession,
         reason: String? = null
     ): RendererRuntimeStatus {
-        return tracker(context).recordOpenGlActive(effectId, reason)
+        return tracker(context).recordOpenGlActive(session, reason)
     }
 
     fun recordReleased(
         context: Context,
-        effectId: String
+        session: RendererRuntimeSession
     ): RendererRuntimeStatus {
-        return tracker(context).recordReleased(effectId)
+        return tracker(context).recordReleased(session)
     }
 
     fun currentStatus(context: Context): RendererRuntimeStatus {
@@ -184,11 +188,13 @@ internal class RendererRuntimeStatusTracker(
     private val store: RendererRuntimeStatusStore,
     private val processSessionId: String,
     private val clock: () -> Long,
+    private val rendererSessionId: () -> String = { UUID.randomUUID().toString() },
     private val onError: (Throwable) -> Unit = {}
 ) {
     private val lock = Any()
     private val listeners = CopyOnWriteArraySet<RendererRuntimeStatusListener>()
-    private val liveSelectionsByEffect = mutableMapOf<String, Int>()
+    private val liveSessions = LinkedHashMap<RendererRuntimeSession, LiveRendererSession>()
+    private var selectionOrder = 0L
     private var status: RendererRuntimeStatus
 
     init {
@@ -228,7 +234,7 @@ internal class RendererRuntimeStatusTracker(
         vulkanCapability: VulkanDeviceCapability,
         probedVulkanApiVersion: Int?,
         fallbackReason: String? = null
-    ): RendererRuntimeStatus {
+    ): RendererRuntimeSession {
         val normalizedEffectId = effectId.normalizedEffectId()
         val normalizedProbe = probedVulkanApiVersion.validVersionOrNull()
         val normalizedReason = fallbackReason.normalizedReason()
@@ -242,55 +248,60 @@ internal class RendererRuntimeStatusTracker(
         ) {
             "Selecting Vulkan requires a supported device, a successful probe, and no fallback reason"
         }
-        return publish {
-            liveSelectionsByEffect[normalizedEffectId] =
-                liveSelectionsByEffect.getOrDefault(normalizedEffectId, 0) + 1
-            RendererRuntimeStatus(
-                phase = RendererRuntimePhase.SELECTED,
-                effectId = normalizedEffectId,
-                vulkanCapability = vulkanCapability,
-                probedVulkanApiVersion = normalizedProbe,
-                selectedBackend = selectedBackend,
-                activeBackend = null,
-                activeVulkanApiVersion = null,
-                fallbackReason = normalizedReason,
-                updatedAtEpochMillis = clock()
+        val session = RendererRuntimeSession(
+            id = "$processSessionId:${rendererSessionId()}"
+        )
+        mutateSessions { now ->
+            selectionOrder += 1L
+            liveSessions[session] = LiveRendererSession(
+                selectionOrder = selectionOrder,
+                status = RendererRuntimeStatus(
+                    phase = RendererRuntimePhase.SELECTED,
+                    effectId = normalizedEffectId,
+                    vulkanCapability = vulkanCapability,
+                    probedVulkanApiVersion = normalizedProbe,
+                    selectedBackend = selectedBackend,
+                    activeBackend = null,
+                    activeVulkanApiVersion = null,
+                    fallbackReason = normalizedReason,
+                    updatedAtEpochMillis = now
+                )
             )
+            SessionMutation.changed()
         }
+        return session
     }
 
-    fun recordVulkanInitializing(effectId: String): RendererRuntimeStatus {
-        val normalizedEffectId = effectId.normalizedEffectId()
-        return publishForCurrentEffect(normalizedEffectId) { current ->
+    fun recordVulkanInitializing(
+        session: RendererRuntimeSession
+    ): RendererRuntimeStatus {
+        return updateSession(session) { current, now ->
             if (current.selectedBackend == GraphicsBackend.OPENGL_ES) {
-                return@publishForCurrentEffect null
+                return@updateSession null
             }
             current.copy(
                 phase = RendererRuntimePhase.INITIALIZING,
-                effectId = normalizedEffectId,
                 vulkanCapability = VulkanDeviceCapability.SUPPORTED,
                 selectedBackend = GraphicsBackend.VULKAN,
                 activeBackend = null,
                 activeVulkanApiVersion = null,
                 fallbackReason = null,
-                updatedAtEpochMillis = clock()
+                updatedAtEpochMillis = now
             )
         }
     }
 
     fun recordVulkanActive(
-        effectId: String,
+        session: RendererRuntimeSession,
         packedVersion: Int
     ): RendererRuntimeStatus {
-        val normalizedEffectId = effectId.normalizedEffectId()
         require(packedVersion > 0) { "A reported Vulkan API version must be positive" }
-        return publishForCurrentEffect(normalizedEffectId) { current ->
+        return updateSession(session) { current, now ->
             if (current.selectedBackend == GraphicsBackend.OPENGL_ES) {
-                return@publishForCurrentEffect null
+                return@updateSession null
             }
             current.copy(
                 phase = RendererRuntimePhase.ACTIVE,
-                effectId = normalizedEffectId,
                 vulkanCapability = VulkanDeviceCapability.SUPPORTED,
                 probedVulkanApiVersion =
                     current.probedVulkanApiVersion ?: packedVersion,
@@ -298,90 +309,134 @@ internal class RendererRuntimeStatusTracker(
                 activeBackend = GraphicsBackend.VULKAN,
                 activeVulkanApiVersion = packedVersion,
                 fallbackReason = null,
-                updatedAtEpochMillis = clock()
+                updatedAtEpochMillis = now
             )
         }
     }
 
     fun recordOpenGlActive(
-        effectId: String,
+        session: RendererRuntimeSession,
         reason: String? = null
     ): RendererRuntimeStatus {
-        val normalizedEffectId = effectId.normalizedEffectId()
         val normalizedReason = reason.normalizedReason()
-        return publishForCurrentEffect(normalizedEffectId) { current ->
+        return updateSession(session) { current, now ->
             current.copy(
                 phase = RendererRuntimePhase.ACTIVE,
-                effectId = normalizedEffectId,
                 selectedBackend = current.selectedBackend ?: GraphicsBackend.OPENGL_ES,
                 activeBackend = GraphicsBackend.OPENGL_ES,
                 activeVulkanApiVersion = null,
                 fallbackReason = normalizedReason ?: current.fallbackReason,
-                updatedAtEpochMillis = clock()
+                updatedAtEpochMillis = now
             )
         }
     }
 
-    fun recordReleased(effectId: String): RendererRuntimeStatus {
-        val normalizedEffectId = effectId.normalizedEffectId()
-        return publish { current ->
-            val remainingSelections = (
-                liveSelectionsByEffect.getOrDefault(normalizedEffectId, 0) - 1
-                ).coerceAtLeast(0)
-            if (remainingSelections == 0) {
-                liveSelectionsByEffect.remove(normalizedEffectId)
-            } else {
-                liveSelectionsByEffect[normalizedEffectId] = remainingSelections
-            }
-            if (
-                current.effectId != normalizedEffectId ||
-                remainingSelections > 0
-            ) {
-                return@publish null
-            }
-            current.copy(
-                phase = RendererRuntimePhase.RELEASED,
-                activeBackend = null,
-                activeVulkanApiVersion = null,
-                updatedAtEpochMillis = clock()
-            )
-        }
-    }
-
-    private fun publishForCurrentEffect(
-        effectId: String,
-        transform: (RendererRuntimeStatus) -> RendererRuntimeStatus?
+    fun recordReleased(
+        session: RendererRuntimeSession
     ): RendererRuntimeStatus {
-        return publish { current ->
-            if (current.effectId != null && current.effectId != effectId) {
-                null
-            } else {
-                transform(current)
-            }
+        return mutateSessions { now ->
+            val removed = liveSessions.remove(session)
+                ?: return@mutateSessions SessionMutation.unchanged()
+            SessionMutation.changed(
+                emptyStatus = removed.status.copy(
+                    phase = RendererRuntimePhase.RELEASED,
+                    activeBackend = null,
+                    activeVulkanApiVersion = null,
+                    updatedAtEpochMillis = now
+                )
+            )
         }
     }
 
-    private fun publish(
-        transform: (RendererRuntimeStatus) -> RendererRuntimeStatus?
+    private fun updateSession(
+        session: RendererRuntimeSession,
+        transform: (RendererRuntimeStatus, Long) -> RendererRuntimeStatus?
+    ): RendererRuntimeStatus {
+        return mutateSessions { now ->
+            val current = liveSessions[session]
+                ?: return@mutateSessions SessionMutation.unchanged()
+            val transformed = transform(current.status, now)
+                ?: return@mutateSessions SessionMutation.unchanged()
+            if (transformed == current.status) {
+                return@mutateSessions SessionMutation.unchanged()
+            }
+            liveSessions[session] = current.copy(status = transformed)
+            SessionMutation.changed()
+        }
+    }
+
+    private fun mutateSessions(
+        mutation: (Long) -> SessionMutation
     ): RendererRuntimeStatus {
         val next: RendererRuntimeStatus
         val shouldNotify: Boolean
         synchronized(lock) {
-            val transformed = transform(status)
-            if (transformed == null || transformed == status) {
+            val now = clock()
+            val result = mutation(now)
+            if (!result.changed) {
                 next = status
                 shouldNotify = false
             } else {
-                status = transformed
-                next = transformed
-                shouldNotify = true
-                save(transformed)
+                val candidate = aggregateLiveStatus(now)
+                    ?: result.emptyStatus
+                    ?: RendererRuntimeStatus.idle(now)
+                if (candidate.sameDisplayStateAs(status)) {
+                    next = status
+                    shouldNotify = false
+                } else {
+                    status = candidate
+                    next = candidate
+                    shouldNotify = true
+                    save(candidate)
+                }
             }
         }
         if (shouldNotify) {
             listeners.forEach { listener -> notifyListener(listener, next) }
         }
         return next
+    }
+
+    private fun aggregateLiveStatus(now: Long): RendererRuntimeStatus? {
+        val latestEffect = liveSessions.values
+            .maxByOrNull(LiveRendererSession::selectionOrder)
+            ?.status
+            ?.effectId
+            ?: return null
+        val candidates = liveSessions.values
+            .filter { it.status.effectId == latestEffect }
+        val activeVulkan = candidates
+            .filter { it.status.isVulkanActive }
+            .maxByOrNull { it.status.updatedAtEpochMillis }
+        if (activeVulkan != null) {
+            return activeVulkan.status.copy(updatedAtEpochMillis = now)
+        }
+
+        val pendingVulkan = candidates
+            .filter {
+                it.status.selectedBackend == GraphicsBackend.VULKAN &&
+                    it.status.activeBackend == null
+            }
+            .maxWithOrNull(
+                compareBy<LiveRendererSession> {
+                    if (it.status.phase == RendererRuntimePhase.INITIALIZING) 1 else 0
+                }.thenBy { it.status.updatedAtEpochMillis }
+            )
+        if (pendingVulkan != null) {
+            return pendingVulkan.status.copy(updatedAtEpochMillis = now)
+        }
+
+        val activeOpenGl = candidates
+            .filter { it.status.activeBackend == GraphicsBackend.OPENGL_ES }
+            .maxByOrNull { it.status.updatedAtEpochMillis }
+        if (activeOpenGl != null) {
+            return activeOpenGl.status.copy(updatedAtEpochMillis = now)
+        }
+
+        return candidates
+            .maxByOrNull(LiveRendererSession::selectionOrder)
+            ?.status
+            ?.copy(updatedAtEpochMillis = now)
     }
 
     private fun save(status: RendererRuntimeStatus) {
@@ -401,6 +456,30 @@ internal class RendererRuntimeStatusTracker(
     ) {
         runCatching { listener.onRendererRuntimeStatusChanged(status) }
             .onFailure(onError)
+    }
+
+    private data class LiveRendererSession(
+        val selectionOrder: Long,
+        val status: RendererRuntimeStatus
+    )
+
+    private data class SessionMutation(
+        val changed: Boolean,
+        val emptyStatus: RendererRuntimeStatus?
+    ) {
+        companion object {
+            fun unchanged(): SessionMutation = SessionMutation(
+                changed = false,
+                emptyStatus = null
+            )
+
+            fun changed(
+                emptyStatus: RendererRuntimeStatus? = null
+            ): SessionMutation = SessionMutation(
+                changed = true,
+                emptyStatus = emptyStatus
+            )
+        }
     }
 }
 
@@ -483,6 +562,13 @@ private class SharedPreferencesRendererRuntimeStatusStore(
 private fun RendererRuntimePhase.requiresLiveProcessConfirmation(): Boolean {
     return this == RendererRuntimePhase.INITIALIZING ||
         this == RendererRuntimePhase.ACTIVE
+}
+
+private fun RendererRuntimeStatus.sameDisplayStateAs(
+    other: RendererRuntimeStatus
+): Boolean {
+    return copy(updatedAtEpochMillis = 0L) ==
+        other.copy(updatedAtEpochMillis = 0L)
 }
 
 private fun String.normalizedEffectId(): String {

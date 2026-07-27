@@ -6,16 +6,29 @@ enum class GraphicsBackend {
 }
 
 object GraphicsBackendSelector {
+    private val vulkanEffects = setOf(
+        "ORIGINAL",
+        "REVERSE",
+        "GLASS",
+        "GLASS_REVERSE",
+        "COLORFILL",
+        "COLORFILL_REVERSE",
+        "NEON",
+        "NEON_REVERSE",
+        "FROSTED",
+        "FROSTED_REVERSE",
+        "HALFTONE",
+        "HALFTONE_REVERSE"
+    )
+
     fun select(
         effectId: String,
         hasVulkan11: Boolean,
         nativeProbePassed: Boolean,
         blockedAfterFailure: Boolean
     ): GraphicsBackend {
-        val supportsNativeColorFill = effectId == "COLORFILL" ||
-            effectId == "COLORFILL_REVERSE"
         return if (
-            supportsNativeColorFill &&
+            effectId in vulkanEffects &&
             hasVulkan11 &&
             nativeProbePassed &&
             !blockedAfterFailure

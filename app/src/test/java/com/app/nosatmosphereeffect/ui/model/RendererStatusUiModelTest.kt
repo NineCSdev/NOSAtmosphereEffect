@@ -34,12 +34,21 @@ class RendererStatusUiModelTest {
     }
 
     @Test
-    fun explicitFallbackContainsNoVulkanVersion() {
-        val status = RendererStatusUiModel.openGlFallback()
+    fun explicitOpenGlStateContainsNoVulkanVersion() {
+        val status = RendererStatusUiModel.openGlActive()
 
         assertFalse(status.isVulkanActive)
         assertEquals(RendererBackendUi.OPENGL_ES, status.backend)
         assertNull(status.vulkanVersion)
+        assertNull(status.fallbackReason)
+    }
+
+    @Test
+    fun anActualVulkanFallbackRetainsItsNormalizedReason() {
+        val status = RendererStatusUiModel.openGlActive("  Swapchain failed  ")
+
+        assertEquals(RendererBackendUi.OPENGL_ES, status.backend)
+        assertEquals("Swapchain failed", status.fallbackReason)
     }
 
     @Test
@@ -53,15 +62,16 @@ class RendererStatusUiModelTest {
     }
 
     @Test
-    fun activeColorFillShowsTheVersionThatActuallyPresented() {
+    fun anyActiveEffectShowsTheVulkanVersionThatActuallyPresented() {
         val status = runtimeStatus(
+            effectId = "GLASS",
             activeBackend = GraphicsBackend.VULKAN,
             activeVulkanVersion = 0x00404000
         )
 
         val ui = rendererStatusUiModel(
             wallpaperActive = true,
-            activeEffectId = "COLORFILL",
+            activeEffectId = "GLASS",
             runtimeStatus = status
         )
 
@@ -70,8 +80,9 @@ class RendererStatusUiModelTest {
     }
 
     @Test
-    fun initializingColorFillDoesNotClaimThatVulkanIsActive() {
+    fun initializingEffectDoesNotClaimThatVulkanIsActive() {
         val status = runtimeStatus(
+            effectId = "HALFTONE",
             phase = RendererRuntimePhase.INITIALIZING,
             activeBackend = null,
             activeVulkanVersion = null
@@ -80,15 +91,23 @@ class RendererStatusUiModelTest {
         assertNull(
             rendererStatusUiModel(
                 wallpaperActive = true,
-                activeEffectId = "COLORFILL",
+                activeEffectId = "HALFTONE",
                 runtimeStatus = status
             )
         )
     }
 
     @Test
-    fun colorFillFallbackAndOtherEffectsReportOpenGl() {
+    fun anyEffectCanReportAnActiveOpenGlRenderer() {
         val fallback = runtimeStatus(
+            effectId = "COLORFILL",
+            activeBackend = GraphicsBackend.OPENGL_ES,
+            activeVulkanVersion = null,
+            fallbackReason = "Vulkan presentation failed"
+        )
+        val glass = runtimeStatus(
+            effectId = "GLASS",
+            selectedBackend = GraphicsBackend.OPENGL_ES,
             activeBackend = GraphicsBackend.OPENGL_ES,
             activeVulkanVersion = null
         )
@@ -101,11 +120,13 @@ class RendererStatusUiModelTest {
         val glassUi = rendererStatusUiModel(
             wallpaperActive = true,
             activeEffectId = "GLASS",
-            runtimeStatus = RendererRuntimeStatus.idle()
+            runtimeStatus = glass
         )
 
         assertEquals(RendererBackendUi.OPENGL_ES, colorFillUi?.backend)
+        assertEquals("Vulkan presentation failed", colorFillUi?.fallbackReason)
         assertEquals(RendererBackendUi.OPENGL_ES, glassUi?.backend)
+        assertNull(glassUi?.fallbackReason)
     }
 
     @Test
@@ -132,19 +153,22 @@ class RendererStatusUiModelTest {
     }
 
     private fun runtimeStatus(
+        effectId: String = "COLORFILL",
         phase: RendererRuntimePhase = RendererRuntimePhase.ACTIVE,
+        selectedBackend: GraphicsBackend = GraphicsBackend.VULKAN,
         activeBackend: GraphicsBackend?,
-        activeVulkanVersion: Int?
+        activeVulkanVersion: Int?,
+        fallbackReason: String? = null
     ): RendererRuntimeStatus {
         return RendererRuntimeStatus(
             phase = phase,
-            effectId = "COLORFILL",
+            effectId = effectId,
             vulkanCapability = VulkanDeviceCapability.SUPPORTED,
             probedVulkanApiVersion = 0x00404000,
-            selectedBackend = GraphicsBackend.VULKAN,
+            selectedBackend = selectedBackend,
             activeBackend = activeBackend,
             activeVulkanApiVersion = activeVulkanVersion,
-            fallbackReason = null,
+            fallbackReason = fallbackReason,
             updatedAtEpochMillis = 1L
         )
     }

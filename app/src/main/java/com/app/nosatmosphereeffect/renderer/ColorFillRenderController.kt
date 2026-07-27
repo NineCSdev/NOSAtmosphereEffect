@@ -6,6 +6,7 @@ import android.util.Log
 import com.app.nosatmosphereeffect.helper.GLWallpaperService
 import com.app.nosatmosphereeffect.helper.WallpaperRenderHost
 import com.app.nosatmosphereeffect.renderer.backend.GraphicsBackend
+import com.app.nosatmosphereeffect.renderer.status.RendererRuntimeSession
 import com.app.nosatmosphereeffect.renderer.status.RendererRuntimeStatusRepository
 import com.app.nosatmosphereeffect.renderer.vulkan.VulkanColorFillHost
 import com.app.nosatmosphereeffect.renderer.vulkan.VulkanSupport
@@ -23,6 +24,7 @@ class ColorFillRenderController(
     private var activeHost: WallpaperRenderHost? = null
     private var openGlRenderer: ColorFillRenderer? = null
     private var vulkanHost: VulkanColorFillHost? = null
+    private var runtimeSession: RendererRuntimeSession? = null
     private var closed = false
 
     fun attach(engine: GLWallpaperService.GLEngine) {
@@ -32,7 +34,11 @@ class ColorFillRenderController(
             this.engine = engine
         }
 
-        when (VulkanSupport.selectBackend(appContext, effectId)) {
+        val selection = VulkanSupport.selectBackend(appContext, effectId)
+        synchronized(lock) {
+            runtimeSession = selection.runtimeSession
+        }
+        when (selection.backend) {
             GraphicsBackend.VULKAN -> attachVulkan(engine)
             GraphicsBackend.OPENGL_ES -> attachOpenGl(engine)
         }
@@ -88,24 +94,32 @@ class ColorFillRenderController(
 
     fun release() {
         val vk: VulkanColorFillHost?
+        val session: RendererRuntimeSession?
         synchronized(lock) {
             if (closed) return
             closed = true
             vk = vulkanHost
+            session = runtimeSession
             vulkanHost = null
             openGlRenderer = null
             activeHost = null
             engine = null
+            runtimeSession = null
         }
         vk?.close()
-        publishRendererStatus("releasing the renderer") {
-            RendererRuntimeStatusRepository.recordReleased(appContext, effectId)
+        session?.let {
+            publishRendererStatus("releasing the renderer session", it) { runtimeSession ->
+                RendererRuntimeStatusRepository.recordReleased(
+                    context = appContext,
+                    session = runtimeSession
+                )
+            }
         }
     }
 
     private fun attachVulkan(engine: GLWallpaperService.GLEngine) {
-        publishRendererStatus("marking Vulkan as initializing") {
-            RendererRuntimeStatusRepository.recordVulkanInitializing(appContext, effectId)
+        publishRendererStatus("marking Vulkan as initializing") { session ->
+            RendererRuntimeStatusRepository.recordVulkanInitializing(appContext, session)
         }
         val snapshot = synchronized(lock) { state }
         val host = VulkanColorFillHost(
@@ -137,8 +151,8 @@ class ColorFillRenderController(
             openGlRenderer = renderer
             activeHost = host
         }
-        publishRendererStatus("marking OpenGL ES as active") {
-            RendererRuntimeStatusRepository.recordOpenGlActive(appContext, effectId)
+        publishRendererStatus("marking OpenGL ES as active") { session ->
+            RendererRuntimeStatusRepository.recordOpenGlActive(appContext, session)
         }
     }
 
@@ -149,7 +163,7 @@ class ColorFillRenderController(
             currentEngine = engine ?: return
         }
 
-        runCatching { VulkanSupport.recordFailure(appContext, reason) }
+        runCatching { VulkanSupport.recordFailure(appContext, effectId, reason) }
             .onFailure { failure ->
                 Log.w(TAG, "Unable to persist the Vulkan fallback state", failure)
             }
@@ -172,10 +186,10 @@ class ColorFillRenderController(
             vulkanHost = null
             activeHost = replacement
         }
-        publishRendererStatus("publishing the OpenGL ES fallback") {
+        publishRendererStatus("publishing the OpenGL ES fallback") { session ->
             RendererRuntimeStatusRepository.recordOpenGlActive(
                 context = appContext,
-                effectId = effectId,
+                session = session,
                 reason = reason
             )
         }
@@ -189,10 +203,10 @@ class ColorFillRenderController(
             !closed && activeHost === host
         }
         if (!isCurrentHost) return
-        publishRendererStatus("marking Vulkan as active") {
+        publishRendererStatus("marking Vulkan as active") { session ->
             RendererRuntimeStatusRepository.recordVulkanActive(
                 context = appContext,
-                effectId = effectId,
+                session = session,
                 packedVersion = packedVersion
             )
         }
@@ -230,9 +244,11 @@ class ColorFillRenderController(
 
     private inline fun publishRendererStatus(
         operation: String,
-        publish: () -> Unit
+        session: RendererRuntimeSession? = synchronized(lock) { runtimeSession },
+        publish: (RendererRuntimeSession) -> Unit
     ) {
-        runCatching(publish)
+        if (session == null) return
+        runCatching { publish(session) }
             .onFailure { failure ->
                 Log.w(TAG, "Unable to update renderer status while $operation", failure)
             }

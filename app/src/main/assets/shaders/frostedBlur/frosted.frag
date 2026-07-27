@@ -1,7 +1,5 @@
 #version 300 es
 precision highp float;
-// hashU needs 32-bit ints; ES 3.00 defaults to mediump (only 16 bits guaranteed).
-precision highp int;
 
 in vec2 vTexCoord;
 out vec4 fragColor;
@@ -20,19 +18,8 @@ uniform float uNoiseStrength;
 // App-drawer / recents blur, driven by wallpaper visibility. 0 = in view, 1 = hidden.
 uniform float uDrawerBlur;
 
-// Bit-mixing hash, replacing fract(sin(dot(...))) -- that idiom collapses to a repeating pattern
-// at the coordinate magnitudes this grain grid produces (see #85).
-// uint overflow is defined wrapping in GLSL ES.
-uint hashU(uvec2 p) {
-    uint h = p.x * 73856093u ^ p.y * 19349663u;
-    h ^= h >> 13;
-    h *= 0x85ebca6bu;
-    h ^= h >> 16;
-    return h;
-}
-
 float random(vec2 co) {
-    return float(hashU(uvec2(co)) & 0xFFFFFFu) / float(0x1000000u);
+    return fract(sin(dot(co.xy, vec2(12.9898, 78.233))) * 43758.5453);
 }
 
 void main() {

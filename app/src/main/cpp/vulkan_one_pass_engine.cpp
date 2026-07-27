@@ -1,4 +1,4 @@
-#include <jni.h>
+#include "vulkan_one_pass_engine.h"
 
 #include <android/asset_manager_jni.h>
 #include <android/bitmap.h>
@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <limits>
@@ -16,13 +17,12 @@
 #include <string>
 #include <vector>
 
+namespace atmo::vulkan {
 namespace {
 
 constexpr char kLogTag[] = "AtmoVulkan";
-constexpr char kVertexShader[] =
-    "shaders/vulkan/colorfill/colorfill.vert.spv";
-constexpr char kFragmentShader[] =
-    "shaders/vulkan/colorfill/colorfill.frag.spv";
+constexpr uint32_t kMaximumTextureBindings = 8;
+constexpr uint32_t kMaximumPushConstantBytes = 128;
 constexpr uint32_t kVulkanApi14 =
     VK_MAKE_API_VERSION(0, 1, 4, 0);
 constexpr std::array<uint32_t, 4> kSupportedCoreApiVersions{
@@ -191,28 +191,67 @@ uint32_t probeVulkanRuntime() {
     return supportedVersion;
 }
 
-struct ColorFillParams {
-    float progress = 0.0F;
-    float dimLevel = 0.0F;
-    float aspectRatio = 1.0F;
-    float reverse = 0.0F;
-    float originX = 0.5F;
-    float originY = 0.8F;
-    float scrollOffsetX = 0.5F;
-    float scrollWindowX = 1.0F;
+struct TextureResource {
+    VkImage image = VK_NULL_HANDLE;
+    VkDeviceMemory memory = VK_NULL_HANDLE;
+    VkImageView view = VK_NULL_HANDLE;
+    VkSampler sampler = VK_NULL_HANDLE;
+    uint32_t width = 0;
+    uint32_t height = 0;
+    uint32_t mipLevels = 1;
+    bool ready = false;
 };
 
-static_assert(sizeof(ColorFillParams) == 32);
-
-class VulkanColorFillEngine {
+class OnePassEngineImpl {
 public:
-    VulkanColorFillEngine(AAssetManager* assets, bool reverse)
-        : assets_(assets) {
-        params_.reverse = reverse ? 1.0F : 0.0F;
+    OnePassEngineImpl(
+        AAssetManager* assets,
+        const OnePassConfig& config
+    ) : assets_(assets),
+        label_(config.label == nullptr ? "effect" : config.label),
+        vertexShaderAsset_(
+            config.vertexShaderAsset == nullptr
+                ? ""
+                : config.vertexShaderAsset
+        ),
+        fragmentShaderAsset_(
+            config.fragmentShaderAsset == nullptr
+                ? ""
+                : config.fragmentShaderAsset
+        ),
+        optionalTextureMask_(config.optionalTextureMask),
+        uniformBinding_(config.uniformBinding),
+        uniformData_(config.uniformSize, 0),
+        mipmappedTextureMask_(config.mipmappedTextureMask),
+        pushConstants_(config.pushConstantSize, 0),
+        textures_(config.textureBindingCount) {
     }
 
-    ~VulkanColorFillEngine() {
+    ~OnePassEngineImpl() {
         destroySurface();
+    }
+
+    bool isConfigured() const {
+        return assets_ != nullptr &&
+            !vertexShaderAsset_.empty() &&
+            !fragmentShaderAsset_.empty() &&
+            !textures_.empty() &&
+            textures_.size() <= kMaximumTextureBindings &&
+            pushConstants_.size() <= kMaximumPushConstantBytes &&
+            pushConstants_.size() % sizeof(uint32_t) == 0 &&
+            (optionalTextureMask_ >> textures_.size()) == 0 &&
+            (mipmappedTextureMask_ >> textures_.size()) == 0 &&
+            (
+                (
+                    uniformBinding_ == kNoUniformBinding &&
+                    uniformData_.empty()
+                ) ||
+                (
+                    uniformBinding_ != kNoUniformBinding &&
+                    uniformBinding_ >= textures_.size() &&
+                    !uniformData_.empty()
+                )
+            );
     }
 
     bool setSurface(
@@ -242,9 +281,16 @@ public:
             destroySurface();
             return false;
         }
-        params_.aspectRatio =
-            static_cast<float>(extent_.width) /
-            static_cast<float>(std::max(1U, extent_.height));
+        for (uint32_t binding = 0;
+             binding < textures_.size();
+             ++binding) {
+            const uint32_t bindingBit = 1U << binding;
+            if ((optionalTextureMask_ & bindingBit) != 0 &&
+                !clearTexture(binding)) {
+                destroySurface();
+                return false;
+            }
+        }
         return true;
     }
 
@@ -252,10 +298,25 @@ public:
         return apiVersion_;
     }
 
+    float surfaceAspectRatio() const {
+        return extent_.height == 0
+            ? 1.0F
+            : static_cast<float>(extent_.width) /
+                static_cast<float>(extent_.height);
+    }
+
     void destroySurface() {
         if (device_ != VK_NULL_HANDLE) {
             vkDeviceWaitIdle(device_);
-            destroyTexture();
+            for (TextureResource& texture : textures_) {
+                destroyTexture(texture);
+            }
+            if (uniformBuffer_ != VK_NULL_HANDLE) {
+                vkDestroyBuffer(device_, uniformBuffer_, nullptr);
+            }
+            if (uniformMemory_ != VK_NULL_HANDLE) {
+                vkFreeMemory(device_, uniformMemory_, nullptr);
+            }
             if (imageAvailable_ != VK_NULL_HANDLE) {
                 vkDestroySemaphore(device_, imageAvailable_, nullptr);
             }
@@ -333,12 +394,21 @@ public:
         imageAvailable_ = VK_NULL_HANDLE;
         renderFinishedSemaphores_.clear();
         renderFence_ = VK_NULL_HANDLE;
-        textureReady_ = false;
+        uniformBuffer_ = VK_NULL_HANDLE;
+        uniformMemory_ = VK_NULL_HANDLE;
         extent_ = {};
     }
 
-    bool uploadBitmap(JNIEnv* env, jobject bitmap) {
+    bool uploadBitmap(
+        JNIEnv* env,
+        jobject bitmap,
+        uint32_t binding
+    ) {
         if (device_ == VK_NULL_HANDLE || commandPool_ == VK_NULL_HANDLE) {
+            return false;
+        }
+        if (binding >= textures_.size()) {
+            logError(label_ + " texture binding is out of range");
             return false;
         }
 
@@ -347,7 +417,7 @@ public:
             bitmapInfo.format != ANDROID_BITMAP_FORMAT_RGBA_8888 ||
             bitmapInfo.width == 0 ||
             bitmapInfo.height == 0) {
-            logError("Color Fill requires an RGBA_8888 bitmap");
+            logError(label_ + " requires an RGBA_8888 bitmap");
             return false;
         }
 
@@ -412,62 +482,117 @@ public:
             return false;
         }
 
-        vkDeviceWaitIdle(device_);
-        destroyTexture();
-        textureWidth_ = bitmapInfo.width;
-        textureHeight_ = bitmapInfo.height;
-        if (!createTextureImage() ||
-            !copyBufferToTexture(stagingBuffer) ||
-            !createTextureViewAndSampler()) {
-            vkDestroyBuffer(device_, stagingBuffer, nullptr);
-            vkFreeMemory(device_, stagingMemory, nullptr);
-            destroyTexture();
-            return false;
-        }
+        const bool installed = installStagedTexture(
+            stagingBuffer,
+            bitmapInfo.width,
+            bitmapInfo.height,
+            binding
+        );
         vkDestroyBuffer(device_, stagingBuffer, nullptr);
         vkFreeMemory(device_, stagingMemory, nullptr);
+        return installed;
+    }
 
-        VkDescriptorImageInfo imageInfo{};
-        imageInfo.sampler = textureSampler_;
-        imageInfo.imageView = textureView_;
-        imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    bool clearTexture(uint32_t binding) {
+        if (device_ == VK_NULL_HANDLE || commandPool_ == VK_NULL_HANDLE) {
+            return false;
+        }
+        if (binding >= textures_.size()) return false;
+        constexpr std::array<uint8_t, 4> transparentBlack{0, 0, 0, 255};
+        VkBuffer stagingBuffer = VK_NULL_HANDLE;
+        VkDeviceMemory stagingMemory = VK_NULL_HANDLE;
+        if (!createBuffer(
+                transparentBlack.size(),
+                VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                    VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                stagingBuffer,
+                stagingMemory
+            )) {
+            return false;
+        }
+        void* mapped = nullptr;
+        const bool mappedSuccessfully = vkMapMemory(
+            device_,
+            stagingMemory,
+            0,
+            transparentBlack.size(),
+            0,
+            &mapped
+        ) == VK_SUCCESS;
+        if (mappedSuccessfully) {
+            std::memcpy(
+                mapped,
+                transparentBlack.data(),
+                transparentBlack.size()
+            );
+            vkUnmapMemory(device_, stagingMemory);
+        }
+        const bool installed = mappedSuccessfully && installStagedTexture(
+            stagingBuffer,
+            1,
+            1,
+            binding
+        );
+        vkDestroyBuffer(device_, stagingBuffer, nullptr);
+        vkFreeMemory(device_, stagingMemory, nullptr);
+        return installed;
+    }
 
-        VkWriteDescriptorSet descriptorWrite{
-            VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET
-        };
-        descriptorWrite.dstSet = descriptorSet_;
-        descriptorWrite.dstBinding = 0;
-        descriptorWrite.descriptorCount = 1;
-        descriptorWrite.descriptorType =
-            VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        descriptorWrite.pImageInfo = &imageInfo;
-        vkUpdateDescriptorSets(device_, 1, &descriptorWrite, 0, nullptr);
-        textureReady_ = true;
+    bool setPushConstants(const void* data, size_t size) {
+        if (data == nullptr || size != pushConstants_.size()) return false;
+        std::memcpy(pushConstants_.data(), data, size);
         return true;
     }
 
-    void setState(
-        float progress,
-        float dimLevel,
-        float originX,
-        float originY,
-        float scrollOffsetX,
-        float scrollWindowX
-    ) {
-        params_.progress = progress;
-        params_.dimLevel = dimLevel;
-        params_.originX = originX;
-        params_.originY = originY;
-        params_.scrollOffsetX = scrollOffsetX;
-        params_.scrollWindowX = scrollWindowX;
+    bool setUniformData(const void* data, size_t size) {
+        if (data == nullptr ||
+            size != uniformData_.size() ||
+            uniformMemory_ == VK_NULL_HANDLE) {
+            return false;
+        }
+        if (renderFence_ != VK_NULL_HANDLE &&
+            vkWaitForFences(
+                device_,
+                1,
+                &renderFence_,
+                VK_TRUE,
+                std::numeric_limits<uint64_t>::max()
+            ) != VK_SUCCESS) {
+            return false;
+        }
+        void* mapped = nullptr;
+        if (vkMapMemory(
+                device_,
+                uniformMemory_,
+                0,
+                size,
+                0,
+                &mapped
+            ) != VK_SUCCESS) {
+            return false;
+        }
+        std::memcpy(mapped, data, size);
+        vkUnmapMemory(device_, uniformMemory_);
+        if (data != uniformData_.data()) {
+            std::memcpy(uniformData_.data(), data, size);
+        }
+        return true;
     }
 
     int render() {
         if (device_ == VK_NULL_HANDLE ||
-            swapchain_ == VK_NULL_HANDLE ||
-            !textureReady_) {
+            swapchain_ == VK_NULL_HANDLE) {
             return -1;
         }
+        const bool descriptorsReady = std::all_of(
+            textures_.begin(),
+            textures_.end(),
+            [](const TextureResource& texture) {
+                return texture.ready;
+            }
+        );
+        if (!descriptorsReady) return -1;
         if (vkWaitForFences(
                 device_,
                 1,
@@ -608,7 +733,7 @@ private:
         };
         applicationInfo.pApplicationName = "Atmo Engine";
         applicationInfo.applicationVersion = 1;
-        applicationInfo.pEngineName = "Atmo Color Fill";
+        applicationInfo.pEngineName = label_.c_str();
         applicationInfo.engineVersion = 1;
         applicationInfo.apiVersion = requestedApiVersion;
 
@@ -885,21 +1010,26 @@ private:
         }
 
         uint32_t actualImageCount = 0;
-        vkGetSwapchainImagesKHR(
-            device_,
-            swapchain_,
-            &actualImageCount,
-            nullptr
-        );
+        if (vkGetSwapchainImagesKHR(
+                device_,
+                swapchain_,
+                &actualImageCount,
+                nullptr
+            ) != VK_SUCCESS ||
+            actualImageCount == 0) {
+            return false;
+        }
         swapchainImages_.resize(actualImageCount);
         if (vkGetSwapchainImagesKHR(
                 device_,
                 swapchain_,
                 &actualImageCount,
                 swapchainImages_.data()
-            ) != VK_SUCCESS) {
+            ) != VK_SUCCESS ||
+            actualImageCount == 0) {
             return false;
         }
+        swapchainImages_.resize(actualImageCount);
 
         swapchainImageViews_.reserve(actualImageCount);
         for (VkImage image : swapchainImages_) {
@@ -928,18 +1058,33 @@ private:
     }
 
     bool createDescriptorResources() {
-        VkDescriptorSetLayoutBinding binding{};
-        binding.binding = 0;
-        binding.descriptorType =
-            VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        binding.descriptorCount = 1;
-        binding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+        std::vector<VkDescriptorSetLayoutBinding> bindings;
+        bindings.resize(textures_.size());
+        for (uint32_t index = 0; index < bindings.size(); ++index) {
+            bindings[index].binding = index;
+            bindings[index].descriptorType =
+                VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            bindings[index].descriptorCount = 1;
+            bindings[index].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+        }
+        if (!uniformData_.empty()) {
+            VkDescriptorSetLayoutBinding uniformBinding{};
+            uniformBinding.binding = uniformBinding_;
+            uniformBinding.descriptorType =
+                VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+            uniformBinding.descriptorCount = 1;
+            uniformBinding.stageFlags =
+                VK_SHADER_STAGE_VERTEX_BIT |
+                VK_SHADER_STAGE_FRAGMENT_BIT;
+            bindings.push_back(uniformBinding);
+        }
 
         VkDescriptorSetLayoutCreateInfo layoutInfo{
             VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO
         };
-        layoutInfo.bindingCount = 1;
-        layoutInfo.pBindings = &binding;
+        layoutInfo.bindingCount =
+            static_cast<uint32_t>(bindings.size());
+        layoutInfo.pBindings = bindings.data();
         if (vkCreateDescriptorSetLayout(
                 device_,
                 &layoutInfo,
@@ -949,15 +1094,25 @@ private:
             return false;
         }
 
-        VkDescriptorPoolSize poolSize{};
-        poolSize.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        poolSize.descriptorCount = 1;
+        std::vector<VkDescriptorPoolSize> poolSizes;
+        VkDescriptorPoolSize samplerPool{};
+        samplerPool.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        samplerPool.descriptorCount =
+            static_cast<uint32_t>(textures_.size());
+        poolSizes.push_back(samplerPool);
+        if (!uniformData_.empty()) {
+            VkDescriptorPoolSize uniformPool{};
+            uniformPool.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+            uniformPool.descriptorCount = 1;
+            poolSizes.push_back(uniformPool);
+        }
         VkDescriptorPoolCreateInfo poolInfo{
             VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO
         };
         poolInfo.maxSets = 1;
-        poolInfo.poolSizeCount = 1;
-        poolInfo.pPoolSizes = &poolSize;
+        poolInfo.poolSizeCount =
+            static_cast<uint32_t>(poolSizes.size());
+        poolInfo.pPoolSizes = poolSizes.data();
         if (vkCreateDescriptorPool(
                 device_,
                 &poolInfo,
@@ -973,11 +1128,52 @@ private:
         allocateInfo.descriptorPool = descriptorPool_;
         allocateInfo.descriptorSetCount = 1;
         allocateInfo.pSetLayouts = &descriptorSetLayout_;
-        return vkAllocateDescriptorSets(
-            device_,
-            &allocateInfo,
-            &descriptorSet_
-        ) == VK_SUCCESS;
+        if (vkAllocateDescriptorSets(
+                device_,
+                &allocateInfo,
+                &descriptorSet_
+            ) != VK_SUCCESS) {
+            return false;
+        }
+        if (uniformData_.empty()) return true;
+
+        VkPhysicalDeviceProperties properties{};
+        vkGetPhysicalDeviceProperties(physicalDevice_, &properties);
+        if (uniformData_.size() >
+            properties.limits.maxUniformBufferRange) {
+            logError(label_ + " uniform data exceeds the device limit");
+            return false;
+        }
+        if (!createBuffer(
+                uniformData_.size(),
+                VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                    VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                uniformBuffer_,
+                uniformMemory_
+            ) ||
+            !setUniformData(
+                uniformData_.data(),
+                uniformData_.size()
+            )) {
+            return false;
+        }
+
+        VkDescriptorBufferInfo bufferInfo{};
+        bufferInfo.buffer = uniformBuffer_;
+        bufferInfo.offset = 0;
+        bufferInfo.range = uniformData_.size();
+        VkWriteDescriptorSet descriptorWrite{
+            VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET
+        };
+        descriptorWrite.dstSet = descriptorSet_;
+        descriptorWrite.dstBinding = uniformBinding_;
+        descriptorWrite.descriptorCount = 1;
+        descriptorWrite.descriptorType =
+            VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        descriptorWrite.pBufferInfo = &bufferInfo;
+        vkUpdateDescriptorSets(device_, 1, &descriptorWrite, 0, nullptr);
+        return true;
     }
 
     bool createRenderPass() {
@@ -1074,8 +1270,10 @@ private:
     }
 
     bool createPipeline() {
-        const auto vertexCode = readShaderAsset(kVertexShader);
-        const auto fragmentCode = readShaderAsset(kFragmentShader);
+        const auto vertexCode =
+            readShaderAsset(vertexShaderAsset_.c_str());
+        const auto fragmentCode =
+            readShaderAsset(fragmentShaderAsset_.c_str());
         const VkShaderModule vertexModule =
             createShaderModule(vertexCode);
         const VkShaderModule fragmentModule =
@@ -1088,7 +1286,7 @@ private:
             if (fragmentModule != VK_NULL_HANDLE) {
                 vkDestroyShaderModule(device_, fragmentModule, nullptr);
             }
-            logError("Unable to load Color Fill SPIR-V shaders");
+            logError("Unable to load " + label_ + " SPIR-V shaders");
             return false;
         }
 
@@ -1164,14 +1362,17 @@ private:
         pushConstants.stageFlags =
             VK_SHADER_STAGE_VERTEX_BIT |
             VK_SHADER_STAGE_FRAGMENT_BIT;
-        pushConstants.size = sizeof(ColorFillParams);
+        pushConstants.size =
+            static_cast<uint32_t>(pushConstants_.size());
         VkPipelineLayoutCreateInfo pipelineLayoutInfo{
             VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO
         };
         pipelineLayoutInfo.setLayoutCount = 1;
         pipelineLayoutInfo.pSetLayouts = &descriptorSetLayout_;
-        pipelineLayoutInfo.pushConstantRangeCount = 1;
-        pipelineLayoutInfo.pPushConstantRanges = &pushConstants;
+        pipelineLayoutInfo.pushConstantRangeCount =
+            pushConstants_.empty() ? 0U : 1U;
+        pipelineLayoutInfo.pPushConstantRanges =
+            pushConstants_.empty() ? nullptr : &pushConstants;
         if (vkCreatePipelineLayout(
                 device_,
                 &pipelineLayoutInfo,
@@ -1385,27 +1586,30 @@ private:
         return true;
     }
 
-    bool createTextureImage() {
+    bool createTextureImage(TextureResource& texture) {
         VkImageCreateInfo imageInfo{
             VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO
         };
         imageInfo.imageType = VK_IMAGE_TYPE_2D;
         imageInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
-        imageInfo.extent = {textureWidth_, textureHeight_, 1};
-        imageInfo.mipLevels = 1;
+        imageInfo.extent = {texture.width, texture.height, 1};
+        imageInfo.mipLevels = texture.mipLevels;
         imageInfo.arrayLayers = 1;
         imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
         imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
         imageInfo.usage =
             VK_IMAGE_USAGE_TRANSFER_DST_BIT |
             VK_IMAGE_USAGE_SAMPLED_BIT;
+        if (texture.mipLevels > 1) {
+            imageInfo.usage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+        }
         imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
         imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
         if (vkCreateImage(
                 device_,
                 &imageInfo,
                 nullptr,
-                &textureImage_
+                &texture.image
             ) != VK_SUCCESS) {
             return false;
         }
@@ -1413,7 +1617,7 @@ private:
         VkMemoryRequirements requirements{};
         vkGetImageMemoryRequirements(
             device_,
-            textureImage_,
+            texture.image,
             &requirements
         );
         const auto memoryType = findMemoryType(
@@ -1430,16 +1634,86 @@ private:
                 device_,
                 &allocation,
                 nullptr,
-                &textureMemory_
+                &texture.memory
             ) != VK_SUCCESS) {
             return false;
         }
         return vkBindImageMemory(
             device_,
-            textureImage_,
-            textureMemory_,
+            texture.image,
+            texture.memory,
             0
         ) == VK_SUCCESS;
+    }
+
+    bool installStagedTexture(
+        VkBuffer stagingBuffer,
+        uint32_t width,
+        uint32_t height,
+        uint32_t binding
+    ) {
+        if (binding >= textures_.size() || width == 0 || height == 0) {
+            return false;
+        }
+        TextureResource replacement{};
+        replacement.width = width;
+        replacement.height = height;
+        if ((mipmappedTextureMask_ & (1U << binding)) != 0) {
+            VkFormatProperties formatProperties{};
+            vkGetPhysicalDeviceFormatProperties(
+                physicalDevice_,
+                VK_FORMAT_R8G8B8A8_UNORM,
+                &formatProperties
+            );
+            constexpr VkFormatFeatureFlags requiredFeatures =
+                VK_FORMAT_FEATURE_BLIT_SRC_BIT |
+                VK_FORMAT_FEATURE_BLIT_DST_BIT |
+                VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT;
+            if ((formatProperties.optimalTilingFeatures & requiredFeatures) !=
+                requiredFeatures) {
+                logError(label_ + " requires linear mipmap blits");
+                return false;
+            }
+            replacement.mipLevels =
+                static_cast<uint32_t>(
+                    std::floor(
+                        std::log2(
+                            static_cast<double>(std::max(width, height))
+                        )
+                    )
+                ) + 1U;
+        }
+        if (!createTextureImage(replacement) ||
+            !copyBufferToTexture(stagingBuffer, replacement) ||
+            !createTextureViewAndSampler(replacement)) {
+            destroyTexture(replacement);
+            return false;
+        }
+        if (vkDeviceWaitIdle(device_) != VK_SUCCESS) {
+            destroyTexture(replacement);
+            return false;
+        }
+
+        TextureResource& texture = textures_[binding];
+        destroyTexture(texture);
+        texture = replacement;
+        texture.ready = true;
+
+        VkDescriptorImageInfo imageInfo{};
+        imageInfo.sampler = texture.sampler;
+        imageInfo.imageView = texture.view;
+        imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        VkWriteDescriptorSet descriptorWrite{
+            VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET
+        };
+        descriptorWrite.dstSet = descriptorSet_;
+        descriptorWrite.dstBinding = binding;
+        descriptorWrite.descriptorCount = 1;
+        descriptorWrite.descriptorType =
+            VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        descriptorWrite.pImageInfo = &imageInfo;
+        vkUpdateDescriptorSets(device_, 1, &descriptorWrite, 0, nullptr);
+        return true;
     }
 
     VkCommandBuffer beginSingleUseCommands() {
@@ -1469,7 +1743,10 @@ private:
     }
 
     bool finishSingleUseCommands(VkCommandBuffer command) {
-        if (vkEndCommandBuffer(command) != VK_SUCCESS) return false;
+        if (vkEndCommandBuffer(command) != VK_SUCCESS) {
+            vkFreeCommandBuffers(device_, commandPool_, 1, &command);
+            return false;
+        }
         VkSubmitInfo submit{VK_STRUCTURE_TYPE_SUBMIT_INFO};
         submit.commandBufferCount = 1;
         submit.pCommandBuffers = &command;
@@ -1480,7 +1757,10 @@ private:
         return success;
     }
 
-    bool copyBufferToTexture(VkBuffer source) {
+    bool copyBufferToTexture(
+        VkBuffer source,
+        TextureResource& texture
+    ) {
         VkCommandBuffer command = beginSingleUseCommands();
         if (command == VK_NULL_HANDLE) return false;
 
@@ -1491,10 +1771,10 @@ private:
         toTransfer.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
         toTransfer.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
         toTransfer.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        toTransfer.image = textureImage_;
+        toTransfer.image = texture.image;
         toTransfer.subresourceRange.aspectMask =
             VK_IMAGE_ASPECT_COLOR_BIT;
-        toTransfer.subresourceRange.levelCount = 1;
+        toTransfer.subresourceRange.levelCount = texture.mipLevels;
         toTransfer.subresourceRange.layerCount = 1;
         toTransfer.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
         vkCmdPipelineBarrier(
@@ -1513,30 +1793,122 @@ private:
         VkBufferImageCopy copy{};
         copy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
         copy.imageSubresource.layerCount = 1;
-        copy.imageExtent = {textureWidth_, textureHeight_, 1};
+        copy.imageExtent = {texture.width, texture.height, 1};
         vkCmdCopyBufferToImage(
             command,
             source,
-            textureImage_,
+            texture.image,
             VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
             1,
             &copy
         );
 
-        VkImageMemoryBarrier toShader{
+        int32_t mipWidth = static_cast<int32_t>(texture.width);
+        int32_t mipHeight = static_cast<int32_t>(texture.height);
+        for (uint32_t level = 1;
+             level < texture.mipLevels;
+             ++level) {
+            VkImageMemoryBarrier toSource{
+                VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER
+            };
+            toSource.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+            toSource.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+            toSource.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            toSource.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            toSource.image = texture.image;
+            toSource.subresourceRange.aspectMask =
+                VK_IMAGE_ASPECT_COLOR_BIT;
+            toSource.subresourceRange.baseMipLevel = level - 1;
+            toSource.subresourceRange.levelCount = 1;
+            toSource.subresourceRange.layerCount = 1;
+            toSource.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+            toSource.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+            vkCmdPipelineBarrier(
+                command,
+                VK_PIPELINE_STAGE_TRANSFER_BIT,
+                VK_PIPELINE_STAGE_TRANSFER_BIT,
+                0,
+                0,
+                nullptr,
+                0,
+                nullptr,
+                1,
+                &toSource
+            );
+
+            const int32_t nextWidth = std::max(1, mipWidth / 2);
+            const int32_t nextHeight = std::max(1, mipHeight / 2);
+            VkImageBlit blit{};
+            blit.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            blit.srcSubresource.mipLevel = level - 1;
+            blit.srcSubresource.layerCount = 1;
+            blit.srcOffsets[1] = {mipWidth, mipHeight, 1};
+            blit.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            blit.dstSubresource.mipLevel = level;
+            blit.dstSubresource.layerCount = 1;
+            blit.dstOffsets[1] = {nextWidth, nextHeight, 1};
+            vkCmdBlitImage(
+                command,
+                texture.image,
+                VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                texture.image,
+                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                1,
+                &blit,
+                VK_FILTER_LINEAR
+            );
+
+            VkImageMemoryBarrier sourceToShader{
+                VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER
+            };
+            sourceToShader.oldLayout =
+                VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+            sourceToShader.newLayout =
+                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            sourceToShader.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            sourceToShader.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            sourceToShader.image = texture.image;
+            sourceToShader.subresourceRange.aspectMask =
+                VK_IMAGE_ASPECT_COLOR_BIT;
+            sourceToShader.subresourceRange.baseMipLevel = level - 1;
+            sourceToShader.subresourceRange.levelCount = 1;
+            sourceToShader.subresourceRange.layerCount = 1;
+            sourceToShader.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+            sourceToShader.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+            vkCmdPipelineBarrier(
+                command,
+                VK_PIPELINE_STAGE_TRANSFER_BIT,
+                VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                0,
+                0,
+                nullptr,
+                0,
+                nullptr,
+                1,
+                &sourceToShader
+            );
+            mipWidth = nextWidth;
+            mipHeight = nextHeight;
+        }
+
+        VkImageMemoryBarrier lastLevelToShader{
             VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER
         };
-        toShader.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-        toShader.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        toShader.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        toShader.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        toShader.image = textureImage_;
-        toShader.subresourceRange.aspectMask =
+        lastLevelToShader.oldLayout =
+            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        lastLevelToShader.newLayout =
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        lastLevelToShader.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        lastLevelToShader.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        lastLevelToShader.image = texture.image;
+        lastLevelToShader.subresourceRange.aspectMask =
             VK_IMAGE_ASPECT_COLOR_BIT;
-        toShader.subresourceRange.levelCount = 1;
-        toShader.subresourceRange.layerCount = 1;
-        toShader.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-        toShader.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        lastLevelToShader.subresourceRange.baseMipLevel =
+            texture.mipLevels - 1;
+        lastLevelToShader.subresourceRange.levelCount = 1;
+        lastLevelToShader.subresourceRange.layerCount = 1;
+        lastLevelToShader.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        lastLevelToShader.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
         vkCmdPipelineBarrier(
             command,
             VK_PIPELINE_STAGE_TRANSFER_BIT,
@@ -1547,27 +1919,27 @@ private:
             0,
             nullptr,
             1,
-            &toShader
+            &lastLevelToShader
         );
         return finishSingleUseCommands(command);
     }
 
-    bool createTextureViewAndSampler() {
+    bool createTextureViewAndSampler(TextureResource& texture) {
         VkImageViewCreateInfo viewInfo{
             VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO
         };
-        viewInfo.image = textureImage_;
+        viewInfo.image = texture.image;
         viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
         viewInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
         viewInfo.subresourceRange.aspectMask =
             VK_IMAGE_ASPECT_COLOR_BIT;
-        viewInfo.subresourceRange.levelCount = 1;
+        viewInfo.subresourceRange.levelCount = texture.mipLevels;
         viewInfo.subresourceRange.layerCount = 1;
         if (vkCreateImageView(
                 device_,
                 &viewInfo,
                 nullptr,
-                &textureView_
+                &texture.view
             ) != VK_SUCCESS) {
             return false;
         }
@@ -1581,36 +1953,33 @@ private:
         samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
         samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
         samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-        samplerInfo.maxLod = 0.0F;
+        samplerInfo.minLod = 0.0F;
+        samplerInfo.maxLod =
+            static_cast<float>(texture.mipLevels - 1);
         return vkCreateSampler(
             device_,
             &samplerInfo,
             nullptr,
-            &textureSampler_
+            &texture.sampler
         ) == VK_SUCCESS;
     }
 
-    void destroyTexture() {
-        textureReady_ = false;
+    void destroyTexture(TextureResource& texture) {
+        texture.ready = false;
         if (device_ == VK_NULL_HANDLE) return;
-        if (textureSampler_ != VK_NULL_HANDLE) {
-            vkDestroySampler(device_, textureSampler_, nullptr);
+        if (texture.sampler != VK_NULL_HANDLE) {
+            vkDestroySampler(device_, texture.sampler, nullptr);
         }
-        if (textureView_ != VK_NULL_HANDLE) {
-            vkDestroyImageView(device_, textureView_, nullptr);
+        if (texture.view != VK_NULL_HANDLE) {
+            vkDestroyImageView(device_, texture.view, nullptr);
         }
-        if (textureImage_ != VK_NULL_HANDLE) {
-            vkDestroyImage(device_, textureImage_, nullptr);
+        if (texture.image != VK_NULL_HANDLE) {
+            vkDestroyImage(device_, texture.image, nullptr);
         }
-        if (textureMemory_ != VK_NULL_HANDLE) {
-            vkFreeMemory(device_, textureMemory_, nullptr);
+        if (texture.memory != VK_NULL_HANDLE) {
+            vkFreeMemory(device_, texture.memory, nullptr);
         }
-        textureSampler_ = VK_NULL_HANDLE;
-        textureView_ = VK_NULL_HANDLE;
-        textureImage_ = VK_NULL_HANDLE;
-        textureMemory_ = VK_NULL_HANDLE;
-        textureWidth_ = 0;
-        textureHeight_ = 0;
+        texture = {};
     }
 
     bool recordRenderCommands(uint32_t imageIndex) {
@@ -1653,21 +2022,31 @@ private:
             0,
             nullptr
         );
-        vkCmdPushConstants(
-            commandBuffer_,
-            pipelineLayout_,
-            VK_SHADER_STAGE_VERTEX_BIT |
-                VK_SHADER_STAGE_FRAGMENT_BIT,
-            0,
-            sizeof(ColorFillParams),
-            &params_
-        );
+        if (!pushConstants_.empty()) {
+            vkCmdPushConstants(
+                commandBuffer_,
+                pipelineLayout_,
+                VK_SHADER_STAGE_VERTEX_BIT |
+                    VK_SHADER_STAGE_FRAGMENT_BIT,
+                0,
+                static_cast<uint32_t>(pushConstants_.size()),
+                pushConstants_.data()
+            );
+        }
         vkCmdDraw(commandBuffer_, 3, 1, 0, 0);
         vkCmdEndRenderPass(commandBuffer_);
         return vkEndCommandBuffer(commandBuffer_) == VK_SUCCESS;
     }
 
     AAssetManager* assets_ = nullptr;
+    std::string label_;
+    std::string vertexShaderAsset_;
+    std::string fragmentShaderAsset_;
+    uint32_t optionalTextureMask_ = 0;
+    uint32_t uniformBinding_ = kNoUniformBinding;
+    std::vector<uint8_t> uniformData_;
+    uint32_t mipmappedTextureMask_ = 0;
+    std::vector<uint8_t> pushConstants_;
     ANativeWindow* window_ = nullptr;
     uint32_t requestedWidth_ = 0;
     uint32_t requestedHeight_ = 0;
@@ -1696,140 +2075,110 @@ private:
     VkSemaphore imageAvailable_ = VK_NULL_HANDLE;
     std::vector<VkSemaphore> renderFinishedSemaphores_;
     VkFence renderFence_ = VK_NULL_HANDLE;
-    VkImage textureImage_ = VK_NULL_HANDLE;
-    VkDeviceMemory textureMemory_ = VK_NULL_HANDLE;
-    VkImageView textureView_ = VK_NULL_HANDLE;
-    VkSampler textureSampler_ = VK_NULL_HANDLE;
-    uint32_t textureWidth_ = 0;
-    uint32_t textureHeight_ = 0;
-    bool textureReady_ = false;
-    ColorFillParams params_{};
+    VkBuffer uniformBuffer_ = VK_NULL_HANDLE;
+    VkDeviceMemory uniformMemory_ = VK_NULL_HANDLE;
+    std::vector<TextureResource> textures_;
 };
 
-VulkanColorFillEngine* engineFromHandle(jlong handle) {
-    return reinterpret_cast<VulkanColorFillEngine*>(
-        static_cast<intptr_t>(handle)
-    );
+OnePassEngineImpl* engineFromHandle(OnePassHandle handle) {
+    return static_cast<OnePassEngineImpl*>(handle);
 }
 
 }  // namespace
 
-extern "C" JNIEXPORT jint JNICALL
-Java_com_app_nosatmosphereeffect_renderer_vulkan_VulkanNative_nativeProbe(
-    JNIEnv*,
-    jobject
-) {
-    return static_cast<jint>(probeVulkanRuntime());
+uint32_t probeRuntime() {
+    return probeVulkanRuntime();
 }
 
-extern "C" JNIEXPORT jlong JNICALL
-Java_com_app_nosatmosphereeffect_renderer_vulkan_VulkanNative_nativeCreate(
-    JNIEnv* env,
-    jobject,
-    jobject assetManager,
-    jboolean reverse
+OnePassHandle createOnePass(
+    AAssetManager* assets,
+    const OnePassConfig& config
 ) {
-    AAssetManager* assets = AAssetManager_fromJava(env, assetManager);
-    if (assets == nullptr) return 0;
-    auto* engine = new VulkanColorFillEngine(
-        assets,
-        reverse == JNI_TRUE
-    );
-    return static_cast<jlong>(reinterpret_cast<intptr_t>(engine));
-}
-
-extern "C" JNIEXPORT jboolean JNICALL
-Java_com_app_nosatmosphereeffect_renderer_vulkan_VulkanNative_nativeSetSurface(
-    JNIEnv* env,
-    jobject,
-    jlong handle,
-    jobject surface,
-    jint width,
-    jint height
-) {
-    VulkanColorFillEngine* engine = engineFromHandle(handle);
-    if (engine == nullptr || surface == nullptr || width <= 0 || height <= 0) {
-        return JNI_FALSE;
+    auto* engine = new OnePassEngineImpl(assets, config);
+    if (!engine->isConfigured()) {
+        delete engine;
+        return nullptr;
     }
-    return engine->setSurface(
-        env,
-        surface,
-        static_cast<uint32_t>(width),
-        static_cast<uint32_t>(height)
-    ) ? JNI_TRUE : JNI_FALSE;
+    return engine;
 }
 
-extern "C" JNIEXPORT jint JNICALL
-Java_com_app_nosatmosphereeffect_renderer_vulkan_VulkanNative_nativeGetApiVersion(
-    JNIEnv*,
-    jobject,
-    jlong handle
-) {
-    VulkanColorFillEngine* engine = engineFromHandle(handle);
-    return engine == nullptr ? 0 : static_cast<jint>(engine->apiVersion());
-}
-
-extern "C" JNIEXPORT jboolean JNICALL
-Java_com_app_nosatmosphereeffect_renderer_vulkan_VulkanNative_nativeUploadBitmap(
+bool setSurface(
+    OnePassHandle handle,
     JNIEnv* env,
-    jobject,
-    jlong handle,
-    jobject bitmap
+    jobject surface,
+    uint32_t width,
+    uint32_t height
 ) {
-    VulkanColorFillEngine* engine = engineFromHandle(handle);
-    if (engine == nullptr || bitmap == nullptr) return JNI_FALSE;
-    return engine->uploadBitmap(env, bitmap) ? JNI_TRUE : JNI_FALSE;
+    OnePassEngineImpl* engine = engineFromHandle(handle);
+    return engine != nullptr &&
+        env != nullptr &&
+        surface != nullptr &&
+        width > 0 &&
+        height > 0 &&
+        engine->setSurface(env, surface, width, height);
 }
 
-extern "C" JNIEXPORT void JNICALL
-Java_com_app_nosatmosphereeffect_renderer_vulkan_VulkanNative_nativeSetState(
-    JNIEnv*,
-    jobject,
-    jlong handle,
-    jfloat progress,
-    jfloat dimLevel,
-    jfloat originX,
-    jfloat originY,
-    jfloat scrollOffsetX,
-    jfloat scrollWindowX
-) {
-    VulkanColorFillEngine* engine = engineFromHandle(handle);
-    if (engine == nullptr) return;
-    engine->setState(
-        progress,
-        dimLevel,
-        originX,
-        originY,
-        scrollOffsetX,
-        scrollWindowX
-    );
+uint32_t apiVersion(OnePassHandle handle) {
+    OnePassEngineImpl* engine = engineFromHandle(handle);
+    return engine == nullptr ? 0 : engine->apiVersion();
 }
 
-extern "C" JNIEXPORT jint JNICALL
-Java_com_app_nosatmosphereeffect_renderer_vulkan_VulkanNative_nativeRender(
-    JNIEnv*,
-    jobject,
-    jlong handle
+float surfaceAspectRatio(OnePassHandle handle) {
+    OnePassEngineImpl* engine = engineFromHandle(handle);
+    return engine == nullptr ? 1.0F : engine->surfaceAspectRatio();
+}
+
+bool uploadBitmap(
+    OnePassHandle handle,
+    JNIEnv* env,
+    jobject bitmap,
+    uint32_t binding
 ) {
-    VulkanColorFillEngine* engine = engineFromHandle(handle);
+    OnePassEngineImpl* engine = engineFromHandle(handle);
+    return engine != nullptr &&
+        env != nullptr &&
+        bitmap != nullptr &&
+        engine->uploadBitmap(env, bitmap, binding);
+}
+
+bool clearTexture(
+    OnePassHandle handle,
+    uint32_t binding
+) {
+    OnePassEngineImpl* engine = engineFromHandle(handle);
+    return engine != nullptr && engine->clearTexture(binding);
+}
+
+bool setPushConstants(
+    OnePassHandle handle,
+    const void* data,
+    size_t size
+) {
+    OnePassEngineImpl* engine = engineFromHandle(handle);
+    return engine != nullptr && engine->setPushConstants(data, size);
+}
+
+bool setUniformData(
+    OnePassHandle handle,
+    const void* data,
+    size_t size
+) {
+    OnePassEngineImpl* engine = engineFromHandle(handle);
+    return engine != nullptr && engine->setUniformData(data, size);
+}
+
+int render(OnePassHandle handle) {
+    OnePassEngineImpl* engine = engineFromHandle(handle);
     return engine == nullptr ? -1 : engine->render();
 }
 
-extern "C" JNIEXPORT void JNICALL
-Java_com_app_nosatmosphereeffect_renderer_vulkan_VulkanNative_nativeDestroySurface(
-    JNIEnv*,
-    jobject,
-    jlong handle
-) {
-    VulkanColorFillEngine* engine = engineFromHandle(handle);
+void destroySurface(OnePassHandle handle) {
+    OnePassEngineImpl* engine = engineFromHandle(handle);
     if (engine != nullptr) engine->destroySurface();
 }
 
-extern "C" JNIEXPORT void JNICALL
-Java_com_app_nosatmosphereeffect_renderer_vulkan_VulkanNative_nativeDestroy(
-    JNIEnv*,
-    jobject,
-    jlong handle
-) {
+void destroyOnePass(OnePassHandle handle) {
     delete engineFromHandle(handle);
 }
+
+}  // namespace atmo::vulkan

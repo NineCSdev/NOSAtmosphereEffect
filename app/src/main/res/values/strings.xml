@@ -16,8 +16,9 @@
     <string name="renderer_status_label">Renderer</string>
     <string name="renderer_vulkan_active">Vulkan active</string>
     <string name="renderer_vulkan_version">Version %1$s</string>
-    <string name="renderer_vulkan_inactive">Vulkan inactive</string>
     <string name="renderer_opengl_active">OpenGL ES active</string>
+    <string name="renderer_vulkan_fallback_reason">Vulkan fallback: %1$s</string>
+    <string name="renderer_current_wallpaper_renderer">Current wallpaper renderer</string>
     <string name="renderer_backend_vulkan">Vulkan</string>
     <string name="renderer_backend_opengl">OpenGL ES</string>
 

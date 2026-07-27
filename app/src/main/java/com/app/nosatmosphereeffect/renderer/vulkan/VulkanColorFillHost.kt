@@ -11,7 +11,9 @@ import android.view.SurfaceHolder
 import com.app.nosatmosphereeffect.helper.WallpaperFitHelper
 import com.app.nosatmosphereeffect.helper.WallpaperRenderHost
 import com.app.nosatmosphereeffect.renderer.ColorFillRenderState
+import com.app.nosatmosphereeffect.renderer.vulkan.common.SwapchainRecreationBudget
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 
 internal class VulkanColorFillHost(
@@ -31,6 +33,10 @@ internal class VulkanColorFillHost(
     private val activeReported = AtomicBoolean(false)
 
     private val latestState = AtomicReference(initialState.sanitized())
+    private val nativeHandle = AtomicLong(0L)
+    private val pendingPlaylistBitmap = AtomicReference<Bitmap?>(null)
+    private val swapchainRetryBudget =
+        SwapchainRecreationBudget(maxAttempts = MAX_SWAPCHAIN_RETRIES)
 
     @Volatile
     private var surfaceGeneration = 0L
@@ -44,9 +50,9 @@ internal class VulkanColorFillHost(
     @Volatile
     private var latestHeight = 0
 
-    private var nativeHandle = 0L
     private var ready = false
     private var readyGeneration = NO_SURFACE_GENERATION
+    private var swapchainRecoveryQueued = false
 
     @Volatile
     var initializedApiVersion: VulkanApiVersion? = null
@@ -54,22 +60,35 @@ internal class VulkanColorFillHost(
 
     private var paused = false
     private var needsReload = true
-    private var pendingPlaylistBitmap: Bitmap? = null
 
     init {
-        worker.post {
-            if (!VulkanNative.libraryLoaded) {
-                failOnWorker("The Vulkan native library could not be loaded")
-                return@post
+        postToWorker(operation = "starting the native renderer") {
+            if (closed.get() || failed.get()) {
+                renderThread.quitSafely()
+                return@postToWorker
             }
-            nativeHandle = runCatching {
+            val libraryLoaded = try {
+                VulkanNative.libraryLoaded
+            } catch (failure: Throwable) {
+                Log.e(TAG, "Unable to query the Vulkan native library", failure)
+                false
+            }
+            if (!libraryLoaded) {
+                failOnWorker("The Vulkan native library could not be loaded")
+                return@postToWorker
+            }
+            val createdHandle = try {
                 VulkanNative.nativeCreate(appContext.assets, reverse)
-            }.getOrElse { failure ->
+            } catch (failure: Throwable) {
                 Log.e(TAG, "Unable to create the native Color Fill engine", failure)
                 0L
             }
-            if (nativeHandle == 0L) {
+            if (createdHandle == 0L) {
                 failOnWorker("The Vulkan Color Fill engine could not be created")
+                return@postToWorker
+            }
+            if (!adoptNativeHandle(createdHandle)) {
+                renderThread.quitSafely()
             }
         }
     }
@@ -104,22 +123,23 @@ internal class VulkanColorFillHost(
             bitmap.recycleSafely()
             return
         }
-        val accepted = worker.post {
+        postToWorker(
+            operation = "queueing a playlist wallpaper",
+            onRejected = { bitmap.recycleSafely() }
+        ) {
             if (closed.get() || failed.get()) {
                 bitmap.recycleSafely()
-                return@post
+                return@postToWorker
             }
             val generation = surfaceGeneration
             if (!isReadyForGeneration(generation)) {
-                pendingPlaylistBitmap?.recycleSafely()
-                pendingPlaylistBitmap = bitmap
-                return@post
+                replacePendingPlaylistBitmap(bitmap)
+                return@postToWorker
             }
             if (uploadPlaylistBitmapOnWorker(bitmap, generation)) {
                 drawOnWorker(generation)
             }
         }
-        if (!accepted) bitmap.recycleSafely()
     }
 
     override fun onSurfaceCreated(holder: SurfaceHolder) {
@@ -140,6 +160,8 @@ internal class VulkanColorFillHost(
         latestHeight = height
         postIfActive {
             if (generation != surfaceGeneration) return@postIfActive
+            swapchainRetryBudget.reset()
+            swapchainRecoveryQueued = false
             initializeSurfaceOnWorker(surface, width, height, generation)
         }
     }
@@ -150,11 +172,15 @@ internal class VulkanColorFillHost(
         latestWidth = 0
         latestHeight = 0
         postIfActive {
-            ready = false
-            readyGeneration = NO_SURFACE_GENERATION
-            initializedApiVersion = null
-            if (nativeHandle != 0L) {
-                VulkanNative.nativeDestroySurface(nativeHandle)
+            resetSurfaceStateOnWorker()
+            val handle = nativeHandle.get()
+            if (handle != 0L &&
+                !destroyNativeSurfaceSafely(
+                    handle,
+                    "destroying the Color Fill wallpaper surface"
+                )
+            ) {
+                failOnWorker("The Vulkan Color Fill surface could not be destroyed")
             }
         }
     }
@@ -175,7 +201,10 @@ internal class VulkanColorFillHost(
     override fun requestRender() {
         if (closed.get() || failed.get()) return
         if (!renderQueued.compareAndSet(false, true)) return
-        worker.post {
+        postToWorker(
+            operation = "queueing a Color Fill frame",
+            onRejected = { renderQueued.set(false) }
+        ) {
             renderQueued.set(false)
             if (!closed.get() && !failed.get()) {
                 drawOnWorker()
@@ -194,8 +223,12 @@ internal class VulkanColorFillHost(
 
     override fun close() {
         if (!closed.compareAndSet(false, true)) return
-        if (failed.get()) return
-        worker.post {
+        if (failed.get()) {
+            releaseNativeResources()
+            renderThread.quitSafely()
+            return
+        }
+        postToWorker(operation = "releasing the Color Fill renderer") {
             releaseNativeOnWorker()
             renderThread.quitSafely()
         }
@@ -207,7 +240,8 @@ internal class VulkanColorFillHost(
         height: Int,
         generation: Long
     ) {
-        if (nativeHandle == 0L) {
+        val handle = nativeHandle.get()
+        if (handle == 0L) {
             failOnWorker("The Vulkan Color Fill engine is unavailable")
             return
         }
@@ -219,9 +253,9 @@ internal class VulkanColorFillHost(
         ready = false
         readyGeneration = NO_SURFACE_GENERATION
         initializedApiVersion = null
-        val initialized = runCatching {
-            VulkanNative.nativeSetSurface(nativeHandle, surface, width, height)
-        }.getOrElse { failure ->
+        val initialized = try {
+            VulkanNative.nativeSetSurface(handle, surface, width, height)
+        } catch (failure: Throwable) {
             Log.e(TAG, "Unable to initialize the Vulkan wallpaper surface", failure)
             false
         }
@@ -233,11 +267,14 @@ internal class VulkanColorFillHost(
             failOnWorker("The Vulkan swapchain could not be initialized")
             return
         }
-        val apiVersion = runCatching {
+        val apiVersion = try {
             VulkanApiVersion.fromEncoded(
-                VulkanNative.nativeGetApiVersion(nativeHandle)
+                VulkanNative.nativeGetApiVersion(handle)
             )
-        }.getOrNull()
+        } catch (failure: Throwable) {
+            Log.e(TAG, "Unable to read the initialized Vulkan API version", failure)
+            null
+        }
         if (apiVersion == null) {
             failOnWorker("The initialized Vulkan API version is unavailable")
             return
@@ -246,8 +283,7 @@ internal class VulkanColorFillHost(
         ready = true
         readyGeneration = generation
 
-        val pending = pendingPlaylistBitmap
-        pendingPlaylistBitmap = null
+        val pending = pendingPlaylistBitmap.getAndSet(null)
         val textureReady = if (pending != null) {
             uploadPlaylistBitmapOnWorker(pending, generation)
         } else {
@@ -283,8 +319,7 @@ internal class VulkanColorFillHost(
         val width = latestWidth
         val height = latestHeight
         if (!isReadyForGeneration(generation) || width <= 0 || height <= 0) {
-            pendingPlaylistBitmap?.recycleSafely()
-            pendingPlaylistBitmap = bitmap
+            replacePendingPlaylistBitmap(bitmap)
             return false
         }
         val renderImage = runCatching {
@@ -309,13 +344,14 @@ internal class VulkanColorFillHost(
             needsReload = true
             return false
         }
+        val handle = nativeHandle.get()
         val uploadSucceeded = try {
-            if (nativeHandle == 0L) {
+            if (handle == 0L) {
                 false
             } else {
-                VulkanNative.nativeUploadBitmap(nativeHandle, bitmap)
+                VulkanNative.nativeUploadBitmap(handle, bitmap)
             }
-        } catch (failure: RuntimeException) {
+        } catch (failure: Throwable) {
             Log.e(TAG, "Unable to upload the Color Fill texture", failure)
             false
         } finally {
@@ -335,50 +371,90 @@ internal class VulkanColorFillHost(
             current.copy(scrollWindowX = renderImage.windowX).sanitized()
         }
         needsReload = false
-        applyStateOnWorker()
-        return true
+        return applyStateOnWorker()
     }
 
-    private fun applyStateOnWorker() {
-        val handle = nativeHandle
-        if (handle == 0L || failed.get()) return
+    private fun applyStateOnWorker(): Boolean {
+        val handle = nativeHandle.get()
+        if (handle == 0L || failed.get()) return false
         val state = latestState.get()
-        VulkanNative.nativeSetState(
-            handle = handle,
-            progress = state.progress,
-            dimLevel = state.dimLevel,
-            originX = state.originX,
-            originY = state.originY,
-            scrollOffsetX = state.scrollOffsetX,
-            scrollWindowX = state.scrollWindowX
-        )
+        return try {
+            VulkanNative.nativeSetState(
+                handle = handle,
+                progress = state.progress,
+                dimLevel = state.dimLevel,
+                originX = state.originX,
+                originY = state.originY,
+                scrollOffsetX = state.scrollOffsetX,
+                scrollWindowX = state.scrollWindowX
+            )
+            true
+        } catch (failure: Throwable) {
+            Log.e(TAG, "Unable to update the Vulkan Color Fill state", failure)
+            failOnWorker("The Vulkan Color Fill state could not be updated")
+            false
+        }
     }
 
     private fun drawOnWorker(generation: Long = surfaceGeneration) {
-        if (paused || failed.get() || nativeHandle == 0L) return
+        val handle = nativeHandle.get()
+        if (paused || failed.get() || handle == 0L) return
         if (!isReadyForGeneration(generation)) {
             discardStaleSurfaceOnWorker()
             return
         }
         if (needsReload && !loadActiveTextureOnWorker(generation)) return
-        applyStateOnWorker()
-        val result = runCatching {
-            VulkanNative.nativeRender(nativeHandle)
-        }.getOrDefault(RENDER_FATAL)
+        if (!applyStateOnWorker()) return
+        val result = try {
+            VulkanNative.nativeRender(handle)
+        } catch (failure: Throwable) {
+            Log.e(TAG, "Unable to render the Vulkan Color Fill frame", failure)
+            RENDER_FATAL
+        }
         if (!isCurrentGeneration(generation)) {
             discardStaleSurfaceOnWorker()
             return
         }
         when (result) {
-            RENDER_SUCCESS -> reportVulkanActive(apiVersion = initializedApiVersion)
-            RENDER_RECREATE -> {
-                val surface = latestSurface
-                val width = latestWidth
-                val height = latestHeight
-                if (surface == null || width <= 0 || height <= 0) return
-                initializeSurfaceOnWorker(surface, width, height, generation)
+            RENDER_SUCCESS -> {
+                swapchainRetryBudget.reset()
+                reportVulkanActive(apiVersion = initializedApiVersion)
             }
+            RENDER_RECREATE -> scheduleSwapchainRecoveryOnWorker(generation)
             else -> failOnWorker("The Vulkan driver failed while presenting Color Fill")
+        }
+    }
+
+    private fun scheduleSwapchainRecoveryOnWorker(generation: Long) {
+        if (swapchainRecoveryQueued || failed.get() || closed.get()) return
+        if (!swapchainRetryBudget.tryAcquire()) {
+            failOnWorker(
+                "The Vulkan Color Fill swapchain remained out of date after " +
+                    "$MAX_SWAPCHAIN_RETRIES recovery attempts"
+            )
+            return
+        }
+
+        swapchainRecoveryQueued = true
+        postToWorker(
+            operation = "recovering the Color Fill swapchain",
+            onRejected = { swapchainRecoveryQueued = false }
+        ) {
+            swapchainRecoveryQueued = false
+            if (closed.get() || failed.get()) return@postToWorker
+
+            val surface = latestSurface
+            val width = latestWidth
+            val height = latestHeight
+            if (surface == null ||
+                width <= 0 ||
+                height <= 0 ||
+                !isCurrentSurface(surface, generation)
+            ) {
+                discardStaleSurfaceOnWorker()
+                return@postToWorker
+            }
+            initializeSurfaceOnWorker(surface, width, height, generation)
         }
     }
 
@@ -390,8 +466,15 @@ internal class VulkanColorFillHost(
     }
 
     private fun isCurrentGeneration(generation: Long): Boolean {
+        val surface = latestSurface ?: return false
+        val surfaceValid = try {
+            surface.isValid
+        } catch (failure: Throwable) {
+            Log.w(TAG, "Unable to query the Color Fill surface state", failure)
+            false
+        }
         return generation == surfaceGeneration &&
-            latestSurface?.isValid == true &&
+            surfaceValid &&
             latestWidth > 0 &&
             latestHeight > 0
     }
@@ -404,54 +487,160 @@ internal class VulkanColorFillHost(
         return ready && readyGeneration == generation && isCurrentGeneration(generation)
     }
 
-    private fun discardStaleSurfaceOnWorker() {
+    private fun resetSurfaceStateOnWorker() {
         ready = false
         readyGeneration = NO_SURFACE_GENERATION
         initializedApiVersion = null
         needsReload = true
-        if (nativeHandle != 0L) {
-            runCatching { VulkanNative.nativeDestroySurface(nativeHandle) }
-                .onFailure { failure ->
-                    Log.w(TAG, "Unable to discard a stale Vulkan surface", failure)
-                }
+        swapchainRecoveryQueued = false
+        swapchainRetryBudget.reset()
+    }
+
+    private fun discardStaleSurfaceOnWorker() {
+        resetSurfaceStateOnWorker()
+        val handle = nativeHandle.get()
+        if (handle != 0L &&
+            !destroyNativeSurfaceSafely(
+                handle,
+                "discarding a stale Color Fill surface"
+            )
+        ) {
+            failOnWorker("The stale Vulkan Color Fill surface could not be discarded")
         }
     }
 
     private fun postIfActive(action: () -> Unit) {
         if (closed.get() || failed.get()) return
-        worker.post {
+        postToWorker(operation = "queueing Color Fill renderer work") {
             if (!closed.get() && !failed.get()) action()
+        }
+    }
+
+    private fun postToWorker(
+        operation: String,
+        onRejected: () -> Unit = {},
+        action: () -> Unit
+    ): Boolean {
+        val accepted = try {
+            worker.post {
+                try {
+                    action()
+                } catch (failure: Throwable) {
+                    Log.e(TAG, "The Color Fill worker failed while $operation", failure)
+                    if (closed.get()) {
+                        releaseNativeResources()
+                        renderThread.quitSafely()
+                    } else {
+                        failOnWorker(
+                            "The Vulkan Color Fill worker failed while $operation"
+                        )
+                    }
+                }
+            }
+        } catch (failure: Throwable) {
+            Log.e(TAG, "The Color Fill worker failed while $operation", failure)
+            false
+        }
+        if (accepted) return true
+
+        try {
+            onRejected()
+        } catch (failure: Throwable) {
+            Log.w(TAG, "Unable to clean up rejected Color Fill work", failure)
+        }
+        handleRejectedWorkerPost(operation)
+        return false
+    }
+
+    private fun handleRejectedWorkerPost(operation: String) {
+        val reason = "The Vulkan Color Fill worker rejected work while $operation"
+        if (closed.get()) {
+            Log.w(TAG, reason)
+            releaseNativeResources()
+            renderThread.quitSafely()
+        } else {
+            failOnWorker(reason)
         }
     }
 
     private fun failOnWorker(reason: String) {
         if (!failed.compareAndSet(false, true)) return
         Log.e(TAG, reason)
-        releaseNativeOnWorker()
+        releaseNativeResources()
         renderThread.quitSafely()
-        mainHandler.post {
-            onFatalFailure(this, reason)
+        try {
+            mainHandler.post {
+                onFatalFailure(this, reason)
+            }
+        } catch (failure: Throwable) {
+            Log.e(TAG, "Unable to report the Vulkan Color Fill failure", failure)
         }
     }
 
     private fun releaseNativeOnWorker() {
+        releaseNativeResources()
+    }
+
+    private fun releaseNativeResources() {
         ready = false
         readyGeneration = NO_SURFACE_GENERATION
         initializedApiVersion = null
-        pendingPlaylistBitmap?.recycleSafely()
-        pendingPlaylistBitmap = null
-        val handle = nativeHandle
-        nativeHandle = 0L
+        needsReload = true
+        swapchainRecoveryQueued = false
+        pendingPlaylistBitmap.getAndSet(null)?.recycleSafely()
+        val handle = nativeHandle.getAndSet(0L)
         if (handle != 0L) {
-            runCatching { VulkanNative.nativeDestroy(handle) }
-                .onFailure { failure ->
-                    Log.e(TAG, "Unable to destroy the Vulkan Color Fill engine", failure)
-                }
+            destroyNativeHandleSafely(handle)
         }
     }
 
+    private fun adoptNativeHandle(handle: Long): Boolean {
+        if (closed.get() ||
+            failed.get() ||
+            !nativeHandle.compareAndSet(0L, handle)
+        ) {
+            destroyNativeHandleSafely(handle)
+            return false
+        }
+        if (!closed.get() && !failed.get()) return true
+
+        if (nativeHandle.compareAndSet(handle, 0L)) {
+            destroyNativeHandleSafely(handle)
+        }
+        return false
+    }
+
+    private fun destroyNativeSurfaceSafely(
+        handle: Long,
+        operation: String
+    ): Boolean {
+        return try {
+            VulkanNative.nativeDestroySurface(handle)
+            true
+        } catch (failure: Throwable) {
+            Log.e(TAG, "Unable to finish $operation", failure)
+            false
+        }
+    }
+
+    private fun destroyNativeHandleSafely(handle: Long) {
+        try {
+            VulkanNative.nativeDestroy(handle)
+        } catch (failure: Throwable) {
+            Log.e(TAG, "Unable to destroy the Vulkan Color Fill engine", failure)
+        }
+    }
+
+    private fun replacePendingPlaylistBitmap(bitmap: Bitmap) {
+        pendingPlaylistBitmap.getAndSet(bitmap)?.recycleSafely()
+    }
+
     private fun Bitmap.recycleSafely() {
-        if (!isRecycled) recycle()
+        try {
+            if (!isRecycled) recycle()
+        } catch (failure: Throwable) {
+            Log.w(TAG, "Unable to recycle a Color Fill bitmap", failure)
+        }
     }
 
     private companion object {
@@ -459,6 +648,7 @@ internal class VulkanColorFillHost(
         const val RENDER_SUCCESS = 0
         const val RENDER_RECREATE = 1
         const val RENDER_FATAL = -1
+        const val MAX_SWAPCHAIN_RETRIES = 2
         const val NO_SURFACE_GENERATION = -1L
     }
 }

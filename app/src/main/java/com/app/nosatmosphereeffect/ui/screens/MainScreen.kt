@@ -359,7 +359,7 @@ fun RendererStatusFooter(
                         text = if (active) {
                             stringResource(R.string.renderer_vulkan_active)
                         } else {
-                            stringResource(R.string.renderer_vulkan_inactive)
+                            stringResource(R.string.renderer_opengl_active)
                         },
                         style = MaterialTheme.typography.titleMedium,
                         color = MaterialTheme.colorScheme.onSurface
@@ -370,8 +370,13 @@ fun RendererStatusFooter(
                                 R.string.renderer_vulkan_version,
                                 currentStatus.vulkanVersion.orEmpty()
                             )
+                        } else if (currentStatus.fallbackReason != null) {
+                            stringResource(
+                                R.string.renderer_vulkan_fallback_reason,
+                                currentStatus.fallbackReason
+                            )
                         } else {
-                            stringResource(R.string.renderer_opengl_active)
+                            stringResource(R.string.renderer_current_wallpaper_renderer)
                         },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant

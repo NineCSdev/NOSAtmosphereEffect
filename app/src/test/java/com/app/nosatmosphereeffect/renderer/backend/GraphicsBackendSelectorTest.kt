@@ -5,8 +5,21 @@ import org.junit.Test
 
 class GraphicsBackendSelectorTest {
     @Test
-    fun healthyVulkanIsSelectedForBothColorFillDirections() {
-        listOf("COLORFILL", "COLORFILL_REVERSE").forEach { effectId ->
+    fun healthyVulkanIsSelectedForEveryEffectDirection() {
+        listOf(
+            "ORIGINAL",
+            "REVERSE",
+            "GLASS",
+            "GLASS_REVERSE",
+            "COLORFILL",
+            "COLORFILL_REVERSE",
+            "NEON",
+            "NEON_REVERSE",
+            "FROSTED",
+            "FROSTED_REVERSE",
+            "HALFTONE",
+            "HALFTONE_REVERSE"
+        ).forEach { effectId ->
             assertEquals(
                 GraphicsBackend.VULKAN,
                 GraphicsBackendSelector.select(
@@ -20,8 +33,8 @@ class GraphicsBackendSelectorTest {
     }
 
     @Test
-    fun everyOtherEffectRemainsOnOpenGl() {
-        listOf("ATMOSPHERE", "GLASS", "HALFTONE", "FROSTED", "NEON").forEach {
+    fun unknownEffectRemainsOnOpenGl() {
+        listOf("", "UNKNOWN", "ATMOSPHERE", "original").forEach {
             assertEquals(
                 GraphicsBackend.OPENGL_ES,
                 GraphicsBackendSelector.select(
@@ -41,16 +54,18 @@ class GraphicsBackendSelectorTest {
             Triple(true, false, false),
             Triple(true, true, true)
         )
-        unavailableSignals.forEach { (feature, probe, blocked) ->
-            assertEquals(
-                GraphicsBackend.OPENGL_ES,
-                GraphicsBackendSelector.select(
-                    effectId = "COLORFILL",
-                    hasVulkan11 = feature,
-                    nativeProbePassed = probe,
-                    blockedAfterFailure = blocked
+        listOf("ORIGINAL", "COLORFILL", "FROSTED_REVERSE").forEach { effectId ->
+            unavailableSignals.forEach { (feature, probe, blocked) ->
+                assertEquals(
+                    GraphicsBackend.OPENGL_ES,
+                    GraphicsBackendSelector.select(
+                        effectId = effectId,
+                        hasVulkan11 = feature,
+                        nativeProbePassed = probe,
+                        blockedAfterFailure = blocked
+                    )
                 )
-            )
+            }
         }
     }
 }

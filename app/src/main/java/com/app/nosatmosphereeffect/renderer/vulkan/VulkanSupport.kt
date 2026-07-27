@@ -7,8 +7,10 @@ import android.util.Log
 import androidx.core.content.edit
 import com.app.nosatmosphereeffect.renderer.backend.GraphicsBackend
 import com.app.nosatmosphereeffect.renderer.backend.GraphicsBackendSelector
+import com.app.nosatmosphereeffect.renderer.status.RendererRuntimeSession
 import com.app.nosatmosphereeffect.renderer.status.RendererRuntimeStatusRepository
 import com.app.nosatmosphereeffect.renderer.status.VulkanDeviceCapability
+import java.util.Locale
 
 internal object VulkanSupport {
     private const val TAG = "VulkanSupport"
@@ -17,7 +19,7 @@ internal object VulkanSupport {
     @Volatile
     private var cachedNativeProbe: Int? = null
 
-    fun selectBackend(context: Context, effectId: String): GraphicsBackend {
+    fun selectBackend(context: Context, effectId: String): VulkanBackendSelection {
         val featureQuery = runCatching {
             context.packageManager.hasSystemFeature(
                 PackageManager.FEATURE_VULKAN_HARDWARE_VERSION,
@@ -30,7 +32,7 @@ internal object VulkanSupport {
         }
         val probedVersion = if (hasVulkan11) probeNativeRuntime() else null
         val blockedAfterFailure = runCatching {
-            VulkanFailureStore.isBlocked(context)
+            VulkanFailureStore.isBlocked(context, effectId)
         }.getOrElse { failure ->
             Log.w(TAG, "Unable to read the Vulkan failure state", failure)
             true
@@ -57,7 +59,7 @@ internal object VulkanSupport {
                 else -> "This effect does not have a Vulkan renderer"
             }
         }
-        runCatching {
+        val runtimeSession = runCatching {
             RendererRuntimeStatusRepository.recordSelection(
                 context = context,
                 effectId = effectId,
@@ -68,12 +70,15 @@ internal object VulkanSupport {
             )
         }.onFailure { failure ->
             Log.w(TAG, "Unable to publish the renderer selection", failure)
-        }
-        return selectedBackend
+        }.getOrNull()
+        return VulkanBackendSelection(
+            backend = selectedBackend,
+            runtimeSession = runtimeSession
+        )
     }
 
-    fun recordFailure(context: Context, reason: String) {
-        VulkanFailureStore.record(context, reason)
+    fun recordFailure(context: Context, effectId: String, reason: String) {
+        VulkanFailureStore.record(context, effectId, reason)
     }
 
     fun probedApiVersion(): VulkanApiVersion? {
@@ -109,22 +114,42 @@ internal object VulkanSupport {
     }
 }
 
+internal data class VulkanBackendSelection(
+    val backend: GraphicsBackend,
+    val runtimeSession: RendererRuntimeSession?
+)
+
 private object VulkanFailureStore {
     private const val PREFS_NAME = "graphics_backend_prefs"
-    private const val FAILURE_ID_KEY = "vulkan_failure_id"
-    private const val FAILURE_REASON_KEY = "vulkan_failure_reason"
+    private const val LEGACY_FAILURE_ID_KEY = "vulkan_failure_id"
+    private const val FAILURE_ID_PREFIX = "vulkan_failure_id_"
+    private const val FAILURE_REASON_PREFIX = "vulkan_failure_reason_"
 
-    fun isBlocked(context: Context): Boolean {
-        val saved = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            .getString(FAILURE_ID_KEY, null)
-        return saved == failureId(context)
+    fun isBlocked(context: Context, effectId: String): Boolean {
+        val preferences =
+            context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val currentFailureId = failureId(context)
+        return VulkanFailurePolicy.isBlocked(
+            effectId = effectId,
+            currentFailureId = currentFailureId,
+            scopedFailureId = preferences.getString(failureIdKey(effectId), null),
+            legacyFailureId = preferences.getString(LEGACY_FAILURE_ID_KEY, null)
+        )
     }
 
-    fun record(context: Context, reason: String) {
+    fun record(context: Context, effectId: String, reason: String) {
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit {
-            putString(FAILURE_ID_KEY, failureId(context))
-            putString(FAILURE_REASON_KEY, reason.take(500))
+            putString(failureIdKey(effectId), failureId(context))
+            putString(failureReasonKey(effectId), reason.take(500))
         }
+    }
+
+    private fun failureIdKey(effectId: String): String {
+        return FAILURE_ID_PREFIX + VulkanFailurePolicy.normalizedEffectId(effectId)
+    }
+
+    private fun failureReasonKey(effectId: String): String {
+        return FAILURE_REASON_PREFIX + VulkanFailurePolicy.normalizedEffectId(effectId)
     }
 
     private fun failureId(context: Context): String {
@@ -134,5 +159,31 @@ private object VulkanFailureStore {
                 .longVersionCode
         }.getOrDefault(0L)
         return "${Build.FINGERPRINT}|$versionCode"
+    }
+
+}
+
+internal object VulkanFailurePolicy {
+    private val legacyColorFillEffects = setOf(
+        "COLORFILL",
+        "COLORFILL_REVERSE"
+    )
+
+    fun isBlocked(
+        effectId: String,
+        currentFailureId: String,
+        scopedFailureId: String?,
+        legacyFailureId: String?
+    ): Boolean {
+        if (scopedFailureId == currentFailureId) return true
+        return normalizedEffectId(effectId) in legacyColorFillEffects &&
+            legacyFailureId == currentFailureId
+    }
+
+    fun normalizedEffectId(effectId: String): String {
+        val normalized = effectId.trim()
+            .uppercase(Locale.ROOT)
+            .filter { it.isLetterOrDigit() || it == '_' }
+        return normalized.ifBlank { "UNKNOWN" }
     }
 }
