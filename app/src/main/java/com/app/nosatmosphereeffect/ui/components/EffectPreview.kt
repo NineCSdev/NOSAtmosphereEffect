@@ -53,6 +53,7 @@ import com.app.nosatmosphereeffect.helper.SubjectIsolationPolicy
 import com.app.nosatmosphereeffect.helper.WallpaperBehaviorPreferences
 import com.app.nosatmosphereeffect.helper.WallpaperBehaviorPolicy
 import com.app.nosatmosphereeffect.helper.WallpaperBehaviorSettings
+import com.app.nosatmosphereeffect.renderer.backend.GraphicsBackendPreferences
 import com.app.nosatmosphereeffect.ui.model.EffectCatalog
 import com.app.nosatmosphereeffect.ui.preview.EffectPreviewService
 import com.app.nosatmosphereeffect.ui.preview.EffectPreviewSettingsMode
@@ -81,10 +82,17 @@ fun WallpaperTransitionPreview(
             android.content.Context.MODE_PRIVATE
         )
     }
+    val rendererPreferences = remember(context) {
+        context.getSharedPreferences(
+            GraphicsBackendPreferences.PREFS_NAME,
+            android.content.Context.MODE_PRIVATE
+        )
+    }
     var duration by remember(effectId, settingsMode) { mutableIntStateOf(
         EffectPreviewService.durationMillis(context, effectId, settingsMode)
     ) }
     var behaviorVersion by remember(effectId, settingsMode) { mutableIntStateOf(0) }
+    var rendererVersion by remember(effectId, settingsMode) { mutableIntStateOf(0) }
     var configurationVersion by remember(
         effectId,
         wallpaper,
@@ -170,6 +178,18 @@ fun WallpaperTransitionPreview(
         }
     }
 
+    DisposableEffect(rendererPreferences, effectId, settingsMode) {
+        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == null || key == GraphicsBackendPreferences.PREFERENCE_KEY) {
+                rendererVersion++
+            }
+        }
+        rendererPreferences.registerOnSharedPreferenceChangeListener(listener)
+        onDispose {
+            rendererPreferences.unregisterOnSharedPreferenceChangeListener(listener)
+        }
+    }
+
     LaunchedEffect(
         effectId,
         wallpaper,
@@ -227,6 +247,7 @@ fun WallpaperTransitionPreview(
             progress = shownProgress,
             fixedEffectApplied = fixedMode,
             configurationVersion = configurationVersion,
+            rendererVersion = rendererVersion,
             settingsMode = settingsMode,
             atmosphereGlassEnabledOverride =
                 atmosphereGlassEnabledOverride,
@@ -244,6 +265,7 @@ private fun ProductionEffectSurface(
     progress: Float,
     fixedEffectApplied: Boolean,
     configurationVersion: Int,
+    rendererVersion: Int,
     settingsMode: EffectPreviewSettingsMode,
     atmosphereGlassEnabledOverride: Boolean?,
     modifier: Modifier = Modifier
@@ -259,6 +281,7 @@ private fun ProductionEffectSurface(
         effectId,
         wallpaper,
         configurationVersion,
+        rendererVersion,
         expressive,
         settingsMode,
         atmosphereGlassEnabledOverride

@@ -2,10 +2,12 @@ package com.app.nosatmosphereeffect.activity
 
 import com.app.nosatmosphereeffect.service.AtmosphereService
 import com.app.nosatmosphereeffect.service.BlurToSharpService
+import com.app.nosatmosphereeffect.service.AnimatedEffectWallpaperService
 import com.app.nosatmosphereeffect.service.GlassReverseService
 import com.app.nosatmosphereeffect.service.GlassService
 import com.app.nosatmosphereeffect.ui.model.EffectCatalog
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class WallpaperEffectServicesTest {
@@ -16,6 +18,18 @@ class WallpaperEffectServicesTest {
             EffectCatalog.items.map { it.id },
             WallpaperEffectServices.supportedEffectIds
         )
+    }
+
+    @Test
+    fun `every registered effect uses the shared renderer status lifecycle`() {
+        WallpaperEffectServices.supportedEffectIds.forEach { effectId ->
+            assertTrue(
+                "$effectId must use AnimatedEffectWallpaperService",
+                AnimatedEffectWallpaperService::class.java.isAssignableFrom(
+                    WallpaperEffectServices.serviceFor(effectId)
+                )
+            )
+        }
     }
 
     @Test

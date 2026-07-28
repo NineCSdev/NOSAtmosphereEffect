@@ -1,3 +1,6 @@
+import java.io.File
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.plugin.compose")
@@ -6,11 +9,12 @@ plugins {
 android {
     namespace = "com.app.nosatmosphereeffect"
     compileSdk = 37
+    ndkVersion = "29.0.14206865"
 
     defaultConfig {
         applicationId = "com.saad_khan_rind.atmosphere_effect"
-        versionName = "7.0.4"
-        versionCode = 500704
+        versionName = "7.1.1"
+        versionCode = 500711
     }
 
     flavorDimensions += "apiLevel"
@@ -22,21 +26,21 @@ android {
             dimension = "apiLevel"
             minSdk = 36
             targetSdk = 36
-            versionCode = 500704
+            versionCode = 500711
         }
 
         create("v35") {
             dimension = "apiLevel"
             minSdk = 35
             targetSdk = 36
-            versionCode = 400704
+            versionCode = 400711
         }
 
         create("v33") {
             dimension = "apiLevel"
             minSdk = 33
             targetSdk = 33
-            versionCode = 300704
+            versionCode = 300711
         }
 
         create("play") {
@@ -54,6 +58,13 @@ android {
 
     androidResources {
         noCompress += "tflite"
+        noCompress += "spv"
+    }
+
+    externalNativeBuild {
+        ndkBuild {
+            path = file("src/main/cpp/Android.mk")
+        }
     }
 
     compileOptions {
@@ -123,4 +134,80 @@ dependencies {
     "v33Implementation"("androidx.lifecycle:lifecycle-service:2.6.2")
     "v33Implementation"("androidx.appcompat:appcompat:1.6.1")
     "v33Implementation"("com.google.android.material:material:1.11.0")
+}
+// ========================================================================
+// CUSTOM VULKAN SHADER COMPILATION TASK
+// ========================================================================
+tasks.register("compileVulkanShaders") {
+    group = "build"
+    description = "Compiles Vulkan GLSL shaders to SPIR-V using the NDK's glslc"
+
+    // STRICTLY scan only res/shaders for Vulkan files
+    val shaderSrcDir = file("src/main/shaders")
+    val shaderOutputDir = file("src/main/assets/shaders/vulkan")
+
+    val inputFiles = fileTree(shaderSrcDir) {
+        include("**/*.frag", "**/*.vert")
+    }
+
+    // FIX: Capture the root directory during the configuration phase
+    val projectRoot = project.rootDir
+
+    // Force Gradle to ALWAYS run this task (disables caching) as requested
+    outputs.upToDateWhen { false }
+
+    doLast {
+        println("--- VULKAN SHADER COMPILER ---")
+        val filesToCompile = inputFiles.files
+        println("Found ${filesToCompile.size} Vulkan shaders in shaders.")
+
+        if (filesToCompile.isEmpty()) {
+            println("WARNING: No .frag or .vert files were found in src/main/shaders.")
+            return@doLast
+        }
+
+        // Use the captured 'projectRoot' variable here instead of calling 'project.rootDir'
+        val sdkDir = File(projectRoot, "local.properties").let { propFile ->
+            if (propFile.exists()) {
+                val props = Properties()
+                props.load(propFile.inputStream())
+                props.getProperty("sdk.dir")
+            } else null
+        } ?: System.getenv("ANDROID_HOME") ?: System.getenv("ANDROID_SDK_ROOT")
+        ?: throw GradleException("Could not locate Android SDK.")
+
+        val ndkDir = File(sdkDir, "ndk")
+
+        // Locate glslc dynamically within the installed NDK
+        val glslc = ndkDir.walkTopDown().firstOrNull { it.name == "glslc" || it.name == "glslc.exe" }
+            ?: throw GradleException("glslc compiler not found in NDK path: $ndkDir")
+
+        shaderOutputDir.mkdirs()
+
+        filesToCompile.forEach { shaderFile ->
+            // Extract the immediate parent folder name (the effect name)
+            // e.g. "src/main/res/shaders/neon/neon.frag" -> "neon"
+            val effectName = shaderFile.parentFile.name
+
+            // Build the exact output path: assets/shaders/vulkan/{effect_name}/{shader.ext}.spv
+            val outFile = File(shaderOutputDir, "$effectName/${shaderFile.name}.spv")
+
+            outFile.parentFile.mkdirs()
+            println("Compiling: ${shaderFile.name} into vulkan/$effectName/ -> .spv")
+
+            // Use ProcessBuilder to bypass Gradle's nested closure scope issues entirely
+            val process = ProcessBuilder(
+                glslc.absolutePath,
+                shaderFile.absolutePath,
+                "-o",
+                outFile.absolutePath
+            ).redirectErrorStream(true).start()
+
+            val output = process.inputStream.bufferedReader().readText()
+            if (process.waitFor() != 0) {
+                throw GradleException("Shader compilation failed for ${shaderFile.name}:\n$output")
+            }
+        }
+        println("--- SHADER COMPILATION COMPLETE ---")
+    }
 }

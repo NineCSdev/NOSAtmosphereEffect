@@ -33,7 +33,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -60,7 +59,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.app.nosatmosphereeffect.R
 import com.app.nosatmosphereeffect.image.BitmapDecoder
+import com.app.nosatmosphereeffect.ui.components.AtmoAnimatedIconButton
 import com.app.nosatmosphereeffect.ui.components.AtmoChip
+import com.app.nosatmosphereeffect.ui.components.AtmoIconMotion
 import com.app.nosatmosphereeffect.ui.components.AtmoOutlinedButton
 import com.app.nosatmosphereeffect.ui.components.AtmoPrimaryButton
 import com.app.nosatmosphereeffect.ui.components.AtmoSegmentedControl
@@ -315,23 +316,19 @@ private fun PlaylistCard(
             )
         }
 
-        androidx.compose.material3.Surface(
+        AtmoAnimatedIconButton(
+            painter = painterResource(R.drawable.ic_delete),
+            contentDescription = "Remove image",
+            onClick = onDelete,
+            motion = AtmoIconMotion.PRESS,
+            iconTint = MaterialTheme.colorScheme.error,
+            iconSize = 21.dp,
+            containerColor = Color.Black.copy(alpha = 0.52f),
             modifier = Modifier
                 .align(Alignment.TopEnd)
                 .padding(12.dp)
-                .size(40.dp),
-            shape = CircleShape,
-            color = Color.Black.copy(alpha = 0.52f)
-        ) {
-            IconButton(onClick = onDelete) {
-                Icon(
-                    painterResource(R.drawable.ic_delete),
-                    contentDescription = "Remove image",
-                    tint = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.size(21.dp)
-                )
-            }
-        }
+                .size(40.dp)
+        )
     }
 }
 

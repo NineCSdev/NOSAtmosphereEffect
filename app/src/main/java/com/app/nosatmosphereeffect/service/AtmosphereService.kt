@@ -3,22 +3,31 @@ package com.app.nosatmosphereeffect.service
 import android.content.SharedPreferences
 import android.graphics.Bitmap
 import com.app.nosatmosphereeffect.helper.AtmosphereGlassPolicy
+import com.app.nosatmosphereeffect.helper.GLWallpaperService
 import com.app.nosatmosphereeffect.helper.GlassEffectPreferences
-import com.app.nosatmosphereeffect.renderer.AtmosphereRenderer
+import com.app.nosatmosphereeffect.renderer.AtmosphereRenderController
 
-class AtmosphereService : AnimatedEffectWallpaperService<AtmosphereRenderer>() {
+class AtmosphereService :
+    AnimatedEffectWallpaperService<AtmosphereRenderController>() {
 
     override val effectId = "ORIGINAL"
     override val lockedProgress = 0f
     override val unlockedProgress = 1f
     override val defaultAnimationDurationMs = 2_500L
 
-    override fun createEffectRenderer(): AtmosphereRenderer {
-        return AtmosphereRenderer(applicationContext)
+    override fun createEffectRenderer(): AtmosphereRenderController {
+        return AtmosphereRenderController(applicationContext, reverse = false)
+    }
+
+    override fun attachEffectRenderer(
+        engine: GLWallpaperService.GLEngine,
+        renderer: AtmosphereRenderController
+    ) {
+        renderer.attach(engine)
     }
 
     override fun configureRenderer(
-        renderer: AtmosphereRenderer,
+        renderer: AtmosphereRenderController,
         preferences: SharedPreferences
     ) {
         val glassEnabled = preferences.readBoolean(
@@ -26,51 +35,47 @@ class AtmosphereService : AnimatedEffectWallpaperService<AtmosphereRenderer>() {
             false
         )
         val glassSettings = GlassEffectPreferences.readAndMigrate(preferences)
-        renderer.atmosphereGlassEnabled = glassEnabled
-        renderer.glassLineCount = glassSettings.lineCount
-        renderer.glassLineThickness = glassSettings.lineThickness
-        renderer.configureGlassBackgroundOnly(
-            glassEnabled && glassSettings.backgroundOnly
+        renderer.configure(
+            glassEnabled = glassEnabled,
+            glassLineCount = glassSettings.lineCount,
+            glassLineThickness = glassSettings.lineThickness,
+            glassBackgroundOnly = glassEnabled && glassSettings.backgroundOnly,
+            dimLevel = preferences.readFloat("dim_level", 0.2f),
+            saturation = preferences.readFloat("blob_saturation", 1f),
+            contrast = preferences.readFloat("blob_contrast", 1f),
+            noiseEnabled = preferences.readBoolean("enable_noise", false),
+            noiseScale = preferences.readFloat("noise_scale", 2_000f),
+            noiseStrength = preferences.readFloat("noise_strength", 0.06f)
         )
-        renderer.dimLevel = preferences.readFloat("dim_level", 0.2f)
-        renderer.blobSaturation = preferences.readFloat("blob_saturation", 1f)
-        renderer.blobContrast = preferences.readFloat("blob_contrast", 1f)
-        renderer.enableNoise = preferences.readBoolean("enable_noise", false)
-        renderer.noiseScale = preferences.readFloat("noise_scale", 2_000f)
-        renderer.noiseStrength = preferences.readFloat("noise_strength", 0.06f)
     }
 
-    override fun setEffectProgress(renderer: AtmosphereRenderer, progress: Float) {
-        renderer.blurStrength = progress
+    override fun setEffectProgress(
+        renderer: AtmosphereRenderController,
+        progress: Float
+    ) {
+        renderer.setProgress(progress)
     }
 
     override fun setFixedEffectState(
-        renderer: AtmosphereRenderer,
+        renderer: AtmosphereRenderController,
         effectApplied: Boolean
     ) {
-        if (!effectApplied) {
-            renderer.atmosphereGlassEnabled = false
-        }
+        renderer.setFixedEffectApplied(effectApplied)
         super.setFixedEffectState(renderer, effectApplied)
     }
 
-    override fun reloadRenderer(renderer: AtmosphereRenderer) {
+    override fun reloadRenderer(renderer: AtmosphereRenderController) {
         renderer.reloadTexture()
     }
 
-    override fun queuePlaylistTransition(renderer: AtmosphereRenderer, bitmap: Bitmap) {
+    override fun queuePlaylistTransition(
+        renderer: AtmosphereRenderController,
+        bitmap: Bitmap
+    ) {
         renderer.queuePlaylistTransition(bitmap)
     }
 
-    override fun onRendererAttached(
-        renderer: AtmosphereRenderer,
-        requestRender: () -> Unit
-    ) {
-        renderer.onRenderRetryRequested = requestRender
-        renderer.onSubjectMaskUpdated = requestRender
-    }
-
-    override fun releaseRenderer(renderer: AtmosphereRenderer) {
+    override fun releaseRenderer(renderer: AtmosphereRenderController) {
         renderer.release()
     }
 

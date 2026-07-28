@@ -18,8 +18,14 @@ import com.app.nosatmosphereeffect.helper.PlaylistRotationController
 import com.app.nosatmosphereeffect.helper.WallpaperBehaviorPolicy
 import com.app.nosatmosphereeffect.helper.WallpaperBehaviorPreferences
 import com.app.nosatmosphereeffect.helper.WallpaperBehaviorSettings
+import com.app.nosatmosphereeffect.renderer.backend.BackendReselectableRenderer
+import com.app.nosatmosphereeffect.renderer.backend.GraphicsBackend
+import com.app.nosatmosphereeffect.renderer.status.RendererRuntimeSession
+import com.app.nosatmosphereeffect.renderer.status.RendererRuntimeStatusRepository
+import com.app.nosatmosphereeffect.renderer.status.VulkanDeviceCapability
+import java.util.IdentityHashMap
 
-abstract class AnimatedEffectWallpaperService<R : GLSurfaceView.Renderer> : GLWallpaperService() {
+abstract class AnimatedEffectWallpaperService<R : Any> : GLWallpaperService() {
 
     protected abstract val effectId: String
     protected abstract val lockedProgress: Float
@@ -32,6 +38,7 @@ abstract class AnimatedEffectWallpaperService<R : GLSurfaceView.Renderer> : GLWa
     private val activeEngines = mutableSetOf<EffectEngine>()
 
     protected abstract fun createEffectRenderer(): R
+    protected abstract fun attachEffectRenderer(engine: GLEngine, renderer: R)
     protected abstract fun configureRenderer(renderer: R, preferences: SharedPreferences)
     protected abstract fun setEffectProgress(renderer: R, progress: Float)
     protected abstract fun reloadRenderer(renderer: R)
@@ -127,7 +134,7 @@ abstract class AnimatedEffectWallpaperService<R : GLSurfaceView.Renderer> : GLWa
             }
 
             try {
-                setRenderer(createdRenderer)
+                attachEffectRenderer(this, createdRenderer)
             } catch (failure: RuntimeException) {
                 Log.e(logTag, "Unable to attach the wallpaper renderer", failure)
                 releaseCurrentRenderer()
@@ -273,6 +280,7 @@ abstract class AnimatedEffectWallpaperService<R : GLSurfaceView.Renderer> : GLWa
             val transitionsWereEnabled = behavior.transitionsEnabled
             applyRendererConfig(currentRenderer)
             reconcileBehavior(currentRenderer, transitionsWereEnabled)
+            (currentRenderer as? BackendReselectableRenderer)?.reselectBackend()
             requestRender()
             notifySystemColorsChanged()
         }
@@ -544,4 +552,59 @@ abstract class AnimatedEffectWallpaperService<R : GLSurfaceView.Renderer> : GLWa
         const val SAMSUNG_POLL_INTERVAL_MS = 30_000L
         const val SAMSUNG_LOCK_DELAY_MS = 0L
     }
+}
+
+abstract class GlAnimatedEffectWallpaperService<R : GLSurfaceView.Renderer> :
+    AnimatedEffectWallpaperService<R>() {
+
+    private val runtimeSessions = IdentityHashMap<R, RendererRuntimeSession>()
+
+    final override fun attachEffectRenderer(engine: GLEngine, renderer: R) {
+        engine.setRenderer(renderer)
+        runCatching {
+            val session = RendererRuntimeStatusRepository.recordSelection(
+                context = applicationContext,
+                effectId = effectId,
+                selectedBackend = GraphicsBackend.OPENGL_ES,
+                vulkanCapability = VulkanDeviceCapability.UNKNOWN,
+                probedVulkanApiVersion = null
+            )
+            synchronized(runtimeSessions) {
+                runtimeSessions[renderer] = session
+            }
+            RendererRuntimeStatusRepository.recordOpenGlActive(
+                context = applicationContext,
+                session = session
+            )
+        }.onFailure { failure ->
+            Log.w(
+                this::class.java.simpleName,
+                "Unable to publish the OpenGL ES renderer status",
+                failure
+            )
+        }
+    }
+
+    final override fun releaseRenderer(renderer: R) {
+        val session = synchronized(runtimeSessions) {
+            runtimeSessions.remove(renderer)
+        }
+        session?.let {
+            runCatching {
+                RendererRuntimeStatusRepository.recordReleased(
+                    context = applicationContext,
+                    session = it
+                )
+            }.onFailure { failure ->
+                Log.w(
+                    this::class.java.simpleName,
+                    "Unable to publish the OpenGL ES renderer release",
+                    failure
+                )
+            }
+        }
+        releaseOpenGlRenderer(renderer)
+    }
+
+    protected open fun releaseOpenGlRenderer(renderer: R) = Unit
 }

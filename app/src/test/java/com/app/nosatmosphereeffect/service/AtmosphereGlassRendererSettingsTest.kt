@@ -5,8 +5,7 @@ import android.content.ContextWrapper
 import android.content.SharedPreferences
 import com.app.nosatmosphereeffect.helper.AtmosphereGlassPolicy
 import com.app.nosatmosphereeffect.helper.GlassEffectPolicy
-import com.app.nosatmosphereeffect.renderer.AtmosphereRenderer
-import com.app.nosatmosphereeffect.renderer.BlurToSharpRenderer
+import com.app.nosatmosphereeffect.renderer.AtmosphereRenderController
 import java.lang.reflect.Method
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -28,20 +27,22 @@ class AtmosphereGlassRendererSettingsTest {
                 GlassEffectPolicy.BACKGROUND_ONLY_KEY to true
             )
         )
-        val forward = AtmosphereRenderer(context)
-        val reverse = BlurToSharpRenderer(context)
+        val forward = AtmosphereRenderController(context, reverse = false)
+        val reverse = AtmosphereRenderController(context, reverse = true)
 
         configure(AtmosphereService(), forward, preferences)
         configure(BlurToSharpService(), reverse, preferences)
 
-        assertTrue(forward.atmosphereGlassEnabled)
-        assertTrue(reverse.atmosphereGlassEnabled)
-        assertEquals(16, forward.glassLineCount)
-        assertEquals(16, reverse.glassLineCount)
-        assertEquals(0.55f, forward.glassLineThickness, 0f)
-        assertEquals(0.55f, reverse.glassLineThickness, 0f)
-        assertTrue(forward.glassBackgroundOnlyEnabled)
-        assertTrue(reverse.glassBackgroundOnlyEnabled)
+        val forwardState = forward.currentStateForTesting()
+        val reverseState = reverse.currentStateForTesting()
+        assertTrue(forwardState.glassEnabled)
+        assertTrue(reverseState.glassEnabled)
+        assertEquals(16, forwardState.glassLineCount)
+        assertEquals(16, reverseState.glassLineCount)
+        assertEquals(0.55f, forwardState.glassLineThickness, 0f)
+        assertEquals(0.55f, reverseState.glassLineThickness, 0f)
+        assertTrue(forwardState.glassBackgroundOnly)
+        assertTrue(reverseState.glassBackgroundOnly)
         forward.release()
         reverse.release()
     }
@@ -55,20 +56,16 @@ class AtmosphereGlassRendererSettingsTest {
                     mapOf(AtmosphereGlassPolicy.ENABLED_KEY to "invalid")
             )
         ).forEach { preferences ->
-            val forward = AtmosphereRenderer(context).apply {
-                atmosphereGlassEnabled = true
-            }
-            val reverse = BlurToSharpRenderer(context).apply {
-                atmosphereGlassEnabled = true
-            }
+            val forward = AtmosphereRenderController(context, reverse = false)
+            val reverse = AtmosphereRenderController(context, reverse = true)
 
             configure(AtmosphereService(), forward, preferences)
             configure(BlurToSharpService(), reverse, preferences)
 
-            assertFalse(forward.atmosphereGlassEnabled)
-            assertFalse(reverse.atmosphereGlassEnabled)
-            assertFalse(forward.glassBackgroundOnlyEnabled)
-            assertFalse(reverse.glassBackgroundOnlyEnabled)
+            assertFalse(forward.currentStateForTesting().glassEnabled)
+            assertFalse(reverse.currentStateForTesting().glassEnabled)
+            assertFalse(forward.currentStateForTesting().glassBackgroundOnly)
+            assertFalse(reverse.currentStateForTesting().glassBackgroundOnly)
             forward.release()
             reverse.release()
         }
@@ -76,28 +73,59 @@ class AtmosphereGlassRendererSettingsTest {
 
     @Test
     fun `both atmosphere renderers use the canonical static glass profile`() {
-        val forward = AtmosphereRenderer(context)
-        val reverse = BlurToSharpRenderer(context)
+        val forward = AtmosphereRenderController(context, reverse = false)
+        val reverse = AtmosphereRenderController(context, reverse = true)
 
-        assertEquals(GlassEffectPolicy.DEFAULT_LINE_COUNT, forward.glassLineCount)
-        assertEquals(GlassEffectPolicy.DEFAULT_LINE_COUNT, reverse.glassLineCount)
+        assertEquals(
+            GlassEffectPolicy.DEFAULT_LINE_COUNT,
+            forward.currentStateForTesting().glassLineCount
+        )
+        assertEquals(
+            GlassEffectPolicy.DEFAULT_LINE_COUNT,
+            reverse.currentStateForTesting().glassLineCount
+        )
         assertEquals(
             GlassEffectPolicy.DEFAULT_LINE_THICKNESS,
-            forward.glassLineThickness,
+            forward.currentStateForTesting().glassLineThickness,
             0f
         )
         assertEquals(
             GlassEffectPolicy.DEFAULT_LINE_THICKNESS,
-            reverse.glassLineThickness,
+            reverse.currentStateForTesting().glassLineThickness,
             0f
         )
 
-        forward.glassLineCount = Int.MAX_VALUE
-        reverse.glassLineThickness = Float.NaN
-        assertEquals(GlassEffectPolicy.MAX_LINE_COUNT, forward.glassLineCount)
+        forward.configure(
+            dimLevel = 0.2f,
+            saturation = 1f,
+            contrast = 1f,
+            noiseEnabled = false,
+            noiseScale = 2_000f,
+            noiseStrength = 0.06f,
+            glassEnabled = false,
+            glassLineCount = Int.MAX_VALUE,
+            glassLineThickness = GlassEffectPolicy.DEFAULT_LINE_THICKNESS,
+            glassBackgroundOnly = false
+        )
+        reverse.configure(
+            dimLevel = 0.2f,
+            saturation = 1f,
+            contrast = 1f,
+            noiseEnabled = false,
+            noiseScale = 2_000f,
+            noiseStrength = 0.06f,
+            glassEnabled = false,
+            glassLineCount = GlassEffectPolicy.DEFAULT_LINE_COUNT,
+            glassLineThickness = Float.NaN,
+            glassBackgroundOnly = false
+        )
+        assertEquals(
+            GlassEffectPolicy.MAX_LINE_COUNT,
+            forward.currentStateForTesting().glassLineCount
+        )
         assertEquals(
             GlassEffectPolicy.DEFAULT_LINE_THICKNESS,
-            reverse.glassLineThickness,
+            reverse.currentStateForTesting().glassLineThickness,
             0f
         )
         forward.release()

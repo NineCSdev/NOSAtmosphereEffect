@@ -28,6 +28,7 @@ import com.app.nosatmosphereeffect.helper.SubjectIsolationPolicy
 import com.app.nosatmosphereeffect.helper.WallpaperBehaviorPreferences
 import com.app.nosatmosphereeffect.helper.WallpaperBehaviorSettings
 import com.app.nosatmosphereeffect.helper.WallpaperFitHelper
+import com.app.nosatmosphereeffect.renderer.backend.GraphicsBackendPreferences
 import com.app.nosatmosphereeffect.ui.screens.AdvancedConfig
 import com.app.nosatmosphereeffect.ui.screens.AdvancedResult
 import com.app.nosatmosphereeffect.ui.screens.AdvancedSettingsScreen
@@ -127,7 +128,8 @@ class AdvancedSettingsActivity : ComponentActivity() {
             ),
             subjectSegmentationEnabled =
                 prefs.readBoolean(CanvasSubjectSettings.ENABLED_KEY, false),
-            scrollEnabled = WallpaperFitHelper.isScrollEnabled(this)
+            scrollEnabled = WallpaperFitHelper.isScrollEnabled(this),
+            rendererPreference = GraphicsBackendPreferences.read(this)
         )
 
         val initialSubjectModelState = SubjectModelState(
@@ -214,6 +216,7 @@ class AdvancedSettingsActivity : ComponentActivity() {
         val selectedRotationValue =
             rotationValues.getOrElse(result.rotationIndex) { rotationValues[0] }
 
+        GraphicsBackendPreferences.write(this, result.rendererPreference)
         wpPrefs.edit { putLong("rotation_interval_minutes", selectedRotationValue) }
         WallpaperBehaviorPreferences.write(
             this,
@@ -283,6 +286,7 @@ class AdvancedSettingsActivity : ComponentActivity() {
     }
 
     private fun resetSettings(prefs: SharedPreferences) {
+        GraphicsBackendPreferences.reset(this)
         WallpaperBehaviorPreferences.reset(this)
         prefs.edit {
             remove("poll_interval")

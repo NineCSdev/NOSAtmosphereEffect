@@ -1,51 +1,57 @@
-Atmo Engine 7.0.4 brings customizable effects to your live wallpaper, with optional lock-screen-to-home-screen transitions.
+Atmo Engine 7.1.1 turns your images into customizable live wallpapers, with optional lock-screen-to-home-screen transitions.
 
-Atmo Engine is an open-source live wallpaper studio inspired by the Atmosphere effect in Nothing OS. Choose an image, preview the real effect, fine-tune it, and apply it through Android's live wallpaper screen.
+Atmo Engine is an open-source wallpaper studio inspired by the Atmosphere effect in Nothing OS. Choose an image, preview and fine-tune the effect, then apply it through Android's live wallpaper screen.
 
 EFFECTS
-• Original and Reverse Atmosphere, with an optional reeded-glass clear state
-• Glass Effect with right-to-left or fade-in transitions
-• Reverse Glass with left-to-right or fade-out transitions
+• Atmosphere and Reverse Atmosphere, with optional reeded glass
+• Glass and Reverse Glass
 • Color Fill and Reverse Color Fill
 • Canvas Sketch and Reverse Canvas Sketch
 • Simple Frosted and Reverse Frosted
 • Halftone Print and Reverse Halftone
 
-Each effect uses the same renderer in its preview and the live wallpaper, so you can see how your image and effect behavior will look before applying it.
+Previews use the same image, settings, and graphics API as the live wallpaper.
 
-TRANSITIONS OR CONTINUOUS EFFECTS
-In Fine tuning > Timing, use Animate transitions to switch between the normal lock-to-home animation and a mode that keeps the effect fully applied on the selected screen or screens, with the original image on any other screen and no unlock transition.
+TRANSITIONS OR ALWAYS-APPLIED EFFECTS
+Fine tuning > Timing lets you disable transitions and keep the final effect visible on Home, Lock, or Both. Atmo remains a live wallpaper, so playlists, theme playlists, Fine Tune controls, subject isolation, and supported launcher scrolling continue to work.
 
-This mode remains a live wallpaper; it does not create a baked static image. Playlists and theme playlists continue rotating, Fine Tune controls and Background only subject isolation continue working, and wallpaper scrolling remains available where the launcher supports it.
+Keep Atmo selected for both Home and Lock in Android's wallpaper picker. When transitions are off:
+• Home screen: effect on Home, original image on Lock
+• Lock screen: original image on Home, effect on Lock
+• Both: effect on both screens
 
-Keep Atmo selected for Home screen and Lock screen in Android's live-wallpaper picker. Atmo remains the active live wallpaper on both screens; when transitions are off, Keep effect applied on controls what it renders:
-• Home screen: effect on Home, original image on Lock.
-• Lock screen: original image on Home, effect on Lock.
-• Both: effect on both Home and Lock.
-
-No option installs a static wallpaper or removes the live service from either screen.
+This mode does not install a baked static image.
 
 WALLPAPER MODES
-• Single Image for a focused setup
-• Playlist for automatic wallpaper rotation
+• Single Image
+• Playlist with automatic rotation
 • Theme Playlists with separate Light and Dark collections
 
-Theme Playlists switch collections when the device appearance changes, then continue rotating within the active collection at your chosen interval. Every playlist image can keep its own crop, zoom, fit, and scrolling position.
+Theme Playlists follow device appearance and rotate within the active collection. Every image keeps its crop, zoom, fit, and scrolling position.
 
 FINE TUNING
-Turn transitions on or off, then adjust animation duration, dimness, Glass line count, thickness and transition style, blur, grain, atmosphere contrast and saturation, halftone detail, Canvas Sketch lines, fingerprint position, image fit, and playlist timing. Glass and Halftone can use subject isolation to apply their effect to the background only. Recommendations automatically follow the selected effect.
+Customize animation duration, dimness, Glass rib count, thickness and transition style, blur, grain, Atmosphere contrast and saturation, Halftone detail, Canvas Sketch lines, fingerprint position, image fit, experimental wallpaper scrolling, and playlist timing.
 
-ATMOSPHERE + GLASS
-When setting or editing an image for Original or Reverse Atmosphere, enable Add glass effect to use a reeded-glass image on the clear side. With transitions enabled, the animation remains the normal Atmosphere transition. With transitions disabled, Atmo holds the fully atmospheric effect state on the selected screen or screens; any screen assigned the original remains genuinely unchanged.
+Glass and Halftone can apply their effect to the background only. Atmosphere can optionally use the same reeded-glass treatment on its clear state, including line and background-only controls.
 
 MATERIAL 3 INTERFACE
-Use Material Expressive styling with the device's system color palette, or switch to fixed app colors. Appearance controls include System, Light, and Dark modes plus an optional pitch-black background in dark mode.
+Material Expressive styling can follow the system palette or use fixed colors. Choose System, Light, or Dark appearance, with an optional pitch-black background. Controls include meaning-aware motion and haptics.
+
+VULKAN OR OPENGL ES
+Fine tuning > Display offers:
+• Automatic (recommended): Vulkan when compatible, with safe OpenGL ES fallback
+• Vulkan: requests Vulkan while retaining compatibility checks and fallback
+• OpenGL ES: skips Vulkan and always uses OpenGL ES
+
+The choice applies immediately to previews and the active wallpaper. Atmo negotiates the highest Vulkan version supported by the Android loader and GPU driver, from Vulkan 1.4 through 1.1. It does not use Shizuku or change the system driver.
+
+If Vulkan setup, texture upload, or presentation fails, only that effect falls back to its equivalent OpenGL ES renderer. A status at the bottom of the main screen shows the API that genuinely rendered the live wallpaper and the negotiated Vulkan version when active.
 
 OFFLINE-FIRST PRIVACY
-Wallpaper images, crops, sketches, palettes, and playlists are processed and stored on-device. Atmo Engine does not request Internet or network-state permission and contains no developer-operated advertising or analytics.
+Images, crops, sketches, palettes, and playlists stay on-device. Atmo requests neither Internet nor network-state permission and contains no developer-operated advertising or analytics.
 
-Canvas Sketch, Glass, and Halftone share optional on-device subject isolation. Canvas Sketch can anchor its drawing to a prominent person, character, animal, or object. The Background only option for Glass and Halftone keeps that subject clear while processing the background. Google Play builds use the higher-quality optional ML Kit subject model: Fine Tuning checks its installed state and downloads it through Google Play services only after you tap the download button. After installation, processing is on-device and works offline. F-Droid builds instead bundle the open-source U2NetP model and need no model download or Google Play services.
+Canvas Sketch, Glass, and Halftone share optional on-device subject isolation. Canvas can anchor its drawing to a prominent person, character, animal, or object. Background only keeps that subject clear for Glass and Halftone. The Google Play build uses an optional ML Kit subject model, downloaded through Google Play services only after you tap the download button. Processing is on-device and works offline after installation.
 
-Sync System Colors publishes a locally extracted wallpaper palette through Android's wallpaper API whenever the active image changes. System-wide color refresh behavior is controlled by the phone manufacturer.
+Sync System Colors publishes a locally extracted wallpaper palette through Android's wallpaper API whenever the active image changes. System-wide theme refresh behavior remains controlled by the phone manufacturer.
 
 Atmo Engine is released under the MIT License.
