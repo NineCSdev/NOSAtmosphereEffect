@@ -6,6 +6,13 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+val localProperties = Properties().apply {
+    val localPropsFile = rootProject.file(".env")
+    if (localPropsFile.exists()) {
+        load(localPropsFile.inputStream())
+    }
+}
+
 android {
     namespace = "com.app.nosatmosphereeffect"
     compileSdk = 37
@@ -15,6 +22,23 @@ android {
         applicationId = "com.saad_khan_rind.atmosphere_effect"
         versionName = "7.1.1"
         versionCode = 500711
+    }
+
+    signingConfigs {
+        create("release") {
+            storeFile = file("keystores/release-key.jks")
+
+            // Checks GitHub Actions environment first, falls back to local.properties for local machine builds
+            storePassword = System.getenv("KEY_STORE_PASSWORD") ?: localProperties.getProperty("KEY_STORE_PASSWORD")
+            keyAlias = System.getenv("ALIAS") ?: localProperties.getProperty("ALIAS")
+            keyPassword = System.getenv("KEY_PASSWORD") ?: localProperties.getProperty("KEY_PASSWORD")
+
+            // Explicitly enable all available signature schemes
+            enableV1Signing = true
+            enableV2Signing = true
+            enableV3Signing = true
+            enableV4Signing = true
+        }
     }
 
     flavorDimensions += "apiLevel"
@@ -81,6 +105,7 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            signingConfig = signingConfigs.getByName("release")
             ndk {
                 debugSymbolLevel = "FULL"
             }
@@ -166,15 +191,11 @@ tasks.register("compileVulkanShaders") {
             return@doLast
         }
 
-        // Use the captured 'projectRoot' variable here instead of calling 'project.rootDir'
-        val sdkDir = File(projectRoot, "local.properties").let { propFile ->
-            if (propFile.exists()) {
-                val props = Properties()
-                props.load(propFile.inputStream())
-                props.getProperty("sdk.dir")
-            } else null
-        } ?: System.getenv("ANDROID_HOME") ?: System.getenv("ANDROID_SDK_ROOT")
-        ?: throw GradleException("Could not locate Android SDK.")
+        // Reuses the global localProperties object safely initialized at the top
+        val sdkDir = localProperties.getProperty("sdk.dir")
+            ?: System.getenv("ANDROID_HOME")
+            ?: System.getenv("ANDROID_SDK_ROOT")
+            ?: throw GradleException("Could not locate Android SDK.")
 
         val ndkDir = File(sdkDir, "ndk")
 

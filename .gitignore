@@ -10,7 +10,8 @@ local.properties
 /app/build
 /app/v33
 /app/v36
-/app/src/main/assets/shaders/vulkan/
+/app/src/main/assets/shaders/vulkan
+/app/keystores
 .externalNativeBuild
 .cxx
 .kotlin
@@ -22,3 +23,6 @@ local.properties
 *.spv
 # Google Services
 google-services.json
+# env
+.env
+*.env
