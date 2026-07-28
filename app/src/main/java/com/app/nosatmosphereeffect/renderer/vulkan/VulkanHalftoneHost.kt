@@ -13,14 +13,16 @@ internal class VulkanHalftoneHost(
     private val reverse: Boolean,
     initialState: HalftoneRenderState,
     onFatalFailure: (WallpaperRenderHost, String) -> Unit,
-    onVulkanActive: (WallpaperRenderHost, Int) -> Unit
+    onVulkanActive: (WallpaperRenderHost, Int) -> Unit,
+    previewSource: (() -> Bitmap?)? = null
 ) : VulkanSingleImageHost<HalftoneRenderState>(
     context = context,
     threadName = "AtmoVulkanHalftone",
     initialState = initialState.sanitized(),
     bridge = HalftoneBridge(reverse),
     onFatalFailure = onFatalFailure,
-    onVulkanActive = onVulkanActive
+    onVulkanActive = onVulkanActive,
+    previewSource = previewSource
 ) {
     private val subjectMasks = SubjectMaskCoordinator(context, ::requestRender)
 

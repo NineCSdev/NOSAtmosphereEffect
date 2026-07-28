@@ -44,6 +44,7 @@ abstract class GLWallpaperService : WallpaperService() {
         private var pendingColorSource: WallpaperColorSource? = null
         private var colorRequestVersion = 0L
         private var engineDestroyed = false
+        private val wallpaperSurfaceHolder = WallpaperSurfaceHolderState()
         private var surfaceCreated = false
         private var surfaceFormat = PixelFormat.OPAQUE
         private var surfaceWidth = 0
@@ -56,6 +57,7 @@ abstract class GLWallpaperService : WallpaperService() {
         }
 
         override fun onCreate(surfaceHolder: SurfaceHolder) {
+            wallpaperSurfaceHolder.remember(surfaceHolder)
             super.onCreate(surfaceHolder)
             rendererLifecycle.reset()
             surfaceHolder.setFormat(PixelFormat.OPAQUE)
@@ -66,7 +68,7 @@ abstract class GLWallpaperService : WallpaperService() {
         fun setRenderer(renderer: GLSurfaceView.Renderer): WallpaperRenderHost {
             val host = OpenGlRenderHost(
                 context = this@GLWallpaperService,
-                wallpaperHolder = surfaceHolder,
+                wallpaperHolder = wallpaperSurfaceHolder.requireHolder(),
                 renderer = renderer
             )
             installRenderHost(host)
@@ -107,9 +109,18 @@ abstract class GLWallpaperService : WallpaperService() {
                 return false
             }
 
-            val replayFailure = RenderHostSwapGuard.prepare(
-                replacement,
-                ::replaySurfaceState
+            val activeSurfaceHolder = if (surfaceCreated) {
+                wallpaperSurfaceHolder.requireHolder()
+            } else {
+                null
+            }
+            val replayFailure = RenderHostSwapGuard.prepareHandoff(
+                expected = expected,
+                replacement = replacement,
+                quiesce = { host ->
+                    activeSurfaceHolder?.let(host::quiesceSurface)
+                },
+                replay = ::replaySurfaceState
             )
             if (replayFailure != null) {
                 Log.e(
@@ -131,7 +142,7 @@ abstract class GLWallpaperService : WallpaperService() {
         fun createOpenGlRenderHost(renderer: GLSurfaceView.Renderer): WallpaperRenderHost {
             return OpenGlRenderHost(
                 context = this@GLWallpaperService,
-                wallpaperHolder = surfaceHolder,
+                wallpaperHolder = wallpaperSurfaceHolder.requireHolder(),
                 renderer = renderer
             )
         }
@@ -354,11 +365,13 @@ abstract class GLWallpaperService : WallpaperService() {
                 Log.e(TAG, "Unable to stop the destroyed render surface", failure)
             } finally {
                 renderHost = null
+                wallpaperSurfaceHolder.clear()
                 super.onDestroy()
             }
         }
 
         override fun onSurfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
+            wallpaperSurfaceHolder.remember(holder)
             super.onSurfaceChanged(holder, format, width, height)
             surfaceFormat = format
             surfaceWidth = width
@@ -369,12 +382,14 @@ abstract class GLWallpaperService : WallpaperService() {
         }
 
         override fun onSurfaceCreated(holder: SurfaceHolder) {
+            wallpaperSurfaceHolder.remember(holder)
             super.onSurfaceCreated(holder)
             surfaceCreated = true
             dispatchToHost("creating the render surface") { it.onSurfaceCreated(holder) }
         }
 
         override fun onSurfaceDestroyed(holder: SurfaceHolder) {
+            wallpaperSurfaceHolder.remember(holder)
             super.onSurfaceDestroyed(holder)
             dispatchToHost("destroying the render surface") { it.onSurfaceDestroyed(holder) }
             surfaceCreated = false
@@ -384,10 +399,11 @@ abstract class GLWallpaperService : WallpaperService() {
 
         private fun replaySurfaceState(host: WallpaperRenderHost) {
             if (surfaceCreated) {
-                host.onSurfaceCreated(surfaceHolder)
+                val holder = wallpaperSurfaceHolder.requireHolder()
+                host.onSurfaceCreated(holder)
                 if (surfaceWidth > 0 && surfaceHeight > 0) {
                     host.onSurfaceChanged(
-                        surfaceHolder,
+                        holder,
                         surfaceFormat,
                         surfaceWidth,
                         surfaceHeight
@@ -421,7 +437,12 @@ abstract class GLWallpaperService : WallpaperService() {
         renderer: GLSurfaceView.Renderer
     ) : WallpaperRenderHost {
         private var closed = false
-        private val view = WallpaperGLSurfaceView(context, wallpaperHolder).apply {
+        private val view = WallpaperSurfaceHolderConstruction.withHolder(
+            wallpaperHolder
+        ) {
+            WallpaperGLSurfaceView(context)
+        }.apply {
+            attachWallpaperHolder(wallpaperHolder)
             setRenderer(renderer)
             renderMode = GLSurfaceView.RENDERMODE_WHEN_DIRTY
         }
@@ -467,9 +488,9 @@ abstract class GLWallpaperService : WallpaperService() {
         }
 
         private class WallpaperGLSurfaceView(
-            context: Context,
-            private val wallpaperHolder: SurfaceHolder
+            context: Context
         ) : GLSurfaceView(context) {
+            private var wallpaperHolder: SurfaceHolder? = null
             private var destroyStarted = false
 
             init {
@@ -480,6 +501,13 @@ abstract class GLWallpaperService : WallpaperService() {
 
             override fun getHolder(): SurfaceHolder {
                 return wallpaperHolder
+                    ?: checkNotNull(WallpaperSurfaceHolderConstruction.holder()) {
+                        "The wallpaper SurfaceHolder was unavailable during GLSurfaceView construction"
+                    }
+            }
+
+            fun attachWallpaperHolder(holder: SurfaceHolder) {
+                wallpaperHolder = holder
             }
 
             fun destroy() {

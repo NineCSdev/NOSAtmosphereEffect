@@ -69,7 +69,7 @@ float foregroundProtection(vec2 uv) {
 void main() {
     bool reverse = params.render.w > 0.5;
     float progress = clamp(params.render.x, 0.0, 1.0);
-    float effectStrength = reverse ? progress : 1.0 - progress;
+    float effectStrength = reverse ? 1.0 - progress : progress;
     float dotSize = params.controls.x;
     bool grayscale = params.controls.y > 0.5;
 

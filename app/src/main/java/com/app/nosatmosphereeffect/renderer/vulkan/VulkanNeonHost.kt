@@ -15,14 +15,16 @@ internal class VulkanNeonHost(
     private val reverse: Boolean,
     initialState: NeonRenderState,
     onFatalFailure: (WallpaperRenderHost, String) -> Unit,
-    onVulkanActive: (WallpaperRenderHost, Int) -> Unit
+    onVulkanActive: (WallpaperRenderHost, Int) -> Unit,
+    previewSource: (() -> Bitmap?)? = null
 ) : VulkanSingleImageHost<NeonRenderState>(
     context = context,
     threadName = "AtmoVulkanCanvas",
     initialState = initialState.sanitized(),
     bridge = NeonBridge(reverse),
     onFatalFailure = onFatalFailure,
-    onVulkanActive = onVulkanActive
+    onVulkanActive = onVulkanActive,
+    previewSource = previewSource
 ) {
     private val subjectMasks = SubjectMaskCoordinator(context, ::requestRender)
 

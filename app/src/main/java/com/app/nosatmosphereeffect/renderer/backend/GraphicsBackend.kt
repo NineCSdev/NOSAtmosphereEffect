@@ -5,6 +5,18 @@ enum class GraphicsBackend {
     VULKAN
 }
 
+enum class GraphicsBackendPreference(val storedValue: String) {
+    AUTOMATIC("automatic"),
+    VULKAN("vulkan"),
+    OPENGL_ES("opengl_es");
+
+    companion object {
+        fun fromStoredValue(value: String?): GraphicsBackendPreference {
+            return entries.firstOrNull { it.storedValue == value } ?: AUTOMATIC
+        }
+    }
+}
+
 object GraphicsBackendSelector {
     private val vulkanEffects = setOf(
         "ORIGINAL",
@@ -25,8 +37,12 @@ object GraphicsBackendSelector {
         effectId: String,
         hasVulkan11: Boolean,
         nativeProbePassed: Boolean,
-        blockedAfterFailure: Boolean
+        blockedAfterFailure: Boolean,
+        preference: GraphicsBackendPreference
     ): GraphicsBackend {
+        if (preference == GraphicsBackendPreference.OPENGL_ES) {
+            return GraphicsBackend.OPENGL_ES
+        }
         return if (
             effectId in vulkanEffects &&
             hasVulkan11 &&

@@ -5,16 +5,21 @@ import android.graphics.Bitmap
 import android.util.Log
 import com.app.nosatmosphereeffect.helper.GLWallpaperService
 import com.app.nosatmosphereeffect.helper.WallpaperRenderHost
+import com.app.nosatmosphereeffect.renderer.backend.BackendReselectableRenderer
 import com.app.nosatmosphereeffect.renderer.backend.GraphicsBackend
+import com.app.nosatmosphereeffect.renderer.backend.GraphicsBackendPreference
 import com.app.nosatmosphereeffect.renderer.status.RendererRuntimeSession
 import com.app.nosatmosphereeffect.renderer.status.RendererRuntimeStatusRepository
+import com.app.nosatmosphereeffect.renderer.vulkan.VulkanBackendChange
+import com.app.nosatmosphereeffect.renderer.vulkan.VulkanBackendResolution
+import com.app.nosatmosphereeffect.renderer.vulkan.VulkanBackendSelection
 import com.app.nosatmosphereeffect.renderer.vulkan.VulkanNeonHost
 import com.app.nosatmosphereeffect.renderer.vulkan.VulkanSupport
 
 class NeonRenderController(
     context: Context,
     private val isReverse: Boolean
-) {
+) : BackendReselectableRenderer {
     private val appContext = context.applicationContext
     private val effectId = if (isReverse) "NEON_REVERSE" else "NEON"
     private val lock = Any()
@@ -24,6 +29,8 @@ class NeonRenderController(
     private var activeHost: WallpaperRenderHost? = null
     private var openGlRenderer: NeonRenderer? = null
     private var vulkanHost: VulkanNeonHost? = null
+    private var backendPreference = GraphicsBackendPreference.AUTOMATIC
+    private var activeVulkanApiVersion: Int? = null
     private var runtimeSession: RendererRuntimeSession? = null
     private var closed = false
 
@@ -35,10 +42,44 @@ class NeonRenderController(
         }
 
         val selection = VulkanSupport.selectBackend(appContext, effectId)
-        synchronized(lock) { runtimeSession = selection.runtimeSession }
+        synchronized(lock) {
+            backendPreference = selection.preference
+            runtimeSession = selection.runtimeSession
+        }
         when (selection.backend) {
             GraphicsBackend.VULKAN -> attachVulkan(engine)
             GraphicsBackend.OPENGL_ES -> attachOpenGl(engine)
+        }
+    }
+
+    override fun reselectBackend() {
+        val snapshot = synchronized(lock) {
+            val currentEngine = engine
+            val currentHost = activeHost
+            if (closed || currentEngine == null || currentHost == null) return
+            BackendSnapshot(
+                engine = currentEngine,
+                host = currentHost,
+                preference = backendPreference,
+                backend = if (vulkanHost === currentHost) {
+                    GraphicsBackend.VULKAN
+                } else {
+                    GraphicsBackend.OPENGL_ES
+                }
+            )
+        }
+        when (
+            val change = VulkanSupport.resolveBackendChange(
+                context = appContext,
+                effectId = effectId,
+                appliedPreference = snapshot.preference,
+                activeBackend = snapshot.backend
+            )
+        ) {
+            VulkanBackendChange.None -> Unit
+            is VulkanBackendChange.PreferenceOnly ->
+                refreshActiveSession(snapshot, change.resolution)
+            is VulkanBackendChange.Swap -> swapBackend(snapshot, change)
         }
     }
 
@@ -131,6 +172,7 @@ class NeonRenderController(
             openGlRenderer = null
             activeHost = null
             engine = null
+            activeVulkanApiVersion = null
             runtimeSession = null
         }
         vk?.close()
@@ -222,6 +264,7 @@ class NeonRenderController(
             openGlRenderer = renderer
             vulkanHost = null
             activeHost = replacement
+            activeVulkanApiVersion = null
         }
         publishRendererStatus("publishing the OpenGL ES fallback") {
             RendererRuntimeStatusRepository.recordOpenGlActive(
@@ -235,12 +278,105 @@ class NeonRenderController(
         Log.w(TAG, "Canvas switched to OpenGL ES after Vulkan failed: $reason")
     }
 
+    private fun swapBackend(
+        snapshot: BackendSnapshot,
+        change: VulkanBackendChange.Swap
+    ) {
+        val resolution = change.resolution
+        var replacementRenderer: NeonRenderer? = null
+        var replacementVulkan: VulkanNeonHost? = null
+        val replacement = runCatching {
+            when (resolution.backend) {
+                GraphicsBackend.VULKAN -> {
+                    VulkanNeonHost(
+                        context = appContext,
+                        reverse = isReverse,
+                        initialState = synchronized(lock) { state },
+                        onFatalFailure = ::fallbackToOpenGl,
+                        onVulkanActive = ::onVulkanActive
+                    ).also { replacementVulkan = it }
+                }
+                GraphicsBackend.OPENGL_ES -> {
+                    createOpenGlRenderer(snapshot.engine).also { renderer ->
+                        replacementRenderer = renderer
+                    }.let(snapshot.engine::createOpenGlRenderHost)
+                }
+            }
+        }.getOrElse { failure ->
+            Log.e(TAG, "Unable to prepare the requested Canvas renderer", failure)
+            replacementRenderer?.release()
+            return
+        }
+        if (!snapshot.engine.replaceRenderHost(snapshot.host, replacement)) {
+            replacementRenderer?.release()
+            Log.e(TAG, "Unable to switch the Canvas renderer backend")
+            return
+        }
+
+        val selection = VulkanSupport.publishActiveSelection(
+            context = appContext,
+            effectId = effectId,
+            resolution = resolution,
+            activeVulkanApiVersion = null
+        )
+        val previous = synchronized(lock) {
+            if (closed) {
+                releaseSelection(selection)
+                return
+            }
+            val result = openGlRenderer to runtimeSession
+            openGlRenderer = replacementRenderer
+            vulkanHost = replacementVulkan
+            activeHost = replacement
+            backendPreference = selection.preference
+            activeVulkanApiVersion = null
+            runtimeSession = selection.runtimeSession
+            result
+        }
+        previous.first?.release()
+        publishRendererStatus("releasing the previous renderer session", previous.second) {
+            RendererRuntimeStatusRepository.recordReleased(appContext, it)
+        }
+        snapshot.engine.requestRender()
+    }
+
+    private fun refreshActiveSession(
+        snapshot: BackendSnapshot,
+        resolution: VulkanBackendResolution
+    ) {
+        val activeVersion = synchronized(lock) {
+            if (closed || activeHost !== snapshot.host) return
+            activeVulkanApiVersion
+        }
+        val selection = VulkanSupport.publishActiveSelection(
+            context = appContext,
+            effectId = effectId,
+            resolution = resolution,
+            activeVulkanApiVersion = activeVersion
+        )
+        val previousSession = synchronized(lock) {
+            if (closed || activeHost !== snapshot.host) {
+                releaseSelection(selection)
+                return
+            }
+            val previous = runtimeSession
+            backendPreference = resolution.preference
+            runtimeSession = selection.runtimeSession
+            previous
+        }
+        publishRendererStatus("releasing the previous renderer session", previousSession) {
+            RendererRuntimeStatusRepository.recordReleased(appContext, it)
+        }
+    }
+
     private fun onVulkanActive(
         host: WallpaperRenderHost,
         packedVersion: Int
     ) {
         val isCurrentHost = synchronized(lock) {
-            !closed && activeHost === host
+            (!closed && activeHost === host).also { isCurrent ->
+                if (isCurrent) activeVulkanApiVersion = packedVersion
+            }
         }
         if (!isCurrentHost) return
         publishRendererStatus("marking Vulkan as active") {
@@ -281,6 +417,22 @@ class NeonRenderController(
                 Log.w(TAG, "Unable to update renderer status while $operation", failure)
             }
     }
+
+    private fun releaseSelection(selection: VulkanBackendSelection) {
+        publishRendererStatus(
+            "releasing an unused renderer selection",
+            selection.runtimeSession
+        ) {
+            RendererRuntimeStatusRepository.recordReleased(appContext, it)
+        }
+    }
+
+    private data class BackendSnapshot(
+        val engine: GLWallpaperService.GLEngine,
+        val host: WallpaperRenderHost,
+        val preference: GraphicsBackendPreference,
+        val backend: GraphicsBackend
+    )
 
     private companion object {
         const val TAG = "CanvasController"

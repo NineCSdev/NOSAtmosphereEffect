@@ -14,6 +14,14 @@ interface WallpaperRenderHost {
 
     fun onSurfaceDestroyed(holder: SurfaceHolder)
 
+    /**
+     * Synchronously gives up this host's ownership of [holder] while keeping the
+     * host reusable if a replacement cannot be attached.
+     */
+    fun quiesceSurface(holder: SurfaceHolder) {
+        onSurfaceDestroyed(holder)
+    }
+
     fun onResume()
 
     fun onPause()

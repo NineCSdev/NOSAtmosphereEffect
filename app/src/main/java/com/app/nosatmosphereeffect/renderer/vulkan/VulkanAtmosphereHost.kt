@@ -14,7 +14,8 @@ internal class VulkanAtmosphereHost(
     private val reverse: Boolean,
     initialState: AtmosphereRenderState,
     onFatalFailure: (VulkanAtmosphereHost, String) -> Unit,
-    onVulkanActive: (VulkanAtmosphereHost, Int) -> Unit
+    onVulkanActive: (VulkanAtmosphereHost, Int) -> Unit,
+    previewSource: (() -> Bitmap?)? = null
 ) : VulkanSingleImageHost<AtmosphereRenderState>(
     context = context,
     threadName = if (reverse) {
@@ -29,7 +30,8 @@ internal class VulkanAtmosphereHost(
     },
     onVulkanActive = { host: WallpaperRenderHost, version: Int ->
         onVulkanActive(host as VulkanAtmosphereHost, version)
-    }
+    },
+    previewSource = previewSource
 ) {
     private val blobPlanner = AtmosphereBlobPlanner()
     private val subjectMasks = SubjectMaskCoordinator(appContext) {

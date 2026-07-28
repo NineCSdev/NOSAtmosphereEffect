@@ -26,7 +26,8 @@ class GraphicsBackendSelectorTest {
                     effectId = effectId,
                     hasVulkan11 = true,
                     nativeProbePassed = true,
-                    blockedAfterFailure = false
+                    blockedAfterFailure = false,
+                    preference = GraphicsBackendPreference.AUTOMATIC
                 )
             )
         }
@@ -41,7 +42,8 @@ class GraphicsBackendSelectorTest {
                     effectId = it,
                     hasVulkan11 = true,
                     nativeProbePassed = true,
-                    blockedAfterFailure = false
+                    blockedAfterFailure = false,
+                    preference = GraphicsBackendPreference.AUTOMATIC
                 )
             )
         }
@@ -62,10 +64,71 @@ class GraphicsBackendSelectorTest {
                         effectId = effectId,
                         hasVulkan11 = feature,
                         nativeProbePassed = probe,
-                        blockedAfterFailure = blocked
+                        blockedAfterFailure = blocked,
+                        preference = GraphicsBackendPreference.VULKAN
                     )
                 )
             }
+        }
+    }
+
+    @Test
+    fun explicitOpenGlAlwaysWinsWithoutVulkanChecks() {
+        assertEquals(
+            GraphicsBackend.OPENGL_ES,
+            GraphicsBackendSelector.select(
+                effectId = "ORIGINAL",
+                hasVulkan11 = true,
+                nativeProbePassed = true,
+                blockedAfterFailure = false,
+                preference = GraphicsBackendPreference.OPENGL_ES
+            )
+        )
+    }
+
+    @Test
+    fun explicitVulkanStillHonorsRuntimeFailureBlock() {
+        assertEquals(
+            GraphicsBackend.OPENGL_ES,
+            GraphicsBackendSelector.select(
+                effectId = "GLASS",
+                hasVulkan11 = true,
+                nativeProbePassed = true,
+                blockedAfterFailure = true,
+                preference = GraphicsBackendPreference.VULKAN
+            )
+        )
+    }
+
+    @Test
+    fun explicitVulkanUsesVulkanWhenEverySafetyCheckPasses() {
+        assertEquals(
+            GraphicsBackend.VULKAN,
+            GraphicsBackendSelector.select(
+                effectId = "COLORFILL",
+                hasVulkan11 = true,
+                nativeProbePassed = true,
+                blockedAfterFailure = false,
+                preference = GraphicsBackendPreference.VULKAN
+            )
+        )
+    }
+
+    @Test
+    fun malformedStoredPreferenceUsesAutomaticMode() {
+        assertEquals(
+            GraphicsBackendPreference.AUTOMATIC,
+            GraphicsBackendPreference.fromStoredValue("metal")
+        )
+        assertEquals(
+            GraphicsBackendPreference.AUTOMATIC,
+            GraphicsBackendPreference.fromStoredValue(null)
+        )
+        GraphicsBackendPreference.entries.forEach { preference ->
+            assertEquals(
+                preference,
+                GraphicsBackendPreference.fromStoredValue(preference.storedValue)
+            )
         }
     }
 }

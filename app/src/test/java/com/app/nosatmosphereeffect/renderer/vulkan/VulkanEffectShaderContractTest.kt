@@ -1,6 +1,7 @@
 package com.app.nosatmosphereeffect.renderer.vulkan
 
 import java.io.File
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -43,5 +44,44 @@ class VulkanEffectShaderContractTest {
         assertTrue(shader.contains("smoothstep(0.18, 0.5, progress)"))
         assertTrue(shader.contains("smoothstep(0.15, 0.3, progress)"))
         assertTrue(shader.contains("blobPositionsAndSizes[16]"))
+    }
+
+    @Test
+    fun `halftone Vulkan progress matches the GLES forward and reverse directions`() {
+        val vulkanShader = File(
+            "src/main/shaders/halftone/halftone.frag"
+        ).readText()
+        val forwardGlesShader = File(
+            "src/main/assets/shaders/halftone/halftone_to_sharp.frag"
+        ).readText()
+        val reverseGlesShader = File(
+            "src/main/assets/shaders/halftone/sharp_to_halftone.frag"
+        ).readText()
+
+        assertTrue(
+            forwardGlesShader.contains(
+                "float t = clamp(uBlurStrength, 0.0, 1.0)"
+            )
+        )
+        assertTrue(
+            forwardGlesShader.contains(
+                "mix(sharp, halftoneOutput, t)"
+            )
+        )
+        assertTrue(
+            reverseGlesShader.contains(
+                "effectStrength = 1.0 - clamp(uBlurStrength, 0.0, 1.0)"
+            )
+        )
+        assertTrue(
+            vulkanShader.contains(
+                "effectStrength = reverse ? 1.0 - progress : progress"
+            )
+        )
+        assertFalse(
+            vulkanShader.contains(
+                "effectStrength = reverse ? progress : 1.0 - progress"
+            )
+        )
     }
 }

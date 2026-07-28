@@ -18,6 +18,7 @@ import com.app.nosatmosphereeffect.helper.PlaylistRotationController
 import com.app.nosatmosphereeffect.helper.WallpaperBehaviorPolicy
 import com.app.nosatmosphereeffect.helper.WallpaperBehaviorPreferences
 import com.app.nosatmosphereeffect.helper.WallpaperBehaviorSettings
+import com.app.nosatmosphereeffect.renderer.backend.BackendReselectableRenderer
 import com.app.nosatmosphereeffect.renderer.backend.GraphicsBackend
 import com.app.nosatmosphereeffect.renderer.status.RendererRuntimeSession
 import com.app.nosatmosphereeffect.renderer.status.RendererRuntimeStatusRepository
@@ -279,6 +280,7 @@ abstract class AnimatedEffectWallpaperService<R : Any> : GLWallpaperService() {
             val transitionsWereEnabled = behavior.transitionsEnabled
             applyRendererConfig(currentRenderer)
             reconcileBehavior(currentRenderer, transitionsWereEnabled)
+            (currentRenderer as? BackendReselectableRenderer)?.reselectBackend()
             requestRender()
             notifySystemColorsChanged()
         }

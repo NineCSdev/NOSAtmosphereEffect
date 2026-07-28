@@ -22,14 +22,67 @@ class HalftoneRenderStateTest {
     }
 
     @Test
-    fun forwardAndReverseStrengthsMatchExistingShaderDirections() {
+    fun forwardAndReverseStrengthsMatchTheGlesAndServiceDirections() {
         val start = HalftoneRenderState(progress = 0f)
         val end = HalftoneRenderState(progress = 1f)
 
-        assertEquals(1f, start.effectStrength(reverse = false), 0f)
-        assertEquals(0f, end.effectStrength(reverse = false), 0f)
-        assertEquals(0f, start.effectStrength(reverse = true), 0f)
-        assertEquals(1f, end.effectStrength(reverse = true), 0f)
+        assertEquals(0f, start.effectStrength(reverse = false), 0f)
+        assertEquals(1f, end.effectStrength(reverse = false), 0f)
+        assertEquals(1f, start.effectStrength(reverse = true), 0f)
+        assertEquals(0f, end.effectStrength(reverse = true), 0f)
+    }
+
+    @Test
+    fun serviceEndpointsProduceOppositeForwardAndReverseWallpaperStates() {
+        assertEquals(0f, HalftoneProgressPolicy.LOCKED_PROGRESS, 0f)
+        assertEquals(1f, HalftoneProgressPolicy.UNLOCKED_PROGRESS, 0f)
+
+        assertEquals(
+            0f,
+            HalftoneProgressPolicy.effectStrength(
+                HalftoneProgressPolicy.LOCKED_PROGRESS,
+                reverse = false
+            ),
+            0f
+        )
+        assertEquals(
+            1f,
+            HalftoneProgressPolicy.effectStrength(
+                HalftoneProgressPolicy.UNLOCKED_PROGRESS,
+                reverse = false
+            ),
+            0f
+        )
+        assertEquals(
+            1f,
+            HalftoneProgressPolicy.effectStrength(
+                HalftoneProgressPolicy.LOCKED_PROGRESS,
+                reverse = true
+            ),
+            0f
+        )
+        assertEquals(
+            0f,
+            HalftoneProgressPolicy.effectStrength(
+                HalftoneProgressPolicy.UNLOCKED_PROGRESS,
+                reverse = true
+            ),
+            0f
+        )
+    }
+
+    @Test
+    fun forwardAndReverseRemainComplementaryThroughoutTheTransition() {
+        listOf(0f, 0.25f, 0.5f, 0.75f, 1f).forEach { progress ->
+            val state = HalftoneRenderState(progress = progress)
+
+            assertEquals(
+                1f,
+                state.effectStrength(reverse = false) +
+                    state.effectStrength(reverse = true),
+                0f
+            )
+        }
     }
 
     @Test

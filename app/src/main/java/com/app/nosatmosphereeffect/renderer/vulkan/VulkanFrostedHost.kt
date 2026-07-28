@@ -12,14 +12,16 @@ internal class VulkanFrostedHost(
     context: Context,
     initialState: FrostedRenderState,
     onFatalFailure: (WallpaperRenderHost, String) -> Unit,
-    onVulkanActive: (WallpaperRenderHost, Int) -> Unit
+    onVulkanActive: (WallpaperRenderHost, Int) -> Unit,
+    previewSource: (() -> Bitmap?)? = null
 ) : VulkanSingleImageHost<FrostedRenderState>(
     context = context,
     threadName = "AtmoVulkanFrosted",
     initialState = initialState.sanitized(),
     bridge = FrostedBridge,
     onFatalFailure = onFatalFailure,
-    onVulkanActive = onVulkanActive
+    onVulkanActive = onVulkanActive,
+    previewSource = previewSource
 ) {
     init {
         startNativeEngine()

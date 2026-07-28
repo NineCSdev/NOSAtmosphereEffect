@@ -5,7 +5,11 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.util.Log
 import androidx.core.content.edit
+import com.app.nosatmosphereeffect.renderer.backend.BackendReselectionAction
+import com.app.nosatmosphereeffect.renderer.backend.BackendReselectionPolicy
 import com.app.nosatmosphereeffect.renderer.backend.GraphicsBackend
+import com.app.nosatmosphereeffect.renderer.backend.GraphicsBackendPreference
+import com.app.nosatmosphereeffect.renderer.backend.GraphicsBackendPreferences
 import com.app.nosatmosphereeffect.renderer.backend.GraphicsBackendSelector
 import com.app.nosatmosphereeffect.renderer.status.RendererRuntimeSession
 import com.app.nosatmosphereeffect.renderer.status.RendererRuntimeStatusRepository
@@ -20,6 +24,62 @@ internal object VulkanSupport {
     private var cachedNativeProbe: Int? = null
 
     fun selectBackend(context: Context, effectId: String): VulkanBackendSelection {
+        return publishSelection(context, effectId, resolveBackend(context, effectId))
+    }
+
+    fun selectPreviewBackend(context: Context, effectId: String): GraphicsBackend {
+        return resolveBackend(context, effectId).backend
+    }
+
+    fun configuredPreference(context: Context): GraphicsBackendPreference {
+        return GraphicsBackendPreferences.read(context)
+    }
+
+    fun resolveBackendChange(
+        context: Context,
+        effectId: String,
+        appliedPreference: GraphicsBackendPreference,
+        activeBackend: GraphicsBackend
+    ): VulkanBackendChange {
+        val requestedPreference = configuredPreference(context)
+        if (requestedPreference == appliedPreference) {
+            return VulkanBackendChange.None
+        }
+        val resolution = resolveBackend(
+            context = context,
+            effectId = effectId,
+            preference = requestedPreference
+        )
+        return when (
+            BackendReselectionPolicy.decide(
+                appliedPreference = appliedPreference,
+                requestedPreference = requestedPreference,
+                activeBackend = activeBackend,
+                resolvedBackend = resolution.backend
+            )
+        ) {
+            BackendReselectionAction.NONE -> VulkanBackendChange.None
+            BackendReselectionAction.REFRESH_ACTIVE_SESSION ->
+                VulkanBackendChange.PreferenceOnly(resolution)
+            BackendReselectionAction.SWAP_BACKEND ->
+                VulkanBackendChange.Swap(resolution)
+        }
+    }
+
+    fun resolveBackend(
+        context: Context,
+        effectId: String,
+        preference: GraphicsBackendPreference = configuredPreference(context)
+    ): VulkanBackendResolution {
+        if (preference == GraphicsBackendPreference.OPENGL_ES) {
+            return VulkanBackendResolution(
+                preference = preference,
+                backend = GraphicsBackend.OPENGL_ES,
+                capability = VulkanDeviceCapability.UNKNOWN,
+                probedVersion = null,
+                fallbackReason = null
+            )
+        }
         val featureQuery = runCatching {
             context.packageManager.hasSystemFeature(
                 PackageManager.FEATURE_VULKAN_HARDWARE_VERSION,
@@ -41,7 +101,8 @@ internal object VulkanSupport {
             effectId = effectId,
             hasVulkan11 = hasVulkan11,
             nativeProbePassed = probedVersion != null,
-            blockedAfterFailure = blockedAfterFailure
+            blockedAfterFailure = blockedAfterFailure,
+            preference = preference
         )
         val capability = when {
             featureQuery.isFailure -> VulkanDeviceCapability.UNKNOWN
@@ -59,22 +120,74 @@ internal object VulkanSupport {
                 else -> "This effect does not have a Vulkan renderer"
             }
         }
+        return VulkanBackendResolution(
+            preference = preference,
+            backend = selectedBackend,
+            capability = capability,
+            probedVersion = probedVersion,
+            fallbackReason = fallbackReason
+        )
+    }
+
+    fun publishSelection(
+        context: Context,
+        effectId: String,
+        resolution: VulkanBackendResolution
+    ): VulkanBackendSelection {
         val runtimeSession = runCatching {
             RendererRuntimeStatusRepository.recordSelection(
                 context = context,
                 effectId = effectId,
-                selectedBackend = selectedBackend,
-                vulkanCapability = capability,
-                probedVulkanApiVersion = probedVersion?.encoded,
-                fallbackReason = fallbackReason
+                selectedBackend = resolution.backend,
+                vulkanCapability = resolution.capability,
+                probedVulkanApiVersion = resolution.probedVersion?.encoded,
+                fallbackReason = resolution.fallbackReason
             )
         }.onFailure { failure ->
             Log.w(TAG, "Unable to publish the renderer selection", failure)
         }.getOrNull()
         return VulkanBackendSelection(
-            backend = selectedBackend,
+            preference = resolution.preference,
+            backend = resolution.backend,
             runtimeSession = runtimeSession
         )
+    }
+
+    fun publishActiveSelection(
+        context: Context,
+        effectId: String,
+        resolution: VulkanBackendResolution,
+        activeVulkanApiVersion: Int?
+    ): VulkanBackendSelection {
+        val selection = publishSelection(context, effectId, resolution)
+        val session = selection.runtimeSession ?: return selection
+        runCatching {
+            when (resolution.backend) {
+                GraphicsBackend.VULKAN -> {
+                    if (activeVulkanApiVersion != null) {
+                        RendererRuntimeStatusRepository.recordVulkanActive(
+                            context = context,
+                            session = session,
+                            packedVersion = activeVulkanApiVersion
+                        )
+                    } else {
+                        RendererRuntimeStatusRepository.recordVulkanInitializing(
+                            context,
+                            session
+                        )
+                    }
+                }
+                GraphicsBackend.OPENGL_ES ->
+                    RendererRuntimeStatusRepository.recordOpenGlActive(
+                        context = context,
+                        session = session,
+                        reason = resolution.fallbackReason
+                    )
+            }
+        }.onFailure { failure ->
+            Log.w(TAG, "Unable to publish the active renderer backend", failure)
+        }
+        return selection
     }
 
     fun recordFailure(context: Context, effectId: String, reason: String) {
@@ -115,9 +228,30 @@ internal object VulkanSupport {
 }
 
 internal data class VulkanBackendSelection(
+    val preference: GraphicsBackendPreference,
     val backend: GraphicsBackend,
     val runtimeSession: RendererRuntimeSession?
 )
+
+internal data class VulkanBackendResolution(
+    val preference: GraphicsBackendPreference,
+    val backend: GraphicsBackend,
+    val capability: VulkanDeviceCapability,
+    val probedVersion: VulkanApiVersion?,
+    val fallbackReason: String?
+)
+
+internal sealed interface VulkanBackendChange {
+    data object None : VulkanBackendChange
+
+    data class PreferenceOnly(
+        val resolution: VulkanBackendResolution
+    ) : VulkanBackendChange
+
+    data class Swap(
+        val resolution: VulkanBackendResolution
+    ) : VulkanBackendChange
+}
 
 private object VulkanFailureStore {
     private const val PREFS_NAME = "graphics_backend_prefs"
@@ -129,10 +263,24 @@ private object VulkanFailureStore {
         val preferences =
             context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val currentFailureId = failureId(context)
+        val scopedFailureId = preferences.getString(failureIdKey(effectId), null)
+        val failureReason = preferences.getString(failureReasonKey(effectId), null)
+        val repaired = VulkanFailurePolicy.shouldClearObsoleteAtmosphereStateFailure(
+            effectId = effectId,
+            currentFailureId = currentFailureId,
+            scopedFailureId = scopedFailureId,
+            failureReason = failureReason
+        )
+        if (repaired) {
+            preferences.edit {
+                remove(failureIdKey(effectId))
+                remove(failureReasonKey(effectId))
+            }
+        }
         return VulkanFailurePolicy.isBlocked(
             effectId = effectId,
             currentFailureId = currentFailureId,
-            scopedFailureId = preferences.getString(failureIdKey(effectId), null),
+            scopedFailureId = if (repaired) null else scopedFailureId,
             legacyFailureId = preferences.getString(LEGACY_FAILURE_ID_KEY, null)
         )
     }
@@ -168,6 +316,10 @@ internal object VulkanFailurePolicy {
         "COLORFILL",
         "COLORFILL_REVERSE"
     )
+    private val obsoleteAtmosphereStateFailures = mapOf(
+        "ORIGINAL" to "The Vulkan Atmosphere state could not be updated",
+        "REVERSE" to "The Vulkan Reverse Atmosphere state could not be updated"
+    )
 
     fun isBlocked(
         effectId: String,
@@ -178,6 +330,16 @@ internal object VulkanFailurePolicy {
         if (scopedFailureId == currentFailureId) return true
         return normalizedEffectId(effectId) in legacyColorFillEffects &&
             legacyFailureId == currentFailureId
+    }
+
+    fun shouldClearObsoleteAtmosphereStateFailure(
+        effectId: String,
+        currentFailureId: String,
+        scopedFailureId: String?,
+        failureReason: String?
+    ): Boolean {
+        if (scopedFailureId != currentFailureId) return false
+        return obsoleteAtmosphereStateFailures[normalizedEffectId(effectId)] == failureReason
     }
 
     fun normalizedEffectId(effectId: String): String {

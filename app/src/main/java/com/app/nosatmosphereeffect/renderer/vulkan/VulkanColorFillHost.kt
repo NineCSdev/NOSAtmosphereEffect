@@ -12,6 +12,7 @@ import com.app.nosatmosphereeffect.helper.WallpaperFitHelper
 import com.app.nosatmosphereeffect.helper.WallpaperRenderHost
 import com.app.nosatmosphereeffect.renderer.ColorFillRenderState
 import com.app.nosatmosphereeffect.renderer.vulkan.common.SwapchainRecreationBudget
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
@@ -21,7 +22,8 @@ internal class VulkanColorFillHost(
     private val reverse: Boolean,
     initialState: ColorFillRenderState,
     private val onFatalFailure: (VulkanColorFillHost, String) -> Unit,
-    private val onVulkanActive: (VulkanColorFillHost, Int) -> Unit = { _, _ -> }
+    private val onVulkanActive: (VulkanColorFillHost, Int) -> Unit = { _, _ -> },
+    private val previewSource: (() -> Bitmap?)? = null
 ) : WallpaperRenderHost {
     private val appContext = context.applicationContext
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -167,20 +169,17 @@ internal class VulkanColorFillHost(
     }
 
     override fun onSurfaceDestroyed(holder: SurfaceHolder) {
-        ++surfaceGeneration
-        latestSurface = null
-        latestWidth = 0
-        latestHeight = 0
+        clearSurfaceReference()
         postIfActive {
-            resetSurfaceStateOnWorker()
-            val handle = nativeHandle.get()
-            if (handle != 0L &&
-                !destroyNativeSurfaceSafely(
-                    handle,
-                    "destroying the Color Fill wallpaper surface"
-                )
-            ) {
-                failOnWorker("The Vulkan Color Fill surface could not be destroyed")
+            destroySurfaceOnWorker(failRenderer = true)
+        }
+    }
+
+    override fun quiesceSurface(holder: SurfaceHolder) {
+        clearSurfaceReference()
+        runSynchronouslyIfActive {
+            check(destroySurfaceOnWorker(failRenderer = false)) {
+                "The Vulkan Color Fill surface could not be quiesced"
             }
         }
     }
@@ -305,7 +304,12 @@ internal class VulkanColorFillHost(
             return false
         }
         val renderImage = runCatching {
-            WallpaperFitHelper.loadForRender(appContext, width, height)
+            WallpaperFitHelper.loadForRender(
+                appContext,
+                width,
+                height,
+                previewSource
+            )
         }.getOrElse { failure ->
             if (isCurrentGeneration(generation)) {
                 failOnWorker("The active wallpaper could not be prepared: ${failure.message}")
@@ -506,6 +510,74 @@ internal class VulkanColorFillHost(
             )
         ) {
             failOnWorker("The stale Vulkan Color Fill surface could not be discarded")
+        }
+    }
+
+    private fun clearSurfaceReference() {
+        ++surfaceGeneration
+        latestSurface = null
+        latestWidth = 0
+        latestHeight = 0
+    }
+
+    private fun destroySurfaceOnWorker(failRenderer: Boolean): Boolean {
+        resetSurfaceStateOnWorker()
+        val handle = nativeHandle.get()
+        if (handle == 0L) return true
+        val destroyed = destroyNativeSurfaceSafely(
+            handle,
+            "destroying the Color Fill wallpaper surface"
+        )
+        if (!destroyed && failRenderer) {
+            failOnWorker("The Vulkan Color Fill surface could not be destroyed")
+        }
+        return destroyed
+    }
+
+    private fun runSynchronouslyIfActive(action: () -> Unit) {
+        if (closed.get() || failed.get()) return
+        if (Looper.myLooper() == renderThread.looper) {
+            action()
+            return
+        }
+
+        val completion = CountDownLatch(1)
+        val failure = AtomicReference<Throwable?>(null)
+        val accepted = try {
+            worker.post {
+                try {
+                    if (!closed.get() && !failed.get()) action()
+                } catch (workerFailure: Throwable) {
+                    failure.set(workerFailure)
+                } finally {
+                    completion.countDown()
+                }
+            }
+        } catch (workerFailure: Throwable) {
+            throw IllegalStateException(
+                "The Vulkan Color Fill worker could not quiesce its surface",
+                workerFailure
+            )
+        }
+        check(accepted) {
+            "The Vulkan Color Fill worker could not quiesce its surface"
+        }
+
+        var interrupted = false
+        while (true) {
+            try {
+                completion.await()
+                break
+            } catch (_: InterruptedException) {
+                interrupted = true
+            }
+        }
+        if (interrupted) Thread.currentThread().interrupt()
+        failure.get()?.let { workerFailure ->
+            throw IllegalStateException(
+                "The Vulkan Color Fill surface could not be quiesced",
+                workerFailure
+            )
         }
     }
 

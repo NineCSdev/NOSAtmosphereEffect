@@ -3,7 +3,7 @@
 **Atmo Engine** is an open-source Android live wallpaper studio inspired by the distinctive Atmosphere transition in Nothing OS. It offers optional lock-screen-to-home-screen transitions or continuously applied effects, accurate previews, flexible image fitting, and wallpaper playlists without uploading your images.
 
 ## 📥 Download
-Atmo Engine is available to download from Google Play Store, F-Droid and Orion Store.
+Atmo Engine is available from Google Play Store, F-Droid and Orion Store.
 
 <a href="https://play.google.com/store/apps/details?id=com.saad_khan_rind.atmosphere_effect">
 <img alt="Get it on Google Play" src="https://play.google.com/intl/en_us/badges/static/images/badges/en_badge_web_generic.png" height="80">
@@ -12,7 +12,6 @@ Atmo Engine is available to download from Google Play Store, F-Droid and Orion S
 <a href="https://f-droid.org/packages/com.saad_khan_rind.atmosphere_effect/">
 <img alt="Get it on F-Droid" src="https://fdroid.gitlab.io/artwork/badge/get-it-on.png" height="80">
 </a>
-
 
 ## ⚠️ Device Support & Disclaimer
 
@@ -111,13 +110,19 @@ Disabling transitions does not disable other live-wallpaper features. Playlists 
 
 Atmo Engine uses Jetpack Compose and Material 3 throughout the setup flow. Material Expressive styling follows the device's system color palette when enabled, while the appearance panel also supports fixed colors, System/Light/Dark modes, and an optional pitch-black dark background.
 
-Effect cards, the active-wallpaper dashboard, crop screens, and playlist cards use lightweight OpenGL ES previews matched to the live effect settings. This lets you inspect the selected wallpaper and effect behavior before applying it through Android's live wallpaper screen. Controls use short, finite, meaning-aware motion: for example, Settings rotates, Help tilts, and Back nudges in its travel direction. Motion and related haptics follow the existing Material Expressive preference and stop immediately when expressive motion is disabled.
+Effect cards, the active-wallpaper dashboard, crop screens, and playlist cards use in-process previews matched to the live effect settings and selected graphics API. This lets you inspect the selected wallpaper and effect behavior before applying it through Android's live wallpaper screen. Controls use short, finite, meaning-aware motion: for example, Settings rotates, Help tilts, and Back nudges in its travel direction. Motion and related haptics follow the existing Material Expressive preference and stop immediately when expressive motion is disabled.
 
 ### Graphics backend
 
-Every live-wallpaper effect, including its reverse variant, uses a native Vulkan renderer when the device and installed driver support it. At runtime, Atmo negotiates the highest common core API exposed by the Android Vulkan loader and a render-capable physical device, from Vulkan 1.4 down through 1.1. Selection is automatic; no driver setting or user action is required.
+Every effect and reverse variant can use a native Vulkan renderer for both in-app previews and the live wallpaper when the device and installed driver support it. **Fine tuning > Display > Graphics API** provides three app-local choices:
 
-Atmo does not use Shizuku, change Android's global graphics settings, or restart other apps. The wallpaper service probes Vulkan inside its own process and switches a failing effect back to its equivalent OpenGL ES renderer if native setup, preprocessing, texture upload, or presentation fails. That effect remains on OpenGL ES for the current device and app version so reopening Android's wallpaper preview cannot enter a crash loop; a failure in one effect does not disable Vulkan for the others. In-app effect cards continue using OpenGL ES, while Android's live-wallpaper preview and the applied wallpaper exercise the selected native backend. The animated renderer footer at the bottom of the main screen reports Vulkan and its negotiated version only after the wallpaper has successfully presented a Vulkan frame. During initialization it makes no active claim, and once OpenGL ES is genuinely active it identifies that backend instead.
+* **Automatic (recommended):** Uses Vulkan when all compatibility checks pass, with a safe OpenGL ES fallback.
+* **Vulkan:** Requests Vulkan, while preserving the same compatibility checks and runtime fallback.
+* **OpenGL ES:** Always uses OpenGL ES and skips the Vulkan probe.
+
+The saved choice is global. In-app effect previews recreate immediately with the new backend, and an already-running live wallpaper safely replaces its active render host without losing the current effect state, surface state, scrolling position, or playlist image. At runtime, Atmo negotiates the highest common core API exposed by the Android Vulkan loader and a render-capable physical device, from Vulkan 1.4 down through 1.1.
+
+Atmo does not use Shizuku, change Android's global graphics settings, or restart other apps. The wallpaper service probes Vulkan inside its own process and switches a failing effect back to its equivalent OpenGL ES renderer if native setup, preprocessing, texture upload, or presentation fails. That effect remains on OpenGL ES for the current device and app version so reopening Android's wallpaper preview cannot enter a crash loop; a failure in one effect does not disable Vulkan for the others. In-app previews use the same source image, progress, and fine-tune state, but a Vulkan failure falls back locally for that preview without changing the live-wallpaper runtime status. The animated renderer footer at the bottom of the main screen reports Vulkan and its negotiated version only after the wallpaper has successfully presented a Vulkan frame. During initialization it makes no active claim, and once OpenGL ES is genuinely active it identifies that backend instead.
 
 
 ## Advanced Customization
@@ -146,6 +151,8 @@ Take full control of the animation and look. You can now tweak the following set
 * **Lock Delay (Anti-Flicker):** While transitions are enabled, adds a configurable pause before the wallpaper resets when you lock the phone. This prevents the visual glitch where the wallpaper "snaps" back to its initial state before the screen turns fully black.
 * **Unlock Check Interval:** While transitions are enabled, adjusts how frequently the app detects unlock events. Tuning this eliminates "delayed start" issues, ensuring the animation begins immediately when you wake your device.
 * **Sync System Colors:** Publishes a locally extracted wallpaper palette to Android whenever a single wallpaper or playlist image changes. Whether the wider system theme refreshes is ultimately controlled by the device manufacturer.
+* **Graphics API:** Choose Automatic, Vulkan, or OpenGL ES for in-app effect previews and the live wallpaper. A forced Vulkan request still falls back safely when support or runtime checks fail.
+* **Wallpaper Scrolling (Experimental):** Lets compatible launchers pan a wider wallpaper across home-screen pages.
 ### Playlist & Rotation
 (Available when using Playlist or Theme Playlists mode)
 * **Rotation Interval:** Controls how often the wallpaper changes from your playlist.

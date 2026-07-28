@@ -9,6 +9,7 @@ import com.app.nosatmosphereeffect.helper.SubjectIsolationPolicy
 import com.app.nosatmosphereeffect.renderer.ColorFillRenderController
 import com.app.nosatmosphereeffect.renderer.FrostedRenderController
 import com.app.nosatmosphereeffect.renderer.FrostedRenderer
+import com.app.nosatmosphereeffect.renderer.HalftoneProgressPolicy
 import com.app.nosatmosphereeffect.renderer.HalftoneRenderController
 import com.app.nosatmosphereeffect.renderer.NeonRenderController
 
@@ -136,8 +137,8 @@ abstract class HalftoneWallpaperService protected constructor(
 
     final override val effectId =
         if (reverseEffect) "HALFTONE_REVERSE" else "HALFTONE"
-    final override val lockedProgress = 0f
-    final override val unlockedProgress = 1f
+    final override val lockedProgress = HalftoneProgressPolicy.LOCKED_PROGRESS
+    final override val unlockedProgress = HalftoneProgressPolicy.UNLOCKED_PROGRESS
     final override val defaultAnimationDurationMs = 500L
 
     final override fun createEffectRenderer(): HalftoneRenderController {

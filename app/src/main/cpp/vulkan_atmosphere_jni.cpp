@@ -46,6 +46,9 @@ static_assert(sizeof(AtmosphereParams) == 608);
 struct AtmosphereHandle {
     atmo::vulkan::OnePassHandle engine = nullptr;
     bool reverse = false;
+    AtmosphereParams latestParams{};
+    bool hasLatestParams = false;
+    bool surfaceReady = false;
 };
 
 AtmosphereHandle* fromHandle(jlong handle) {
@@ -168,13 +171,32 @@ Java_com_app_nosatmosphereeffect_renderer_vulkan_VulkanAtmosphereNative_nativeSe
     if (atmosphere == nullptr || width <= 0 || height <= 0) {
         return JNI_FALSE;
     }
-    return atmo::vulkan::setSurface(
+    atmosphere->surfaceReady = false;
+    const bool surfaceCreated = atmo::vulkan::setSurface(
         atmosphere->engine,
         env,
         surface,
         static_cast<uint32_t>(width),
         static_cast<uint32_t>(height)
-    ) ? JNI_TRUE : JNI_FALSE;
+    );
+    if (!surfaceCreated) return JNI_FALSE;
+
+    atmosphere->surfaceReady = true;
+    atmosphere->latestParams.render[2] =
+        atmo::vulkan::surfaceAspectRatio(atmosphere->engine);
+    if (
+        atmosphere->hasLatestParams &&
+        !atmo::vulkan::setUniformData(
+            atmosphere->engine,
+            &atmosphere->latestParams,
+            sizeof(atmosphere->latestParams)
+        )
+    ) {
+        atmosphere->surfaceReady = false;
+        atmo::vulkan::destroySurface(atmosphere->engine);
+        return JNI_FALSE;
+    }
+    return JNI_TRUE;
 }
 
 extern "C" JNIEXPORT jint JNICALL
@@ -325,13 +347,18 @@ Java_com_app_nosatmosphereeffect_renderer_vulkan_VulkanAtmosphereNative_nativeSe
             blobSizes,
             blobCount,
             params
-        )) {
+    )) {
         return JNI_FALSE;
+    }
+    atmosphere->latestParams = params;
+    atmosphere->hasLatestParams = true;
+    if (!atmosphere->surfaceReady) {
+        return JNI_TRUE;
     }
     return atmo::vulkan::setUniformData(
         atmosphere->engine,
-        &params,
-        sizeof(params)
+        &atmosphere->latestParams,
+        sizeof(atmosphere->latestParams)
     ) ? JNI_TRUE : JNI_FALSE;
 }
 
@@ -355,6 +382,7 @@ Java_com_app_nosatmosphereeffect_renderer_vulkan_VulkanAtmosphereNative_nativeDe
 ) {
     AtmosphereHandle* atmosphere = fromHandle(handle);
     if (atmosphere != nullptr) {
+        atmosphere->surfaceReady = false;
         atmo::vulkan::destroySurface(atmosphere->engine);
     }
 }

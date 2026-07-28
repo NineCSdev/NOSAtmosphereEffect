@@ -12,7 +12,8 @@ internal class VulkanGlassHost(
     context: Context,
     initialState: GlassRenderState,
     onFatalFailure: (VulkanGlassHost, String) -> Unit,
-    onVulkanActive: (VulkanGlassHost, Int) -> Unit
+    onVulkanActive: (VulkanGlassHost, Int) -> Unit,
+    previewSource: (() -> Bitmap?)? = null
 ) : VulkanSingleImageHost<GlassRenderState>(
     context = context,
     threadName = "AtmoVulkanGlass",
@@ -23,7 +24,8 @@ internal class VulkanGlassHost(
     },
     onVulkanActive = { host: WallpaperRenderHost, version: Int ->
         onVulkanActive(host as VulkanGlassHost, version)
-    }
+    },
+    previewSource = previewSource
 ) {
     private val subjectMasks = SubjectMaskCoordinator(appContext) {
         requestRender()

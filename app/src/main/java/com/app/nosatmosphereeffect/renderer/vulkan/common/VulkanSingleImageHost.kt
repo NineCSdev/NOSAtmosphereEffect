@@ -13,6 +13,7 @@ import com.app.nosatmosphereeffect.helper.WallpaperRenderHost
 import com.app.nosatmosphereeffect.renderer.vulkan.VulkanApiVersion
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.CountDownLatch
 
 internal abstract class VulkanSingleImageHost<State : Any>(
     context: Context,
@@ -20,7 +21,8 @@ internal abstract class VulkanSingleImageHost<State : Any>(
     initialState: State,
     private val bridge: VulkanSingleImageBridge<State>,
     private val onFatalFailure: (WallpaperRenderHost, String) -> Unit,
-    private val onVulkanActive: (WallpaperRenderHost, Int) -> Unit
+    private val onVulkanActive: (WallpaperRenderHost, Int) -> Unit,
+    private val previewSource: (() -> Bitmap?)? = null
 ) : WallpaperRenderHost {
     protected val appContext: Context = context.applicationContext
 
@@ -152,19 +154,16 @@ internal abstract class VulkanSingleImageHost<State : Any>(
     }
 
     override fun onSurfaceDestroyed(holder: SurfaceHolder) {
-        ++surfaceGeneration
-        latestSurface = null
-        latestWidth = 0
-        latestHeight = 0
+        clearSurfaceReference()
         postIfActive {
-            recreationQueued = false
-            recreationBudget.reset()
-            resetSurfaceStateOnWorker()
-            runCatching {
-                if (nativeHandle != 0L) bridge.destroySurface(nativeHandle)
-            }.onFailure { failure ->
-                Log.w(TAG, "Unable to destroy the Vulkan ${bridge.effectLabel} surface", failure)
-            }
+            destroySurfaceOnWorker(propagateFailure = false)
+        }
+    }
+
+    override fun quiesceSurface(holder: SurfaceHolder) {
+        clearSurfaceReference()
+        runSynchronouslyIfActive {
+            destroySurfaceOnWorker(propagateFailure = true)
         }
     }
 
@@ -299,7 +298,12 @@ internal abstract class VulkanSingleImageHost<State : Any>(
             return false
         }
         val renderImage = runCatching {
-            WallpaperFitHelper.loadForRender(appContext, width, height)
+            WallpaperFitHelper.loadForRender(
+                appContext,
+                width,
+                height,
+                previewSource
+            )
         }.getOrElse { failure ->
             if (isCurrentGeneration(generation)) {
                 failOnWorker(
@@ -536,6 +540,72 @@ internal abstract class VulkanSingleImageHost<State : Any>(
                 .onFailure { failure ->
                     Log.w(TAG, "Unable to discard a stale Vulkan surface", failure)
                 }
+        }
+    }
+
+    private fun clearSurfaceReference() {
+        ++surfaceGeneration
+        latestSurface = null
+        latestWidth = 0
+        latestHeight = 0
+    }
+
+    private fun destroySurfaceOnWorker(propagateFailure: Boolean) {
+        recreationQueued = false
+        recreationBudget.reset()
+        resetSurfaceStateOnWorker()
+        if (nativeHandle == 0L) return
+        if (propagateFailure) {
+            bridge.destroySurface(nativeHandle)
+        } else {
+            runCatching { bridge.destroySurface(nativeHandle) }
+                .onFailure { failure ->
+                    Log.w(
+                        TAG,
+                        "Unable to destroy the Vulkan ${bridge.effectLabel} surface",
+                        failure
+                    )
+                }
+        }
+    }
+
+    private fun runSynchronouslyIfActive(action: () -> Unit) {
+        if (closed.get() || failed.get()) return
+        if (Looper.myLooper() == renderThread.looper) {
+            action()
+            return
+        }
+
+        val completion = CountDownLatch(1)
+        val failure = AtomicReference<Throwable?>(null)
+        val accepted = worker.post {
+            try {
+                if (!closed.get() && !failed.get()) action()
+            } catch (workerFailure: Throwable) {
+                failure.set(workerFailure)
+            } finally {
+                completion.countDown()
+            }
+        }
+        check(accepted) {
+            "The Vulkan ${bridge.effectLabel} worker could not quiesce its surface"
+        }
+
+        var interrupted = false
+        while (true) {
+            try {
+                completion.await()
+                break
+            } catch (_: InterruptedException) {
+                interrupted = true
+            }
+        }
+        if (interrupted) Thread.currentThread().interrupt()
+        failure.get()?.let { workerFailure ->
+            throw IllegalStateException(
+                "The Vulkan ${bridge.effectLabel} surface could not be quiesced",
+                workerFailure
+            )
         }
     }
 

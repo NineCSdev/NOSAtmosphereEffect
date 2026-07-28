@@ -13,4 +13,28 @@ internal object RenderHostSwapGuard {
             failure
         }
     }
+
+    fun prepareHandoff(
+        expected: WallpaperRenderHost,
+        replacement: WallpaperRenderHost,
+        quiesce: (WallpaperRenderHost) -> Unit,
+        replay: (WallpaperRenderHost) -> Unit
+    ): RuntimeException? {
+        val quiesceFailure = try {
+            quiesce(expected)
+            null
+        } catch (failure: RuntimeException) {
+            runCatching { replacement.close() }
+            failure
+        }
+        if (quiesceFailure != null) return quiesceFailure
+
+        val replacementFailure = prepare(replacement, replay) ?: return null
+        try {
+            replay(expected)
+        } catch (restoreFailure: RuntimeException) {
+            replacementFailure.addSuppressed(restoreFailure)
+        }
+        return replacementFailure
+    }
 }

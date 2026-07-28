@@ -18,11 +18,22 @@ data class HalftoneRenderState(
     }
 
     fun effectStrength(reverse: Boolean): Float {
-        val safeProgress = progress.finiteOr(0f).coerceIn(0f, 1f)
-        return if (reverse) safeProgress else 1f - safeProgress
+        return HalftoneProgressPolicy.effectStrength(progress, reverse)
     }
 
     private fun Float.finiteOr(fallback: Float): Float {
         return if (isFinite()) this else fallback
+    }
+}
+
+internal object HalftoneProgressPolicy {
+    const val LOCKED_PROGRESS = 0f
+    const val UNLOCKED_PROGRESS = 1f
+
+    fun effectStrength(progress: Float, reverse: Boolean): Float {
+        val safeProgress = progress.takeIf { it.isFinite() }
+            ?.coerceIn(0f, 1f)
+            ?: LOCKED_PROGRESS
+        return if (reverse) 1f - safeProgress else safeProgress
     }
 }

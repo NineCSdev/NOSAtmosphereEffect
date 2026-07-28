@@ -45,6 +45,54 @@ class VulkanFailurePolicyTest {
         )
     }
 
+    @Test
+    fun `obsolete atmosphere state failures are repaired for both directions`() {
+        assertTrue(
+            VulkanFailurePolicy.shouldClearObsoleteAtmosphereStateFailure(
+                effectId = "ORIGINAL",
+                currentFailureId = CURRENT,
+                scopedFailureId = CURRENT,
+                failureReason = "The Vulkan Atmosphere state could not be updated"
+            )
+        )
+        assertTrue(
+            VulkanFailurePolicy.shouldClearObsoleteAtmosphereStateFailure(
+                effectId = "reverse",
+                currentFailureId = CURRENT,
+                scopedFailureId = CURRENT,
+                failureReason = "The Vulkan Reverse Atmosphere state could not be updated"
+            )
+        )
+    }
+
+    @Test
+    fun `repair preserves unrelated current and stale failures`() {
+        assertFalse(
+            VulkanFailurePolicy.shouldClearObsoleteAtmosphereStateFailure(
+                effectId = "ORIGINAL",
+                currentFailureId = CURRENT,
+                scopedFailureId = CURRENT,
+                failureReason = "The wallpaper texture could not be uploaded to Vulkan"
+            )
+        )
+        assertFalse(
+            VulkanFailurePolicy.shouldClearObsoleteAtmosphereStateFailure(
+                effectId = "GLASS",
+                currentFailureId = CURRENT,
+                scopedFailureId = CURRENT,
+                failureReason = "The Vulkan Atmosphere state could not be updated"
+            )
+        )
+        assertFalse(
+            VulkanFailurePolicy.shouldClearObsoleteAtmosphereStateFailure(
+                effectId = "REVERSE",
+                currentFailureId = CURRENT,
+                scopedFailureId = "another-build",
+                failureReason = "The Vulkan Reverse Atmosphere state could not be updated"
+            )
+        )
+    }
+
     private companion object {
         const val CURRENT = "device-and-version"
     }

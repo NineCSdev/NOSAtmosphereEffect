@@ -5,16 +5,21 @@ import android.graphics.Bitmap
 import android.util.Log
 import com.app.nosatmosphereeffect.helper.GLWallpaperService
 import com.app.nosatmosphereeffect.helper.WallpaperRenderHost
+import com.app.nosatmosphereeffect.renderer.backend.BackendReselectableRenderer
 import com.app.nosatmosphereeffect.renderer.backend.GraphicsBackend
+import com.app.nosatmosphereeffect.renderer.backend.GraphicsBackendPreference
 import com.app.nosatmosphereeffect.renderer.status.RendererRuntimeSession
 import com.app.nosatmosphereeffect.renderer.status.RendererRuntimeStatusRepository
 import com.app.nosatmosphereeffect.renderer.vulkan.VulkanAtmosphereHost
+import com.app.nosatmosphereeffect.renderer.vulkan.VulkanBackendChange
+import com.app.nosatmosphereeffect.renderer.vulkan.VulkanBackendResolution
+import com.app.nosatmosphereeffect.renderer.vulkan.VulkanBackendSelection
 import com.app.nosatmosphereeffect.renderer.vulkan.VulkanSupport
 
 class AtmosphereRenderController(
     context: Context,
     private val reverse: Boolean
-) {
+) : BackendReselectableRenderer {
     private val appContext = context.applicationContext
     private val effectId = if (reverse) "REVERSE" else "ORIGINAL"
     private val lock = Any()
@@ -27,6 +32,8 @@ class AtmosphereRenderController(
     private var vulkanHost: VulkanAtmosphereHost? = null
     private var configuredGlassEnabled = false
     private var configuredGlassBackgroundOnly = false
+    private var backendPreference = GraphicsBackendPreference.AUTOMATIC
+    private var activeVulkanApiVersion: Int? = null
     private var runtimeSession: RendererRuntimeSession? = null
     private var closed = false
 
@@ -39,10 +46,44 @@ class AtmosphereRenderController(
             this.engine = engine
         }
         val selection = VulkanSupport.selectBackend(appContext, effectId)
-        synchronized(lock) { runtimeSession = selection.runtimeSession }
+        synchronized(lock) {
+            backendPreference = selection.preference
+            runtimeSession = selection.runtimeSession
+        }
         when (selection.backend) {
             GraphicsBackend.VULKAN -> attachVulkan(engine)
             GraphicsBackend.OPENGL_ES -> attachOpenGl(engine)
+        }
+    }
+
+    override fun reselectBackend() {
+        val snapshot = synchronized(lock) {
+            val currentEngine = engine
+            val currentHost = activeHost
+            if (closed || currentEngine == null || currentHost == null) return
+            BackendSnapshot(
+                engine = currentEngine,
+                host = currentHost,
+                preference = backendPreference,
+                backend = if (vulkanHost === currentHost) {
+                    GraphicsBackend.VULKAN
+                } else {
+                    GraphicsBackend.OPENGL_ES
+                }
+            )
+        }
+        when (
+            val change = VulkanSupport.resolveBackendChange(
+                context = appContext,
+                effectId = effectId,
+                appliedPreference = snapshot.preference,
+                activeBackend = snapshot.backend
+            )
+        ) {
+            VulkanBackendChange.None -> Unit
+            is VulkanBackendChange.PreferenceOnly ->
+                refreshActiveSession(snapshot, change.resolution)
+            is VulkanBackendChange.Swap -> swapBackend(snapshot, change)
         }
     }
 
@@ -159,6 +200,7 @@ class AtmosphereRenderController(
             vulkanHost = null
             activeHost = null
             engine = null
+            activeVulkanApiVersion = null
             runtimeSession = null
         }
         targets.atmosphere?.release()
@@ -255,6 +297,7 @@ class AtmosphereRenderController(
             storeOpenGl(renderer)
             vulkanHost = null
             activeHost = replacement
+            activeVulkanApiVersion = null
         }
         publishStatus {
             RendererRuntimeStatusRepository.recordOpenGlActive(
@@ -268,11 +311,118 @@ class AtmosphereRenderController(
         Log.w(TAG, "Atmosphere switched to OpenGL ES after Vulkan failed: $reason")
     }
 
+    private fun swapBackend(
+        snapshot: BackendSnapshot,
+        change: VulkanBackendChange.Swap
+    ) {
+        val resolution = change.resolution
+        var replacementRenderer: Any? = null
+        var replacementVulkan: VulkanAtmosphereHost? = null
+        val replacement = runCatching {
+            when (resolution.backend) {
+                GraphicsBackend.VULKAN -> {
+                    VulkanAtmosphereHost(
+                        context = appContext,
+                        reverse = reverse,
+                        initialState = synchronized(lock) { state },
+                        onFatalFailure = ::fallbackToOpenGl,
+                        onVulkanActive = ::onVulkanActive
+                    ).also { replacementVulkan = it }
+                }
+                GraphicsBackend.OPENGL_ES -> {
+                    createOpenGlRenderer(snapshot.engine).also { renderer ->
+                        replacementRenderer = renderer
+                    }.let { renderer ->
+                        when (renderer) {
+                            is AtmosphereRenderer ->
+                                snapshot.engine.createOpenGlRenderHost(renderer)
+                            is BlurToSharpRenderer ->
+                                snapshot.engine.createOpenGlRenderHost(renderer)
+                            else -> error("Unexpected Atmosphere renderer")
+                        }
+                    }
+                }
+            }
+        }.getOrElse { failure ->
+            Log.e(TAG, "Unable to prepare the requested Atmosphere renderer", failure)
+            replacementRenderer?.let(::releaseOpenGl)
+            return
+        }
+        if (!snapshot.engine.replaceRenderHost(snapshot.host, replacement)) {
+            replacementRenderer?.let(::releaseOpenGl)
+            Log.e(TAG, "Unable to switch the Atmosphere renderer backend")
+            return
+        }
+
+        val selection = VulkanSupport.publishActiveSelection(
+            context = appContext,
+            effectId = effectId,
+            resolution = resolution,
+            activeVulkanApiVersion = null
+        )
+        val previous = synchronized(lock) {
+            if (closed) {
+                releaseSelection(selection)
+                return
+            }
+            val previousRenderer: Any? = openGlAtmosphere ?: openGlReverse
+            val result = previousRenderer to runtimeSession
+            openGlAtmosphere = null
+            openGlReverse = null
+            replacementRenderer?.let(::storeOpenGl)
+            vulkanHost = replacementVulkan
+            activeHost = replacement
+            backendPreference = selection.preference
+            activeVulkanApiVersion = null
+            runtimeSession = selection.runtimeSession
+            result
+        }
+        previous.first?.let(::releaseOpenGl)
+        publishStatus(previous.second) {
+            RendererRuntimeStatusRepository.recordReleased(appContext, it)
+        }
+        snapshot.engine.requestRender()
+    }
+
+    private fun refreshActiveSession(
+        snapshot: BackendSnapshot,
+        resolution: VulkanBackendResolution
+    ) {
+        val activeVersion = synchronized(lock) {
+            if (closed || activeHost !== snapshot.host) return
+            activeVulkanApiVersion
+        }
+        val selection = VulkanSupport.publishActiveSelection(
+            context = appContext,
+            effectId = effectId,
+            resolution = resolution,
+            activeVulkanApiVersion = activeVersion
+        )
+        val previousSession = synchronized(lock) {
+            if (closed || activeHost !== snapshot.host) {
+                releaseSelection(selection)
+                return
+            }
+            val previous = runtimeSession
+            backendPreference = resolution.preference
+            runtimeSession = selection.runtimeSession
+            previous
+        }
+        publishStatus(previousSession) {
+            RendererRuntimeStatusRepository.recordReleased(appContext, it)
+        }
+    }
+
     private fun onVulkanActive(
         host: VulkanAtmosphereHost,
         packedVersion: Int
     ) {
-        if (synchronized(lock) { !closed && activeHost === host }) {
+        if (synchronized(lock) {
+                (!closed && activeHost === host).also { isCurrent ->
+                    if (isCurrent) activeVulkanApiVersion = packedVersion
+                }
+            }
+        ) {
             publishStatus {
                 RendererRuntimeStatusRepository.recordVulkanActive(
                     context = appContext,
@@ -364,6 +514,12 @@ class AtmosphereRenderController(
         }
     }
 
+    private fun releaseSelection(selection: VulkanBackendSelection) {
+        publishStatus(selection.runtimeSession) {
+            RendererRuntimeStatusRepository.recordReleased(appContext, it)
+        }
+    }
+
     private fun Bitmap.recycleSafely() {
         if (!isRecycled) recycle()
     }
@@ -373,6 +529,13 @@ class AtmosphereRenderController(
         val reverse: BlurToSharpRenderer?,
         val vulkan: VulkanAtmosphereHost?,
         val closed: Boolean
+    )
+
+    private data class BackendSnapshot(
+        val engine: GLWallpaperService.GLEngine,
+        val host: WallpaperRenderHost,
+        val preference: GraphicsBackendPreference,
+        val backend: GraphicsBackend
     )
 
     private companion object {
