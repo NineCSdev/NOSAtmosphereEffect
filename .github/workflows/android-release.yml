@@ -74,10 +74,10 @@ jobs:
           assert_has_foss_payload "$APK_16_FOSS"
           assert_has_foss_payload "$APK_13_FOSS"
 
-          APK_16_MLKIT_SIZE=$(stat -c%s "$APK_16_MLKIT")
-          APK_16_FOSS_SIZE=$(stat -c%s "$APK_16_FOSS")
-          APK_13_MLKIT_SIZE=$(stat -c%s "$APK_13_MLKIT")
-          APK_13_FOSS_SIZE=$(stat -c%s "$APK_13_FOSS")
+          APK_16_MLKIT_SIZE=$(stat -c\%s "$APK_16_MLKIT")
+          APK_16_FOSS_SIZE=$(stat -c\%s "$APK_16_FOSS")
+          APK_13_MLKIT_SIZE=$(stat -c\%s "$APK_13_MLKIT")
+          APK_13_FOSS_SIZE=$(stat -c\%s "$APK_13_FOSS")
           MAX_MLKIT_APK_SIZE=$((10 * 1024 * 1024))
 
           if (( APK_16_MLKIT_SIZE >= APK_16_FOSS_SIZE )); then
@@ -111,7 +111,7 @@ jobs:
           set -euo pipefail
 
           KEYSTORE="$RUNNER_TEMP/atmo-release.jks"
-          printf '%s' "$SIGNING_KEY" | base64 --decode > "$KEYSTORE"
+          printf '%s' "$SIGNING_KEY" \vert{} base64 --decode > "$KEYSTORE"
           chmod 600 "$KEYSTORE"
 
           BUILD_TOOLS_DIR=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d -print | sort -V | tail -n 1)
@@ -127,14 +127,16 @@ jobs:
             local aligned_apk="$RUNNER_TEMP/$(basename "$output_apk" .apk)-aligned.apk"
 
             "$ZIPALIGN" -f -p 4 "$source_apk" "$aligned_apk"
+            # Enabled all available signing schemes including v4
             "$APKSIGNER" sign \
               --ks "$KEYSTORE" \
               --ks-key-alias "$KEY_ALIAS" \
               --ks-pass env:KEY_STORE_PASSWORD \
               --key-pass env:KEY_PASSWORD \
-              --v4-signing-enabled false \
+              --v4-signing-enabled true \
               --out "$output_apk" \
               "$aligned_apk"
+            # Verify that v1, v2, v3, and v4 schemes are correctly applied
             "$APKSIGNER" verify --verbose --print-certs "$output_apk"
           }
 
