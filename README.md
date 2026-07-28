@@ -184,7 +184,7 @@ I've made a Telegram group for discussing issues and feature suggestions. You ca
 
 ## Build & Installation
 
-This project is built using Kotlin, C++17, the Android NDK, and Gradle. The project pins NDK `28.2.13676358`; Android Studio or Gradle can install that accepted SDK component automatically. Vulkan GLSL sources live under `app/src/main/shaders`, while the packaged SPIR-V binaries for all effect families live under `app/src/main/assets/shaders/vulkan`.
+This project is built using Kotlin, C++17, the Android NDK, and Gradle. The project pins NDK `29.0.14206865`; Android Studio or Gradle can install that accepted SDK component automatically. Vulkan GLSL sources live under `app/src/main/shaders`, while the packaged SPIR-V binaries for all effect families live under `app/src/main/assets/shaders/vulkan` (these are generated during the build process to keep the repo clean of binary files).
 
 Atmo Engine keeps one shared codebase and combines two flavor dimensions:
 
