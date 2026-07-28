@@ -10,6 +10,10 @@ local.properties
 /app/build
 /app/v33
 /app/v36
+/app/v36Play
+/app/v36Fdroid
+/app/v33Fdroid
+/app/v33Play
 /app/src/main/assets/shaders/vulkan
 /app/keystores
 .externalNativeBuild
