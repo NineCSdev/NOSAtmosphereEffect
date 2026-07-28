@@ -58,11 +58,11 @@ jobs:
         run: |
           set -euo pipefail
 
-          APK_16_MLKIT="app/build/outputs/apk/v36Play/release/app-v36-play-release-unsigned.apk"
-          APK_16_FOSS="app/build/outputs/apk/v36Fdroid/release/app-v36-fdroid-release-unsigned.apk"
-          APK_13_MLKIT="app/build/outputs/apk/v33Play/release/app-v33-play-release-unsigned.apk"
-          APK_13_FOSS="app/build/outputs/apk/v33Fdroid/release/app-v33-fdroid-release-unsigned.apk"
-          AAB_15_MLKIT="app/build/outputs/bundle/v35PlayRelease/app-v35-play-release.aab"
+          APK_16_MLKIT=$(find app/build/outputs/apk/v36Play/release -name "*.apk" | head -n 1)
+          APK_16_FOSS=$(find app/build/outputs/apk/v36Fdroid/release -name "*.apk" | head -n 1)
+          APK_13_MLKIT=$(find app/build/outputs/apk/v33Play/release -name "*.apk" | head -n 1)
+          APK_13_FOSS=$(find app/build/outputs/apk/v33Fdroid/release -name "*.apk" | head -n 1)
+          AAB_15_MLKIT=$(find app/build/outputs/bundle/v35PlayRelease -name "*.aab" | head -n 1)
 
           assert_no_foss_payload() {
             local archive="$1"
@@ -156,20 +156,20 @@ jobs:
           }
 
           sign_apk \
-            app/build/outputs/apk/v36Play/release/app-v36-play-release-unsigned.apk \
+            "$(find app/build/outputs/apk/v36Play/release -name "*.apk" | head -n 1)" \
             atmo-engine-beta-android-16-plus-mlkit.apk
           sign_apk \
-            app/build/outputs/apk/v36Fdroid/release/app-v36-fdroid-release-unsigned.apk \
+            "$(find app/build/outputs/apk/v36Fdroid/release -name "*.apk" | head -n 1)" \
             atmo-engine-beta-android-16-plus-foss.apk
           sign_apk \
-            app/build/outputs/apk/v33Play/release/app-v33-play-release-unsigned.apk \
+            "$(find app/build/outputs/apk/v33Play/release -name "*.apk" | head -n 1)" \
             atmo-engine-beta-android-13-plus-mlkit.apk
           sign_apk \
-            app/build/outputs/apk/v33Fdroid/release/app-v33-fdroid-release-unsigned.apk \
+            "$(find app/build/outputs/apk/v33Fdroid/release -name "*.apk" | head -n 1)" \
             atmo-engine-beta-android-13-plus-foss-fdroid.apk
 
           cp \
-            app/build/outputs/bundle/v35PlayRelease/app-v35-play-release.aab \
+            "$(find app/build/outputs/bundle/v35PlayRelease -name "*.aab" | head -n 1)" \
             atmo-engine-beta-playstore-android-15-plus-mlkit.aab
           jarsigner \
             -keystore "$KEYSTORE" \
