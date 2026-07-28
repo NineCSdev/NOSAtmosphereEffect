@@ -18,5 +18,6 @@ local.properties
 *.keystore
 *.pem
 *.p12
+*.spv
 # Google Services
 google-services.json
