@@ -28,12 +28,10 @@ android {
         create("release") {
             storeFile = file("keystores/release-key.jks")
 
-            // Checks GitHub Actions environment first, falls back to local.properties for local machine builds
             storePassword = System.getenv("KEY_STORE_PASSWORD") ?: localProperties.getProperty("KEY_STORE_PASSWORD")
             keyAlias = System.getenv("ALIAS") ?: localProperties.getProperty("ALIAS")
             keyPassword = System.getenv("KEY_PASSWORD") ?: localProperties.getProperty("KEY_PASSWORD")
 
-            // Explicitly enable all available signature schemes
             enableV1Signing = true
             enableV2Signing = true
             enableV3Signing = true
@@ -45,7 +43,6 @@ android {
     flavorDimensions += "distribution"
 
     productFlavors {
-
         create("v36") {
             dimension = "apiLevel"
             minSdk = 36
@@ -111,7 +108,6 @@ android {
             }
         }
     }
-
 }
 
 kotlin {
@@ -125,11 +121,9 @@ dependencies {
     implementation(libs.androidx.palette.ktx)
     testImplementation(libs.junit)
 
-    // Google Play builds use the higher-quality optional ML Kit module.
     "playImplementation"("com.google.android.gms:play-services-base:18.10.0")
     "playImplementation"("com.google.android.gms:play-services-mlkit-subject-segmentation:16.0.0-beta1")
 
-    // F-Droid builds bundle U2NetP and use the source-built FOSS runtime.
     "fdroidImplementation"(libs.litert.api)
     "fdroidImplementation"(libs.litert.fdroid)
 
@@ -167,7 +161,6 @@ tasks.register("compileVulkanShaders") {
     group = "build"
     description = "Compiles Vulkan GLSL shaders to SPIR-V using the NDK's glslc"
 
-    // STRICTLY scan only res/shaders for Vulkan files
     val shaderSrcDir = file("src/main/shaders")
     val shaderOutputDir = file("src/main/assets/shaders/vulkan")
 
@@ -175,10 +168,6 @@ tasks.register("compileVulkanShaders") {
         include("**/*.frag", "**/*.vert")
     }
 
-    // FIX: Capture the root directory during the configuration phase
-    val projectRoot = project.rootDir
-
-    // Force Gradle to ALWAYS run this task (disables caching) as requested
     outputs.upToDateWhen { false }
 
     doLast {
@@ -191,32 +180,28 @@ tasks.register("compileVulkanShaders") {
             return@doLast
         }
 
-        // Reuses the global localProperties object safely initialized at the top
-        val sdkDir = localProperties.getProperty("sdk.dir")
+        val sdkDirStr = localProperties.getProperty("sdk.dir")
             ?: System.getenv("ANDROID_HOME")
             ?: System.getenv("ANDROID_SDK_ROOT")
             ?: throw GradleException("Could not locate Android SDK.")
 
+        val sdkDir = File(sdkDirStr)
         val ndkDir = File(sdkDir, "ndk")
 
-        // Locate glslc dynamically within the installed NDK
         val glslc = ndkDir.walkTopDown().firstOrNull { it.name == "glslc" || it.name == "glslc.exe" }
+            ?: File("/usr/bin/glslc").takeIf { it.exists() }
             ?: throw GradleException("glslc compiler not found in NDK path: $ndkDir")
 
+        glslc.setExecutable(true)
         shaderOutputDir.mkdirs()
 
         filesToCompile.forEach { shaderFile ->
-            // Extract the immediate parent folder name (the effect name)
-            // e.g. "src/main/res/shaders/neon/neon.frag" -> "neon"
             val effectName = shaderFile.parentFile.name
-
-            // Build the exact output path: assets/shaders/vulkan/{effect_name}/{shader.ext}.spv
             val outFile = File(shaderOutputDir, "$effectName/${shaderFile.name}.spv")
 
             outFile.parentFile.mkdirs()
             println("Compiling: ${shaderFile.name} into vulkan/$effectName/ -> .spv")
 
-            // Use ProcessBuilder to bypass Gradle's nested closure scope issues entirely
             val process = ProcessBuilder(
                 glslc.absolutePath,
                 shaderFile.absolutePath,
@@ -231,4 +216,8 @@ tasks.register("compileVulkanShaders") {
         }
         println("--- SHADER COMPILATION COMPLETE ---")
     }
+}
+
+tasks.named("preBuild") {
+    dependsOn("compileVulkanShaders")
 }
