@@ -1,3 +1,6 @@
+import java.io.File
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.plugin.compose")
@@ -131,4 +134,69 @@ dependencies {
     "v33Implementation"("androidx.lifecycle:lifecycle-service:2.6.2")
     "v33Implementation"("androidx.appcompat:appcompat:1.6.1")
     "v33Implementation"("com.google.android.material:material:1.11.0")
+}
+
+// ========================================================================
+// CUSTOM VULKAN SHADER COMPILATION TASK
+// ========================================================================
+tasks.register("compileVulkanShaders") {
+    group = "build"
+    description = "Compiles raw GLSL shaders to SPIR-V using the NDK's glslc"
+
+    val shaderSrcDir = file("src/main/res/shaders")
+    val shaderOutputDir = file("src/main/assets/shaders/vulkan")
+
+    val inputFiles = fileTree(shaderSrcDir) {
+        include("**/*.frag", "**/*.vert")
+    }
+
+    inputs.files(inputFiles)
+    outputs.dir(shaderOutputDir)
+
+    doLast {
+        // Resolve SDK path manually to completely avoid AGP deprecation warnings
+        val sdkDir = File(project.rootDir, "local.properties").let { propFile ->
+            if (propFile.exists()) {
+                val props = Properties()
+                props.load(propFile.inputStream())
+                props.getProperty("sdk.dir")
+            } else null
+        } ?: System.getenv("ANDROID_HOME") ?: System.getenv("ANDROID_SDK_ROOT")
+        ?: throw GradleException("Could not locate Android SDK.")
+
+        val ndkDir = File(sdkDir, "ndk")
+
+        // Locate glslc dynamically within the installed NDK
+        val glslc = ndkDir.walkTopDown().firstOrNull { it.name == "glslc" || it.name == "glslc.exe" }
+            ?: throw GradleException("glslc compiler not found in NDK path: $ndkDir")
+
+        shaderOutputDir.mkdirs()
+
+        inputFiles.forEach { shaderFile ->
+            // Calculate relative path to maintain subdirectory structure
+            val relativePath = shaderFile.relativeTo(shaderSrcDir)
+            val outFile = File(shaderOutputDir, "${relativePath.path}.spv")
+
+            outFile.parentFile.mkdirs()
+            println("Compiling ${relativePath.path} -> .spv")
+
+            // Use ProcessBuilder to bypass Gradle's nested closure scope issues entirely
+            val process = ProcessBuilder(
+                glslc.absolutePath,
+                shaderFile.absolutePath,
+                "-o",
+                outFile.absolutePath
+            ).redirectErrorStream(true).start()
+
+            val output = process.inputStream.bufferedReader().readText()
+            if (process.waitFor() != 0) {
+                throw GradleException("Shader compilation failed for ${shaderFile.name}:\n$output")
+            }
+        }
+    }
+}
+
+// Hook the compilation task into the build lifecycle before anything else runs
+tasks.named("preBuild") {
+    dependsOn("compileVulkanShaders")
 }
