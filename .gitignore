@@ -23,6 +23,3 @@ local.properties
 *.spv
 # Google Services
 google-services.json
-# env
-.env
-*.env
