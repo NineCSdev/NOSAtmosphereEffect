@@ -6,7 +6,7 @@ plugins {
 android {
     namespace = "com.app.nosatmosphereeffect"
     compileSdk = 37
-    ndkVersion = "28.2.13676358"
+    ndkVersion = "29.0.14206865"
 
     defaultConfig {
         applicationId = "com.saad_khan_rind.atmosphere_effect"
