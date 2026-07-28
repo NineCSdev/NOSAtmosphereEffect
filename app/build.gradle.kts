@@ -141,26 +141,26 @@ dependencies {
 // ========================================================================
 tasks.register("compileVulkanShaders") {
     group = "build"
-    description = "Compiles raw GLSL shaders to SPIR-V using the NDK's glslc"
+    description = "Compiles Vulkan GLSL shaders to SPIR-V using the NDK's glslc"
 
-    val shaderSrcDir = file("src/main/res/shaders")
+    // STRICTLY scan only res/shaders for Vulkan files
+    val shaderSrcDir = file("src/main/shaders")
     val shaderOutputDir = file("src/main/assets/shaders/vulkan")
 
     val inputFiles = fileTree(shaderSrcDir) {
         include("**/*.frag", "**/*.vert")
     }
 
-    // Force Gradle to ALWAYS run this task by disabling the UP-TO-DATE cache check
+    // Force Gradle to ALWAYS run this task (disables caching) as requested
     outputs.upToDateWhen { false }
 
     doLast {
         println("--- VULKAN SHADER COMPILER ---")
         val filesToCompile = inputFiles.files
-        println("Searching for shaders in: ${shaderSrcDir.absolutePath}")
-        println("Found ${filesToCompile.size} shaders to compile.")
+        println("Found ${filesToCompile.size} Vulkan shaders in /shaders.")
 
         if (filesToCompile.isEmpty()) {
-            println("WARNING: No .frag or .vert files were found. Skipping compilation.")
+            println("WARNING: No .frag or .vert files were found in src/main/shaders.")
             return@doLast
         }
 
@@ -183,12 +183,15 @@ tasks.register("compileVulkanShaders") {
         shaderOutputDir.mkdirs()
 
         filesToCompile.forEach { shaderFile ->
-            // Calculate relative path to maintain subdirectory structure
-            val relativePath = shaderFile.relativeTo(shaderSrcDir)
-            val outFile = File(shaderOutputDir, "${relativePath.path}.spv")
+            // Extract the immediate parent folder name (the effect name)
+            // e.g. "src/main/res/shaders/neon/neon.frag" -> "neon"
+            val effectName = shaderFile.parentFile.name
+
+            // Build the exact output path: assets/shaders/vulkan/{effect_name}/{shader.ext}.spv
+            val outFile = File(shaderOutputDir, "$effectName/${shaderFile.name}.spv")
 
             outFile.parentFile.mkdirs()
-            println("Compiling: ${relativePath.path} -> .spv")
+            println("Compiling: ${shaderFile.name} into vulkan/$effectName/ -> .spv")
 
             // Use ProcessBuilder to bypass Gradle's nested closure scope issues entirely
             val process = ProcessBuilder(
