@@ -150,10 +150,20 @@ tasks.register("compileVulkanShaders") {
         include("**/*.frag", "**/*.vert")
     }
 
-    inputs.files(inputFiles)
-    outputs.dir(shaderOutputDir)
+    // Force Gradle to ALWAYS run this task by disabling the UP-TO-DATE cache check
+    outputs.upToDateWhen { false }
 
     doLast {
+        println("--- VULKAN SHADER COMPILER ---")
+        val filesToCompile = inputFiles.files
+        println("Searching for shaders in: ${shaderSrcDir.absolutePath}")
+        println("Found ${filesToCompile.size} shaders to compile.")
+
+        if (filesToCompile.isEmpty()) {
+            println("WARNING: No .frag or .vert files were found. Skipping compilation.")
+            return@doLast
+        }
+
         // Resolve SDK path manually to completely avoid AGP deprecation warnings
         val sdkDir = File(project.rootDir, "local.properties").let { propFile ->
             if (propFile.exists()) {
@@ -172,13 +182,13 @@ tasks.register("compileVulkanShaders") {
 
         shaderOutputDir.mkdirs()
 
-        inputFiles.forEach { shaderFile ->
+        filesToCompile.forEach { shaderFile ->
             // Calculate relative path to maintain subdirectory structure
             val relativePath = shaderFile.relativeTo(shaderSrcDir)
             val outFile = File(shaderOutputDir, "${relativePath.path}.spv")
 
             outFile.parentFile.mkdirs()
-            println("Compiling ${relativePath.path} -> .spv")
+            println("Compiling: ${relativePath.path} -> .spv")
 
             // Use ProcessBuilder to bypass Gradle's nested closure scope issues entirely
             val process = ProcessBuilder(
@@ -193,6 +203,7 @@ tasks.register("compileVulkanShaders") {
                 throw GradleException("Shader compilation failed for ${shaderFile.name}:\n$output")
             }
         }
+        println("--- SHADER COMPILATION COMPLETE ---")
     }
 }
 
