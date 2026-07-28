@@ -40,7 +40,7 @@ jobs:
       - name: Grant execute permission for Gradle
         run: chmod +x gradlew
 
-      - name: Build all beta variants
+      - name: Build and sign all beta variants via Gradle
         env:
           KEY_STORE_PASSWORD: ${{ secrets.KEY_STORE_PASSWORD }}
           ALIAS: ${{ secrets.ALIAS }}
@@ -58,11 +58,23 @@ jobs:
         run: |
           set -euo pipefail
 
-          APK_16_MLKIT=$(find app/build/outputs/apk/v36Play/release -name "*.apk" | head -n 1)
-          APK_16_FOSS=$(find app/build/outputs/apk/v36Fdroid/release -name "*.apk" | head -n 1)
-          APK_13_MLKIT=$(find app/build/outputs/apk/v33Play/release -name "*.apk" | head -n 1)
-          APK_13_FOSS=$(find app/build/outputs/apk/v33Fdroid/release -name "*.apk" | head -n 1)
-          AAB_15_MLKIT=$(find app/build/outputs/bundle/v35PlayRelease -name "*.aab" | head -n 1)
+          find_apk() {
+            local dir="$1"
+            local flavor="$2"
+            if [ -f "$dir/app-$flavor-release.apk" ]; then
+              echo "$dir/app-$flavor-release.apk"
+            elif [ -f "$dir/app-$flavor-release-unsigned.apk" ]; then
+              echo "$dir/app-$flavor-release-unsigned.apk"
+            else
+              echo "$dir/app-$flavor-release.apk"
+            fi
+          }
+
+          APK_16_MLKIT=$(find_apk "app/build/outputs/apk/v36Play/release" "v36-play")
+          APK_16_FOSS=$(find_apk "app/build/outputs/apk/v36Fdroid/release" "v36-fdroid")
+          APK_13_MLKIT=$(find_apk "app/build/outputs/apk/v33Play/release" "v33-play")
+          APK_13_FOSS=$(find_apk "app/build/outputs/apk/v33Fdroid/release" "v33-fdroid")
+          AAB_15_MLKIT="app/build/outputs/bundle/v35PlayRelease/app-v35-play-release.aab"
 
           assert_no_foss_payload() {
             local archive="$1"
@@ -88,10 +100,10 @@ jobs:
           assert_has_foss_payload "$APK_16_FOSS"
           assert_has_foss_payload "$APK_13_FOSS"
 
-          APK_16_MLKIT_SIZE=$(stat -c\%s "$APK_16_MLKIT")
-          APK_16_FOSS_SIZE=$(stat -c\%s "$APK_16_FOSS")
-          APK_13_MLKIT_SIZE=$(stat -c\%s "$APK_13_MLKIT")
-          APK_13_FOSS_SIZE=$(stat -c\%s "$APK_13_FOSS")
+          APK_16_MLKIT_SIZE=$(stat -c \%s "$APK_16_MLKIT")
+          APK_16_FOSS_SIZE=$(stat -c \%s "$APK_16_FOSS")
+          APK_13_MLKIT_SIZE=$(stat -c \%s "$APK_13_MLKIT")
+          APK_13_FOSS_SIZE=$(stat -c \%s "$APK_13_FOSS")
           MAX_MLKIT_APK_SIZE=$((10 * 1024 * 1024))
 
           if (( APK_16_MLKIT_SIZE >= APK_16_FOSS_SIZE )); then
@@ -114,70 +126,30 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Sign and verify beta artifacts
+      - name: Verify signatures and package beta artifacts
         shell: bash
-        env:
-          SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
-          KEY_ALIAS: ${{ secrets.ALIAS }}
-          KEY_STORE_PASSWORD: ${{ secrets.KEY_STORE_PASSWORD }}
-          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
           set -euo pipefail
 
-          KEYSTORE="$RUNNER_TEMP/atmo-release.jks"
-          printf '%s' "$SIGNING_KEY" | base64 --decode > "$KEYSTORE"
-          chmod 600 "$KEYSTORE"
-
           BUILD_TOOLS_DIR=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d -print | sort -V | tail -n 1)
-          ZIPALIGN="$BUILD_TOOLS_DIR/zipalign"
           APKSIGNER="$BUILD_TOOLS_DIR/apksigner"
-
-          test -x "$ZIPALIGN"
           test -x "$APKSIGNER"
 
-          sign_apk() {
+          verify_and_copy() {
             local source_apk="$1"
             local output_apk="$2"
-            local aligned_apk="$RUNNER_TEMP/$(basename "$output_apk" .apk)-aligned.apk"
-
-            "$ZIPALIGN" -f -p 4 "$source_apk" "$aligned_apk"
-            "$APKSIGNER" sign \
-              --ks "$KEYSTORE" \
-              --ks-key-alias "$KEY_ALIAS" \
-              --ks-pass env:KEY_STORE_PASSWORD \
-              --key-pass env:KEY_PASSWORD \
-              --v1-signing-enabled true \
-              --v2-signing-enabled true \
-              --v3-signing-enabled true \
-              --v4-signing-enabled true \
-              --out "$output_apk" \
-              "$aligned_apk"
-            "$APKSIGNER" verify --verbose --print-certs "$output_apk"
+            "$APKSIGNER" verify --verbose --print-certs "$source_apk"
+            cp "$source_apk" "$output_apk"
           }
 
-          sign_apk \
-            "$(find app/build/outputs/apk/v36Play/release -name "*.apk" | head -n 1)" \
-            atmo-engine-beta-android-16-plus-mlkit.apk
-          sign_apk \
-            "$(find app/build/outputs/apk/v36Fdroid/release -name "*.apk" | head -n 1)" \
-            atmo-engine-beta-android-16-plus-foss.apk
-          sign_apk \
-            "$(find app/build/outputs/apk/v33Play/release -name "*.apk" | head -n 1)" \
-            atmo-engine-beta-android-13-plus-mlkit.apk
-          sign_apk \
-            "$(find app/build/outputs/apk/v33Fdroid/release -name "*.apk" | head -n 1)" \
-            atmo-engine-beta-android-13-plus-foss-fdroid.apk
+          verify_and_copy "app/build/outputs/apk/v36Play/release/app-v36-play-release.apk" "atmo-engine-beta-android-16-plus-mlkit.apk"
+          verify_and_copy "app/build/outputs/apk/v36Fdroid/release/app-v36-fdroid-release.apk" "atmo-engine-beta-android-16-plus-foss.apk"
+          verify_and_copy "app/build/outputs/apk/v33Play/release/app-v33-play-release.apk" "atmo-engine-beta-android-13-plus-mlkit.apk"
+          verify_and_copy "app/build/outputs/apk/v33Fdroid/release/app-v33-fdroid-release.apk" "atmo-engine-beta-android-13-plus-foss-fdroid.apk"
 
           cp \
-            "$(find app/build/outputs/bundle/v35PlayRelease -name "*.aab" | head -n 1)" \
+            app/build/outputs/bundle/v35PlayRelease/app-v35-play-release.aab \
             atmo-engine-beta-playstore-android-15-plus-mlkit.aab
-          jarsigner \
-            -keystore "$KEYSTORE" \
-            -storepass:env KEY_STORE_PASSWORD \
-            -keypass:env KEY_PASSWORD \
-            atmo-engine-beta-playstore-android-15-plus-mlkit.aab \
-            "$KEY_ALIAS"
-          jarsigner -verify atmo-engine-beta-playstore-android-15-plus-mlkit.aab
 
           sha256sum \
             atmo-engine-beta-android-16-plus-mlkit.apk \
