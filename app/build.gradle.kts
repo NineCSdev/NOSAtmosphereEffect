@@ -135,7 +135,6 @@ dependencies {
     "v33Implementation"("androidx.appcompat:appcompat:1.6.1")
     "v33Implementation"("com.google.android.material:material:1.11.0")
 }
-
 // ========================================================================
 // CUSTOM VULKAN SHADER COMPILATION TASK
 // ========================================================================
@@ -151,21 +150,24 @@ tasks.register("compileVulkanShaders") {
         include("**/*.frag", "**/*.vert")
     }
 
+    // FIX: Capture the root directory during the configuration phase
+    val projectRoot = project.rootDir
+
     // Force Gradle to ALWAYS run this task (disables caching) as requested
     outputs.upToDateWhen { false }
 
     doLast {
         println("--- VULKAN SHADER COMPILER ---")
         val filesToCompile = inputFiles.files
-        println("Found ${filesToCompile.size} Vulkan shaders in /shaders.")
+        println("Found ${filesToCompile.size} Vulkan shaders in shaders.")
 
         if (filesToCompile.isEmpty()) {
             println("WARNING: No .frag or .vert files were found in src/main/shaders.")
             return@doLast
         }
 
-        // Resolve SDK path manually to completely avoid AGP deprecation warnings
-        val sdkDir = File(project.rootDir, "local.properties").let { propFile ->
+        // Use the captured 'projectRoot' variable here instead of calling 'project.rootDir'
+        val sdkDir = File(projectRoot, "local.properties").let { propFile ->
             if (propFile.exists()) {
                 val props = Properties()
                 props.load(propFile.inputStream())
@@ -208,9 +210,4 @@ tasks.register("compileVulkanShaders") {
         }
         println("--- SHADER COMPILATION COMPLETE ---")
     }
-}
-
-// Hook the compilation task into the build lifecycle before anything else runs
-tasks.named("preBuild") {
-    dependsOn("compileVulkanShaders")
 }
