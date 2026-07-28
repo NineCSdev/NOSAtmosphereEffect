@@ -21,6 +21,12 @@ jobs:
           distribution: 'temurin'
           cache: gradle
 
+      # 1. Restore the keystore FIRST so Gradle can find it during validation & build
+      - name: Restore Keystore from GitHub Secrets
+        run: |
+          mkdir -p app/keystores
+          echo "${{ secrets.SIGNING_KEY }}" | base64 --decode > app/keystores/release-key.jks
+
       - name: Extract build metadata
         run: |
           VERSION_NAME=$(grep "versionName =" app/build.gradle.kts | awk -F\" '{print $2}')
@@ -30,7 +36,12 @@ jobs:
       - name: Grant execute permission for Gradle
         run: chmod +x gradlew
 
+      # 2. Pass your signing secrets as environment variables to Gradle
       - name: Build all release variants
+        env:
+          KEY_STORE_PASSWORD: ${{ secrets.KEY_STORE_PASSWORD }}
+          ALIAS: ${{ secrets.ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
           ./gradlew \
             assembleV36PlayRelease \
@@ -44,10 +55,10 @@ jobs:
         run: |
           set -euo pipefail
 
-          APK_16_MLKIT="app/build/outputs/apk/v36Play/release/app-v36-play-release-unsigned.apk"
-          APK_16_FOSS="app/build/outputs/apk/v36Fdroid/release/app-v36-fdroid-release-unsigned.apk"
-          APK_13_MLKIT="app/build/outputs/apk/v33Play/release/app-v33-play-release-unsigned.apk"
-          APK_13_FOSS="app/build/outputs/apk/v33Fdroid/release/app-v33-fdroid-release-unsigned.apk"
+          APK_16_MLKIT="app/build/outputs/apk/v36Play/release/app-v36-play-release.apk"
+          APK_16_FOSS="app/build/outputs/apk/v36Fdroid/release/app-v36-fdroid-release.apk"
+          APK_13_MLKIT="app/build/outputs/apk/v33Play/release/app-v33-play-release.apk"
+          APK_13_FOSS="app/build/outputs/apk/v33Fdroid/release/app-v33-fdroid-release.apk"
           AAB_15_MLKIT="app/build/outputs/bundle/v35PlayRelease/app-v35-play-release.aab"
 
           assert_no_foss_payload() {
@@ -100,69 +111,28 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Sign and verify release artifacts
+      - name: Verify signature schemes (v1, v2, v3, v4)
         shell: bash
-        env:
-          SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
-          KEY_ALIAS: ${{ secrets.ALIAS }}
-          KEY_STORE_PASSWORD: ${{ secrets.KEY_STORE_PASSWORD }}
-          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
           set -euo pipefail
 
-          KEYSTORE="$RUNNER_TEMP/atmo-release.jks"
-          printf '%s' "$SIGNING_KEY" \vert{} base64 --decode > "$KEYSTORE"
-          chmod 600 "$KEYSTORE"
-
           BUILD_TOOLS_DIR=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d -print | sort -V | tail -n 1)
-          ZIPALIGN="$BUILD_TOOLS_DIR/zipalign"
           APKSIGNER="$BUILD_TOOLS_DIR/apksigner"
 
-          test -x "$ZIPALIGN"
           test -x "$APKSIGNER"
 
-          sign_apk() {
-            local source_apk="$1"
-            local output_apk="$2"
-            local aligned_apk="$RUNNER_TEMP/$(basename "$output_apk" .apk)-aligned.apk"
+          # Verify that Gradle successfully signed them with all schemes enabled
+          "$APKSIGNER" verify --verbose --print-certs app/build/outputs/apk/v36Play/release/app-v36-play-release.apk
+          "$APKSIGNER" verify --verbose --print-certs app/build/outputs/apk/v36Fdroid/release/app-v36-fdroid-release.apk
+          "$APKSIGNER" verify --verbose --print-certs app/build/outputs/apk/v33Play/release/app-v33-play-release.apk
+          "$APKSIGNER" verify --verbose --print-certs app/build/outputs/apk/v33Fdroid/release/app-v33-fdroid-release.apk
 
-            "$ZIPALIGN" -f -p 4 "$source_apk" "$aligned_apk"
-            # Enabled all available signing schemes including v4
-            "$APKSIGNER" sign \
-              --ks "$KEYSTORE" \
-              --ks-key-alias "$KEY_ALIAS" \
-              --ks-pass env:KEY_STORE_PASSWORD \
-              --key-pass env:KEY_PASSWORD \
-              --v4-signing-enabled true \
-              --out "$output_apk" \
-              "$aligned_apk"
-            # Verify that v1, v2, v3, and v4 schemes are correctly applied
-            "$APKSIGNER" verify --verbose --print-certs "$output_apk"
-          }
-
-          sign_apk \
-            app/build/outputs/apk/v36Play/release/app-v36-play-release-unsigned.apk \
-            atmo-engine-android-16-plus-mlkit.apk
-          sign_apk \
-            app/build/outputs/apk/v36Fdroid/release/app-v36-fdroid-release-unsigned.apk \
-            atmo-engine-android-16-plus-foss.apk
-          sign_apk \
-            app/build/outputs/apk/v33Play/release/app-v33-play-release-unsigned.apk \
-            atmo-engine-android-13-plus-mlkit.apk
-          sign_apk \
-            app/build/outputs/apk/v33Fdroid/release/app-v33-fdroid-release-unsigned.apk \
-            atmo-engine-android-13-plus-foss-fdroid.apk
-
-          cp \
-            app/build/outputs/bundle/v35PlayRelease/app-v35-play-release.aab \
-            atmo-engine-playstore-android-15-plus-mlkit.aab
-          jarsigner \
-            -keystore "$KEYSTORE" \
-            -storepass:env KEY_STORE_PASSWORD \
-            -keypass:env KEY_PASSWORD \
-            atmo-engine-playstore-android-15-plus-mlkit.aab \
-            "$KEY_ALIAS"
-          jarsigner -verify atmo-engine-playstore-android-15-plus-mlkit.aab
+          # Copy and rename final output artifacts for the GitHub Release
+          cp app/build/outputs/apk/v36Play/release/app-v36-play-release.apk atmo-engine-android-16-plus-mlkit.apk
+          cp app/build/outputs/apk/v36Fdroid/release/app-v36-fdroid-release.apk atmo-engine-android-16-plus-foss.apk
+          cp app/build/outputs/apk/v33Play/release/app-v33-play-release.apk atmo-engine-android-13-plus-mlkit.apk
+          cp app/build/outputs/apk/v33Fdroid/release/app-v33-fdroid-release.apk atmo-engine-android-13-plus-foss-fdroid.apk
+          cp app/build/outputs/bundle/v35PlayRelease/app-v35-play-release.aab atmo-engine-playstore-android-15-plus-mlkit.aab
 
           sha256sum \
             atmo-engine-android-16-plus-mlkit.apk \
