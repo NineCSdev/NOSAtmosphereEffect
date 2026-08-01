@@ -991,8 +991,7 @@ private fun SettingsGroup(
 private enum class InfoDialog(val title: String, val message: String) {
     Poll(
         "Unlock check interval",
-        "Lower values react sooner after unlock but check more often. Use 30000 ms on " +
-            "Samsung or 50 ms if the animation starts late."
+        "Lower values provide a faster reaction after unlocking but require more frequent checks, which may impact battery life. Use 30000 ms on Samsung devices, or 50 ms if the animation starts late."
     ),
     Delay(
         "Lock delay",
