@@ -214,6 +214,7 @@ class PlaylistEditorActivity : ComponentActivity() {
                     onApply = { showApplyDialog() },
                     onBack = { finish() },
                     defaultFitMode = defaultFitMode,
+                    defaultFillMode = defaultFillMode,
                     onDefaultFitModeChanged = { fit, fill ->
                         defaultFitMode = fit
                         defaultFillMode = fill

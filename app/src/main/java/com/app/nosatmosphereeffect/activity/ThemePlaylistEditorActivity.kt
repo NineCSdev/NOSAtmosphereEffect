@@ -213,6 +213,7 @@ class ThemePlaylistEditorActivity : ComponentActivity() {
                     onApply = { showApplyConfirm = true },
                     onBack = { finish() },
                     defaultFitMode = defaultFitMode,
+                    defaultFillMode = defaultFillMode,
                     onDefaultFitModeChanged = { fit, fill ->
                         defaultFitMode = fit
                         defaultFillMode = fill

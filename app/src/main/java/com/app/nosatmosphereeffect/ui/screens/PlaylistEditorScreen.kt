@@ -1,5 +1,8 @@
 package com.app.nosatmosphereeffect.ui.screens
 
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.TextButton
 import android.content.Context
 import android.graphics.Bitmap
 import android.net.Uri
@@ -32,8 +35,6 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -48,7 +49,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
@@ -72,7 +72,6 @@ import com.app.nosatmosphereeffect.ui.components.AtmoSegmentedControl
 import com.app.nosatmosphereeffect.ui.components.AtmoTopBar
 import com.app.nosatmosphereeffect.ui.components.SettingSwitchRow
 import com.app.nosatmosphereeffect.ui.theme.LocalAtmoExpressive
-import kotlin.math.absoluteValue
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -101,6 +100,7 @@ fun PlaylistEditorScreen(
     onApply: () -> Unit,
     onBack: () -> Unit,
     defaultFitMode: String,
+    defaultFillMode: String,
     onDefaultFitModeChanged: (String, String) -> Unit,
     showCropOptions: Boolean,
     onShowCropOptions: () -> Unit,
@@ -125,12 +125,14 @@ fun PlaylistEditorScreen(
                             contentDescription = "Default Crop Options",
                             onClick = onShowCropOptions
                         )
-                        DefaultCropMenu(
-                            expanded = showCropOptions,
-                            onDismiss = onDismissCropOptions,
-                            currentFitMode = defaultFitMode,
-                            onFitChanged = onDefaultFitModeChanged
-                        )
+                        if (showCropOptions) {
+                            CropOptionsDialog(
+                                onDismiss = onDismissCropOptions,
+                                currentFitMode = defaultFitMode,
+                                currentFillMode = defaultFillMode,
+                                onFitChanged = onDefaultFitModeChanged
+                            )
+                        }
                     }
                 }
             )
@@ -448,12 +450,15 @@ private fun decodeThumbnail(context: Context, uri: Uri): Bitmap? {
 }
 
 @Composable
-fun DefaultCropMenu(
-    expanded: Boolean,
+fun CropOptionsDialog(
     onDismiss: () -> Unit,
     currentFitMode: String,
+    currentFillMode: String,
     onFitChanged: (fit: String, fill: String) -> Unit
 ) {
+    var selectedFitMode by remember { mutableStateOf(currentFitMode) }
+    var selectedFillMode by remember { mutableStateOf(currentFillMode) }
+
     val fitOptions = remember {
         listOf(
             "Screen Fill (Crop)" to WallpaperFitHelper.MODE_FILL,
@@ -464,49 +469,68 @@ fun DefaultCropMenu(
     }
     val fillOptions = remember {
         listOf(
-            "Black Bars" to WallpaperFitHelper.FILL_BLACK,
-            "Repeat Pattern" to WallpaperFitHelper.FILL_REPEAT,
-            "Mirror Pattern" to WallpaperFitHelper.FILL_MIRROR
+            "Black" to WallpaperFitHelper.FILL_BLACK,
+            "Repeat" to WallpaperFitHelper.FILL_REPEAT,
+            "Mirror" to WallpaperFitHelper.FILL_MIRROR
         )
     }
 
-    var showFillSubmenu by remember { mutableStateOf(false) }
-
-    DropdownMenu(
-        expanded = expanded,
-        onDismissRequest = onDismiss
-    ) {
-        if (showFillSubmenu) {
-            DropdownMenuItem(
-                text = { Text("Back") },
-                onClick = { showFillSubmenu = false }
-            )
-            fillOptions.forEach { (label, fill) ->
-                DropdownMenuItem(
-                    text = { Text(label) },
-                    onClick = {
-                        onFitChanged(currentFitMode, fill)
-                        onDismiss()
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Default Crop Options") },
+        text = {
+            Column {
+                fitOptions.forEach { (label, fitMode) ->
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable { selectedFitMode = fitMode },
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(
+                            selected = selectedFitMode == fitMode,
+                            onClick = { selectedFitMode = fitMode }
+                        )
+                        Text(label)
                     }
-                )
-            }
-        } else {
-            fitOptions.forEach { (label, fit) ->
-                DropdownMenuItem(
-                    text = { Text(label) },
-                    onClick = {
-                        val letterboxed = fit == WallpaperFitHelper.MODE_FIT || fit == WallpaperFitHelper.MODE_ROTATE_FIT
-                        if (letterboxed) {
-                            onFitChanged(fit, WallpaperFitHelper.FILL_BLACK)
-                            // showFillSubmenu = true // This would show a sub-menu, but for now we just default
-                            onDismiss() // For simplicity, just dismiss
-                        } else {
-                            onFitChanged(fit, WallpaperFitHelper.FILL_BLACK)
-                            onDismiss()
+                }
+
+                val letterboxed = selectedFitMode == WallpaperFitHelper.MODE_FIT || selectedFitMode == WallpaperFitHelper.MODE_ROTATE_FIT
+                if (letterboxed) {
+                    Spacer(Modifier.height(16.dp))
+                    Text("Background fill for fit modes:")
+                    Spacer(Modifier.height(8.dp))
+                    fillOptions.forEach { (label, fillMode) ->
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .clickable { selectedFillMode = fillMode },
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(
+                                selected = selectedFillMode == fillMode,
+                                onClick = { selectedFillMode = fillMode }
+                            )
+                            Text(label)
                         }
                     }
-                )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    onFitChanged(selectedFitMode, selectedFillMode)
+                    onDismiss()
+                }
+            ) {
+                Text("Apply")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
             }
         }
-    }
+    )
 }

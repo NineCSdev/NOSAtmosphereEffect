@@ -128,8 +128,6 @@ class AdvancedSettingsActivity : ComponentActivity() {
             ),
             subjectSegmentationEnabled =
                 prefs.readBoolean(CanvasSubjectSettings.ENABLED_KEY, false),
-            defaultFitMode = WallpaperFitHelper.getDefaultFitMode(this),
-            defaultFillMode = WallpaperFitHelper.getDefaultFillMode(this),
             scrollEnabled = WallpaperFitHelper.isScrollEnabled(this),
             rendererPreference = GraphicsBackendPreferences.read(this)
         )
@@ -277,11 +275,6 @@ class AdvancedSettingsActivity : ComponentActivity() {
         // Wallpaper scrolling lives in display_prefs (survives wallpaper changes).
         // Changing it alters the texture geometry, so the renderer must rebuild
         // its wallpaper texture — trigger the existing reload path.
-        WallpaperFitHelper.setDefaultModes(
-            this,
-            result.defaultFitMode,
-            result.defaultFillMode
-        )
         val scrollChanged = WallpaperFitHelper.isScrollEnabled(this) != result.scrollEnabled
         WallpaperFitHelper.setScrollEnabled(this, result.scrollEnabled)
         if (scrollChanged) {
