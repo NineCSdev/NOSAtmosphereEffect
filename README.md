@@ -77,7 +77,7 @@ After selecting an effect, you will be prompted to choose your wallpaper mode:
 
 * **Theme Playlists:** Build separate Light and Dark playlists with one or more wallpapers in each. Atmo switches to the matching collection when the system theme changes, then rotates within that collection using your selected interval.
 
-* **Edit Existing Playlist:** If you already have a standard or theme-based playlist running, this option loads your saved wallpapers (including your exact zoom and crop settings). You can remove images, add new ones, or tweak existing crops without starting over.
+* **Edit Existing Playlist:** If you already have a standard or theme-based playlist running, this option loads your saved wallpapers (including their exact zoom and crop settings). You can remove images, add new ones, or tweak existing crops without starting over. The playlist editor also allows you to define a default crop setting for newly added images.
 
 ### 3\. Application & Activation
 
