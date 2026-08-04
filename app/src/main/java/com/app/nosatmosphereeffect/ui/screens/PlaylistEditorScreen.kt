@@ -1,5 +1,8 @@
 package com.app.nosatmosphereeffect.ui.screens
 
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.TextButton
 import android.content.Context
 import android.graphics.Bitmap
 import android.net.Uri
@@ -18,6 +21,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
@@ -26,7 +30,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
@@ -46,7 +49,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
@@ -56,8 +58,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.app.nosatmosphereeffect.R
+import com.app.nosatmosphereeffect.helper.WallpaperFitHelper
 import com.app.nosatmosphereeffect.image.BitmapDecoder
 import com.app.nosatmosphereeffect.ui.components.AtmoAnimatedIconButton
 import com.app.nosatmosphereeffect.ui.components.AtmoChip
@@ -70,7 +74,6 @@ import com.app.nosatmosphereeffect.ui.components.SettingSwitchRow
 import com.app.nosatmosphereeffect.ui.theme.LocalAtmoExpressive
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import kotlin.math.absoluteValue
 
 data class PlaylistEntry(
     val displayUri: Uri,
@@ -95,9 +98,16 @@ fun PlaylistEditorScreen(
     onDeleteItem: (Int) -> Unit,
     onAddMore: () -> Unit,
     onApply: () -> Unit,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    defaultFitMode: String,
+    defaultFillMode: String,
+    onDefaultFitModeChanged: (String, String) -> Unit,
+    showCropOptions: Boolean,
+    onShowCropOptions: () -> Unit,
+    onDismissCropOptions: () -> Unit
 ) {
     val pagerState = rememberPagerState(pageCount = { entries.size })
+
     LaunchedEffect(selectedPlaylist) {
         if (entries.isNotEmpty()) pagerState.scrollToPage(0)
     }
@@ -107,7 +117,24 @@ fun PlaylistEditorScreen(
             AtmoTopBar(
                 title = title,
                 backIcon = painterResource(R.drawable.ic_arrow_back),
-                onBack = onBack
+                onBack = onBack,
+                actions = {
+                    Box {
+                        AtmoAnimatedIconButton(
+                            painter = painterResource(id = R.drawable.ic_crop),
+                            contentDescription = "Default Crop Options",
+                            onClick = onShowCropOptions
+                        )
+                        if (showCropOptions) {
+                            CropOptionsDialog(
+                                onDismiss = onDismissCropOptions,
+                                currentFitMode = defaultFitMode,
+                                currentFillMode = defaultFillMode,
+                                onFitChanged = onDefaultFitModeChanged
+                            )
+                        }
+                    }
+                }
             )
         }
     ) { inner ->
@@ -161,16 +188,16 @@ fun PlaylistEditorScreen(
                         // Pager state can briefly outlive an entry removed during composition.
                         val entry = entries.getOrNull(page) ?: return@HorizontalPager
                         Box(
-                            Modifier.graphicsLayer {
-                                val pageOffset = (
-                                    (pagerState.currentPage - page) +
-                                        pagerState.currentPageOffsetFraction
-                                    ).absoluteValue.coerceIn(0f, 1f)
-                                val emphasis = 1f - pageOffset
-                                scaleX = 0.94f + emphasis * 0.06f
-                                scaleY = 0.94f + emphasis * 0.06f
-                                alpha = 0.72f + emphasis * 0.28f
-                            }
+                            // Modifier.graphicsLayer {
+                            //     val pageOffset = (
+                            //         (pagerState.currentPage - page) +
+                            //             pagerState.currentPageOffsetFraction
+                            //         ).absoluteValue.coerceIn(0f, 1f)
+                            //     val emphasis = 1f - pageOffset
+                            //     scaleX = 0.94f + emphasis * 0.06f
+                            //     scaleY = 0.94f + emphasis * 0.06f
+                            //     alpha = 0.72f + emphasis * 0.28f
+                            // }
                         ) {
                             PlaylistCard(
                                 entry = entry,
@@ -199,7 +226,7 @@ fun PlaylistEditorScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(top = 8.dp),
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    textAlign = TextAlign.Center
                 )
             }
 
@@ -222,7 +249,7 @@ fun PlaylistEditorScreen(
                             onCheckedChange = onAtmosphereGlassEnabledChange
                         )
                     }
-                    androidx.compose.foundation.layout.Row(
+                    Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
@@ -338,7 +365,7 @@ private fun PageIndicator(
     current: Int,
     modifier: Modifier = Modifier
 ) {
-    androidx.compose.foundation.layout.Row(
+    Row(
         modifier = modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically
@@ -393,7 +420,7 @@ private fun EmptyPlaylist(label: String) {
             "Tap Add to choose photos for $label.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+            textAlign = TextAlign.Center
         )
     }
 }
@@ -420,4 +447,90 @@ private fun decodeThumbnail(context: Context, uri: Uri): Bitmap? {
         Log.w("PlaylistEditorScreen", "Could not create a thumbnail for $uri", error)
         null
     }
+}
+
+@Composable
+fun CropOptionsDialog(
+    onDismiss: () -> Unit,
+    currentFitMode: String,
+    currentFillMode: String,
+    onFitChanged: (fit: String, fill: String) -> Unit
+) {
+    var selectedFitMode by remember { mutableStateOf(currentFitMode) }
+    var selectedFillMode by remember { mutableStateOf(currentFillMode) }
+
+    val fitOptions = remember {
+        listOf(
+            "Screen Fill (Crop)" to WallpaperFitHelper.MODE_FILL,
+            "Fit Image (Show All)" to WallpaperFitHelper.MODE_FIT,
+            "Stretch" to WallpaperFitHelper.MODE_STRETCH,
+            "Rotate to Fit (Landscape)" to WallpaperFitHelper.MODE_ROTATE_FIT
+        )
+    }
+    val fillOptions = remember {
+        listOf(
+            "Black" to WallpaperFitHelper.FILL_BLACK,
+            "Repeat" to WallpaperFitHelper.FILL_REPEAT,
+            "Mirror" to WallpaperFitHelper.FILL_MIRROR
+        )
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Default Crop Options") },
+        text = {
+            Column {
+                fitOptions.forEach { (label, fitMode) ->
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable { selectedFitMode = fitMode },
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(
+                            selected = selectedFitMode == fitMode,
+                            onClick = { selectedFitMode = fitMode }
+                        )
+                        Text(label)
+                    }
+                }
+
+                val letterboxed = selectedFitMode == WallpaperFitHelper.MODE_FIT || selectedFitMode == WallpaperFitHelper.MODE_ROTATE_FIT
+                if (letterboxed) {
+                    Spacer(Modifier.height(16.dp))
+                    Text("Background fill for fit modes:")
+                    Spacer(Modifier.height(8.dp))
+                    fillOptions.forEach { (label, fillMode) ->
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .clickable { selectedFillMode = fillMode },
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(
+                                selected = selectedFillMode == fillMode,
+                                onClick = { selectedFillMode = fillMode }
+                            )
+                            Text(label)
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    onFitChanged(selectedFitMode, selectedFillMode)
+                    onDismiss()
+                }
+            ) {
+                Text("Apply")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
 }

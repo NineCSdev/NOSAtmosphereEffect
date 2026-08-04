@@ -10,6 +10,7 @@ import android.util.Log
 import com.app.nosatmosphereeffect.helper.ImageFitMode
 import com.app.nosatmosphereeffect.helper.ImageFitPolicy
 import com.app.nosatmosphereeffect.helper.MatrixStatePolicy
+import com.app.nosatmosphereeffect.helper.WallpaperFitHelper
 import com.app.nosatmosphereeffect.image.BitmapDecoder
 import com.app.nosatmosphereeffect.image.BitmapStore
 import java.io.File
@@ -61,11 +62,13 @@ internal object PlaylistCollectionStore {
                     ?: throw FileNotFoundException("Edited image $index is missing")
                 UriFiles.copyAtomically(context, Uri.fromFile(edited), wallpaper)
             } else {
-                val bitmap = decodeCenterCrop(
-                    context,
-                    item.originalUri,
+                val source = BitmapDecoder.decodeUri(context, item.originalUri)
+                val bitmap = WallpaperFitHelper.fitBitmap(
+                    source,
                     targetWidth,
-                    targetHeight
+                    targetHeight,
+                    item.fitMode,
+                    item.fillMode
                 )
                 try {
                     BitmapStore.writeJpegAtomically(bitmap, wallpaper, quality = 100)
@@ -158,34 +161,4 @@ internal object PlaylistCollectionStore {
         }
     }
 
-    private fun decodeCenterCrop(
-        context: Context,
-        uri: Uri,
-        width: Int,
-        height: Int
-    ): Bitmap {
-        val source = BitmapDecoder.decodeUri(context, uri, width, height)
-        try {
-            val transform = ImageFitPolicy.transform(
-                source.width,
-                source.height,
-                width,
-                height,
-                ImageFitMode.FILL
-            )
-            return Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also { output ->
-                val matrix = Matrix().apply {
-                    setScale(transform.scaleX, transform.scaleY)
-                    postTranslate(transform.translateX, transform.translateY)
-                }
-                Canvas(output).drawBitmap(
-                    source,
-                    matrix,
-                    Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
-                )
-            }
-        } finally {
-            source.recycle()
-        }
-    }
 }

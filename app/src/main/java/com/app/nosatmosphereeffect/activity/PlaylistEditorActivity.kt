@@ -64,10 +64,22 @@ class PlaylistEditorActivity : ComponentActivity() {
             draftState.isProcessing = value
         }
 
+    private var defaultFitMode by mutableStateOf(WallpaperFitHelper.MODE_FILL)
+    private var defaultFillMode by mutableStateOf(WallpaperFitHelper.FILL_BLACK)
+    private var showCropOptions by mutableStateOf(false)
+
     private val pickMultipleImages =
         registerForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris: List<Uri> ->
             if (uris.isNotEmpty()) {
-                uris.forEach { playlistItems.add(PlaylistItem(it)) }
+                uris.forEach {
+                    playlistItems.add(
+                        PlaylistItem(
+                            originalUri = it,
+                            fitMode = defaultFitMode,
+                            fillMode = defaultFillMode
+                        )
+                    )
+                }
                 Toast.makeText(this, "${uris.size} images added", Toast.LENGTH_SHORT).show()
             }
         }
@@ -88,8 +100,8 @@ class PlaylistEditorActivity : ComponentActivity() {
                         isEdited = true,
                         editedFilePath = resultUriString,
                         matrixState = matrixState,
-                        fitMode = fitMode ?: WallpaperFitHelper.MODE_FILL,
-                        fillMode = fillMode ?: WallpaperFitHelper.FILL_BLACK
+                        fitMode = fitMode ?: defaultFitMode,
+                        fillMode = fillMode ?: defaultFillMode
                     )
                     if (previous.editedFilePath != resultUriString) {
                         deleteCachedEdit(previous.editedFilePath)
@@ -110,6 +122,10 @@ class PlaylistEditorActivity : ComponentActivity() {
         effectId = intent.getStringExtra("EFFECT_ID") ?: "ORIGINAL"
         isEditExisting = intent.getBooleanExtra("EDIT_EXISTING", false)
         if (!draftState.initialized) {
+            if (isEditExisting) {
+                defaultFitMode = WallpaperFitHelper.getDefaultFitMode(this)
+                defaultFillMode = WallpaperFitHelper.getDefaultFillMode(this)
+            }
             val restoredAtmosphereGlass =
                 if (savedInstanceState?.containsKey(STATE_ATMOSPHERE_GLASS) == true) {
                     savedInstanceState.getBoolean(STATE_ATMOSPHERE_GLASS)
@@ -134,7 +150,15 @@ class PlaylistEditorActivity : ComponentActivity() {
                 loadExistingPlaylist()
             } else {
                 val uris = intent.getParcelableArrayListExtra("IMAGE_URIS", Uri::class.java)
-                uris?.forEach { playlistItems.add(PlaylistItem(it)) }
+                uris?.forEach {
+                    playlistItems.add(
+                        PlaylistItem(
+                            originalUri = it,
+                            fitMode = defaultFitMode,
+                            fillMode = defaultFillMode
+                        )
+                    )
+                }
             }
             draftState.initialized = true
         }
@@ -188,7 +212,17 @@ class PlaylistEditorActivity : ComponentActivity() {
                     },
                     onAddMore = { pickMultipleImages.launch("image/*") },
                     onApply = { showApplyDialog() },
-                    onBack = { finish() }
+                    onBack = { finish() },
+                    defaultFitMode = defaultFitMode,
+                    defaultFillMode = defaultFillMode,
+                    onDefaultFitModeChanged = { fit, fill ->
+                        defaultFitMode = fit
+                        defaultFillMode = fill
+                        WallpaperFitHelper.setDefaultModes(this, fit, fill)
+                    },
+                    showCropOptions = showCropOptions,
+                    onShowCropOptions = { showCropOptions = true },
+                    onDismissCropOptions = { showCropOptions = false }
                 )
 
                 if (showApplyConfirm) {
@@ -245,8 +279,19 @@ class PlaylistEditorActivity : ComponentActivity() {
         if (item.matrixState != null) {
             intent.putExtra("MATRIX_STATE", item.matrixState)
         }
-        intent.putExtra("INITIAL_FIT_MODE", item.fitMode)
-        intent.putExtra("INITIAL_FILL_MODE", item.fillMode)
+
+        val fitMode: String
+        val fillMode: String
+        if (item.isEdited) {
+            fitMode = item.fitMode
+            fillMode = item.fillMode
+        } else {
+            fitMode = defaultFitMode
+            fillMode = defaultFillMode
+        }
+
+        intent.putExtra("INITIAL_FIT_MODE", fitMode)
+        intent.putExtra("INITIAL_FILL_MODE", fillMode)
         editImageLauncher.launch(intent)
     }
 
@@ -254,8 +299,17 @@ class PlaylistEditorActivity : ComponentActivity() {
         isProcessing = true
         draftState.applyCompleted = false
         draftState.applyError = null
+
         val items = playlistItems.map { item ->
-            item.copy(matrixState = item.matrixState?.copyOf())
+            if (item.isEdited) {
+                item.copy(matrixState = item.matrixState?.copyOf())
+            } else {
+                item.copy(
+                    matrixState = item.matrixState?.copyOf(),
+                    fitMode = defaultFitMode,
+                    fillMode = defaultFillMode
+                )
+            }
         }
         val atmosphereGlassEnabled = AtmosphereGlassPolicy.resolveEnabled(
             effectId,
@@ -294,11 +348,9 @@ class PlaylistEditorActivity : ComponentActivity() {
                             File(filesDir, WallpaperFitHelper.ACTIVE_SOURCE_FILE)
                         )
                         preferencesTouched = true
-                        WallpaperFitHelper.setActiveModes(
-                            this,
-                            WallpaperFitHelper.MODE_FILL,
-                            WallpaperFitHelper.FILL_BLACK
-                        )
+                        items.firstOrNull()?.let {
+                            WallpaperFitHelper.setActiveModes(this, it.fitMode, it.fillMode)
+                        }
                         resetPreferences(
                             appPreferences,
                             atmosphereGlassEnabled,
@@ -542,19 +594,25 @@ class PlaylistEditorActivity : ComponentActivity() {
                         values.getDouble(position).toFloat()
                     }
                 }?.takeIf(MatrixStatePolicy::isValid)
+
+                val fitMode = if (savedEdited) {
+                    item.optString("fitMode", defaultFitMode).ifEmpty { defaultFitMode }
+                } else {
+                    defaultFitMode
+                }
+                val fillMode = if (savedEdited) {
+                    item.optString("fillMode", defaultFillMode).ifEmpty { defaultFillMode }
+                } else {
+                    defaultFillMode
+                }
+
                 playlistItems += PlaylistItem(
                     originalUri = Uri.fromFile(source),
                     isEdited = savedEdited,
                     editedFilePath = wallpaper.takeIf { savedEdited }?.absolutePath,
                     matrixState = matrix,
-                    fitMode = item.optString(
-                        "fitMode",
-                        WallpaperFitHelper.MODE_FILL
-                    ).ifEmpty { WallpaperFitHelper.MODE_FILL },
-                    fillMode = item.optString(
-                        "fillMode",
-                        WallpaperFitHelper.FILL_BLACK
-                    ).ifEmpty { WallpaperFitHelper.FILL_BLACK }
+                    fitMode = fitMode,
+                    fillMode = fillMode
                 )
             }
             if (playlistItems.isEmpty()) loadLegacyPlaylist(playlistDir)
@@ -580,7 +638,11 @@ class PlaylistEditorActivity : ComponentActivity() {
 
     private fun loadLegacyPlaylist(playlistDir: File) {
         PlaylistModeManager.imageFiles(playlistDir).forEach { file ->
-            playlistItems += PlaylistItem(Uri.fromFile(file))
+            playlistItems += PlaylistItem(
+                originalUri = Uri.fromFile(file),
+                fitMode = defaultFitMode,
+                fillMode = defaultFillMode
+            )
         }
     }
 

@@ -12,7 +12,7 @@ class VulkanEffectShaderContractTest {
             "glass/glass.vert",
             "atmosphere/atmosphere.vert"
         ).forEach { relativePath ->
-            val shader = File("src/main/shaders/vulkan", relativePath).readText()
+            val shader = File("src/main/shaders", relativePath).readText()
             assertTrue(relativePath, shader.contains("vec2(0.0, 0.0)"))
             assertTrue(relativePath, shader.contains("vec2(2.0, 0.0)"))
             assertTrue(relativePath, shader.contains("vec2(0.0, 2.0)"))
@@ -25,7 +25,7 @@ class VulkanEffectShaderContractTest {
             "glass/glass.frag",
             "atmosphere/atmosphere.frag"
         ).forEach { relativePath ->
-            val shader = File("src/main/shaders/vulkan", relativePath).readText()
+            val shader = File("src/main/shaders", relativePath).readText()
             assertTrue(relativePath, shader.contains("1.08"))
             assertTrue(relativePath, shader.contains("1.80"))
             assertTrue(relativePath, shader.contains("0.25"))
@@ -37,7 +37,7 @@ class VulkanEffectShaderContractTest {
     @Test
     fun `atmosphere shader retains OpenGL phase thresholds and blob capacity`() {
         val shader = File(
-            "src/main/shaders/vulkan/atmosphere/atmosphere.frag"
+            "src/main/shaders/atmosphere/atmosphere.frag"
         ).readText()
 
         assertTrue(shader.contains("smoothstep(0.0, 0.2, progress)"))
