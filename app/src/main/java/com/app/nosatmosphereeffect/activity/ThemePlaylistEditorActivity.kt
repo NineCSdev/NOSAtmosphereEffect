@@ -66,11 +66,21 @@ class ThemePlaylistEditorActivity : ComponentActivity() {
             draftState.isProcessing = value
         }
 
+    private var defaultFitMode by mutableStateOf(WallpaperFitHelper.MODE_FILL)
+    private var defaultFillMode by mutableStateOf(WallpaperFitHelper.FILL_BLACK)
+    private var showCropOptions by mutableStateOf(false)
+
     private val pickMultipleImages =
         registerForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
             if (uris.isNotEmpty()) {
                 val target = itemsFor(selectedPlaylist)
-                uris.forEach { uri -> target.add(ThemePlaylistItem(uri)) }
+                uris.forEach { uri ->
+                    target.add(ThemePlaylistItem(
+                        originalUri = uri,
+                        fitMode = defaultFitMode,
+                        fillMode = defaultFillMode
+                    ))
+                }
                 Toast.makeText(
                     this,
                     "${uris.size} ${themeLabel(selectedPlaylist).lowercase()} images added",
@@ -95,10 +105,8 @@ class ThemePlaylistEditorActivity : ComponentActivity() {
                 matrixState = MatrixStatePolicy.copyIfValid(
                     result.data?.getFloatArrayExtra("MATRIX_STATE")
                 ),
-                fitMode = result.data?.getStringExtra("FIT_MODE")
-                    ?: WallpaperFitHelper.MODE_FILL,
-                fillMode = result.data?.getStringExtra("FILL_MODE")
-                    ?: WallpaperFitHelper.FILL_BLACK
+                fitMode = result.data?.getStringExtra("FIT_MODE") ?: defaultFitMode,
+                fillMode = result.data?.getStringExtra("FILL_MODE") ?: defaultFillMode
             )
             if (previous.editedFilePath != path) {
                 deleteCachedEdit(previous.editedFilePath)
@@ -203,7 +211,15 @@ class ThemePlaylistEditorActivity : ComponentActivity() {
                     },
                     onAddMore = { pickMultipleImages.launch("image/*") },
                     onApply = { showApplyConfirm = true },
-                    onBack = { finish() }
+                    onBack = { finish() },
+                    defaultFitMode = defaultFitMode,
+                    onDefaultFitModeChanged = { fit, fill ->
+                        defaultFitMode = fit
+                        defaultFillMode = fill
+                    },
+                    showCropOptions = showCropOptions,
+                    onShowCropOptions = { showCropOptions = true },
+                    onDismissCropOptions = { showCropOptions = false }
                 )
 
                 if (showApplyConfirm) {
@@ -264,13 +280,24 @@ class ThemePlaylistEditorActivity : ComponentActivity() {
         val item = target.getOrNull(position) ?: return
         editingPosition = position
         editingPlaylist = selectedPlaylist
+
+        val fitMode: String
+        val fillMode: String
+        if (item.isEdited) {
+            fitMode = item.fitMode
+            fillMode = item.fillMode
+        } else {
+            fitMode = defaultFitMode
+            fillMode = defaultFillMode
+        }
+
         editImageLauncher.launch(
             Intent(this, MultiImageCropActivity::class.java).apply {
                 data = item.originalUri
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 item.matrixState?.let { putExtra("MATRIX_STATE", it) }
-                putExtra("INITIAL_FIT_MODE", item.fitMode)
-                putExtra("INITIAL_FILL_MODE", item.fillMode)
+                putExtra("INITIAL_FIT_MODE", fitMode)
+                putExtra("INITIAL_FILL_MODE", fillMode)
             }
         )
     }
@@ -336,15 +363,13 @@ class ThemePlaylistEditorActivity : ComponentActivity() {
                             File(filesDir, WallpaperFitHelper.ACTIVE_SOURCE_FILE)
                         )
                         preferencesTouched = true
-                        WallpaperFitHelper.setActiveModes(
+                        val activeItems = if (isNightMode) darkSnapshot else lightSnapshot
+                        activeItems.firstOrNull()?.let {
+                            WallpaperFitHelper.setActiveModes(this, it.fitMode, it.fillMode)
+                        } ?: WallpaperFitHelper.setActiveModes(
                             this,
-                            WallpaperFitHelper.MODE_FILL,
-                            WallpaperFitHelper.FILL_BLACK
-                        )
-                        WallpaperFitHelper.setNextModes(
-                            this,
-                            WallpaperFitHelper.MODE_FILL,
-                            WallpaperFitHelper.FILL_BLACK
+                            defaultFitMode,
+                            defaultFillMode
                         )
 
                         resetPreferences(
@@ -400,7 +425,15 @@ class ThemePlaylistEditorActivity : ComponentActivity() {
     }
 
     private fun snapshot(item: ThemePlaylistItem): ThemePlaylistItem {
-        return item.copy(matrixState = item.matrixState?.copyOf())
+        return if (item.isEdited) {
+            item.copy(matrixState = item.matrixState?.copyOf())
+        } else {
+            item.copy(
+                matrixState = item.matrixState?.copyOf(),
+                fitMode = defaultFitMode,
+                fillMode = defaultFillMode
+            )
+        }
     }
 
     private fun persistCollections(
@@ -587,7 +620,11 @@ class ThemePlaylistEditorActivity : ComponentActivity() {
         val metadataFile = File(playlistDir, "metadata.json")
         if (!metadataFile.isFile) {
             PlaylistModeManager.imageFiles(playlistDir).forEach { file ->
-                destination += ThemePlaylistItem(Uri.fromFile(file))
+                destination += ThemePlaylistItem(
+                    originalUri = Uri.fromFile(file),
+                    fitMode = defaultFitMode,
+                    fillMode = defaultFillMode
+                )
             }
             return
         }
@@ -612,6 +649,12 @@ class ThemePlaylistEditorActivity : ComponentActivity() {
                 val matrix = item.optJSONArray("matrix")?.let { values ->
                     FloatArray(values.length()) { position -> values.optDouble(position).toFloat() }
                 }?.takeIf(MatrixStatePolicy::isValid)
+
+                val fitMode = item.optString("fitMode", defaultFitMode)
+                    .ifBlank { defaultFitMode }
+                val fillMode = item.optString("fillMode", defaultFillMode)
+                    .ifBlank { defaultFillMode }
+
                 destination += ThemePlaylistItem(
                     originalUri = Uri.fromFile(source),
                     isEdited = isEdited,
@@ -621,10 +664,8 @@ class ThemePlaylistEditorActivity : ComponentActivity() {
                         null
                     },
                     matrixState = matrix,
-                    fitMode = item.optString("fitMode", WallpaperFitHelper.MODE_FILL)
-                        .ifBlank { WallpaperFitHelper.MODE_FILL },
-                    fillMode = item.optString("fillMode", WallpaperFitHelper.FILL_BLACK)
-                        .ifBlank { WallpaperFitHelper.FILL_BLACK }
+                    fitMode = fitMode,
+                    fillMode = fillMode
                 )
             }
             if (destination.isEmpty()) loadLegacyCollection(playlistDir, destination)
@@ -657,7 +698,11 @@ class ThemePlaylistEditorActivity : ComponentActivity() {
         destination: MutableList<ThemePlaylistItem>
     ) {
         PlaylistModeManager.imageFiles(playlistDir).forEach { file ->
-            destination += ThemePlaylistItem(Uri.fromFile(file))
+            destination += ThemePlaylistItem(
+                originalUri = Uri.fromFile(file),
+                fitMode = defaultFitMode,
+                fillMode = defaultFillMode
+            )
         }
     }
 
@@ -702,3 +747,4 @@ class ThemePlaylistEditorActivity : ComponentActivity() {
             "com.app.nosatmosphereeffect.RELOAD_WALLPAPER"
     }
 }
+

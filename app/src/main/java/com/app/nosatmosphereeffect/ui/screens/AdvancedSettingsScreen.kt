@@ -101,6 +101,8 @@ data class AdvancedConfig(
     val glassBackgroundOnly: Boolean,
     val halftoneBackgroundOnly: Boolean,
     val subjectSegmentationEnabled: Boolean,
+    val defaultFitMode: String,
+    val defaultFillMode: String,
     val scrollEnabled: Boolean,
     val rendererPreference: GraphicsBackendPreference
 )
@@ -132,6 +134,8 @@ data class AdvancedResult(
     val halftoneBackgroundOnly: Boolean,
     val subjectSegmentationEnabled: Boolean,
     val rotationIndex: Int,
+    val defaultFitMode: String,
+    val defaultFillMode: String,
     val scrollEnabled: Boolean,
     val rendererPreference: GraphicsBackendPreference
 )
@@ -192,6 +196,8 @@ fun AdvancedSettingsScreen(
     var noiseScale by remember { mutableStateOf(config.noiseScale) }
     var noiseStrength by remember { mutableStateOf(config.noiseStrength) }
     var scrollEnabled by remember { mutableStateOf(config.scrollEnabled) }
+    var defaultFitMode by remember { mutableStateOf(config.defaultFitMode) }
+    var defaultFillMode by remember { mutableStateOf(config.defaultFillMode) }
     var rendererPreference by remember { mutableStateOf(config.rendererPreference) }
     var infoDialog by remember { mutableStateOf<InfoDialog?>(null) }
 
@@ -260,6 +266,8 @@ fun AdvancedSettingsScreen(
         halftoneBackgroundOnly = halftoneBackgroundOnly,
         subjectSegmentationEnabled = subjectSegmentationEnabled,
         rotationIndex = rotationIndex,
+        defaultFitMode = defaultFitMode,
+        defaultFillMode = defaultFillMode,
         scrollEnabled = scrollEnabled,
         rendererPreference = rendererPreference
     )
@@ -402,6 +410,10 @@ fun AdvancedSettingsScreen(
                         onBlurStrengthChange = { blurStrength = it },
                         scrollEnabled = scrollEnabled,
                         onScrollEnabledChange = { scrollEnabled = it },
+                        defaultFitMode = defaultFitMode,
+                        onDefaultFitModeChange = { defaultFitMode = it },
+                        defaultFillMode = defaultFillMode,
+                        onDefaultFillModeChange = { defaultFillMode = it },
                         rendererPreference = rendererPreference,
                         onRendererPreferenceChange = { rendererPreference = it },
                         rotationIndex = rotationIndex,
@@ -877,6 +889,10 @@ private fun DisplaySettings(
     onBlurStrengthChange: (Float) -> Unit,
     scrollEnabled: Boolean,
     onScrollEnabledChange: (Boolean) -> Unit,
+    defaultFitMode: String,
+    onDefaultFitModeChange: (String) -> Unit,
+    defaultFillMode: String,
+    onDefaultFillModeChange: (String) -> Unit,
     rendererPreference: GraphicsBackendPreference,
     onRendererPreferenceChange: (GraphicsBackendPreference) -> Unit,
     rotationIndex: Int,
@@ -895,6 +911,11 @@ private fun DisplaySettings(
         GraphicsBackendPreference.OPENGL_ES ->
             stringResource(R.string.renderer_preference_opengl_helper)
     }
+
+    val fitModeOptions = listOf("Fill screen", "Fit image", "Stretch", "Rotate to fit")
+    val fitModeValues = listOf("FILL", "FIT", "STRETCH", "ROTATE_FIT")
+    val fillModeOptions = listOf("Black", "Repeat", "Mirror")
+    val fillModeValues = listOf("BLACK", "REPEAT", "MIRROR")
 
     SettingsScroll {
         SettingsGroup("Wallpaper appearance") {
@@ -916,6 +937,21 @@ private fun DisplaySettings(
                     step = 10f
                 )
             }
+        }
+        SettingsGroup("Default wallpaper fit") {
+            AtmoDropdownField(
+                label = "Image fit",
+                options = fitModeOptions,
+                selectedIndex = fitModeValues.indexOf(defaultFitMode),
+                onSelected = { onDefaultFitModeChange(fitModeValues[it]) }
+            )
+            Spacer(Modifier.height(12.dp))
+            AtmoDropdownField(
+                label = "Empty space",
+                options = fillModeOptions,
+                selectedIndex = fillModeValues.indexOf(defaultFillMode),
+                onSelected = { onDefaultFillModeChange(fillModeValues[it]) }
+            )
         }
         SettingsGroup(stringResource(R.string.renderer_preference_group)) {
             AtmoDropdownField(

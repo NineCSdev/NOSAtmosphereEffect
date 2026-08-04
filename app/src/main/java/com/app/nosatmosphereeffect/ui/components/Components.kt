@@ -629,7 +629,8 @@ fun AtmoTopBar(
     title: String,
     backIcon: Painter,
     onBack: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    actions: @Composable () -> Unit = {}
 ) {
     TopAppBar(
         title = { Text(title, style = MaterialTheme.typography.headlineSmall) },
@@ -641,6 +642,7 @@ fun AtmoTopBar(
                 motion = AtmoIconMotion.BACK
             )
         },
+        actions = { actions() },
         colors = TopAppBarDefaults.topAppBarColors(
             containerColor = Color.Transparent,
             titleContentColor = MaterialTheme.colorScheme.onSurface

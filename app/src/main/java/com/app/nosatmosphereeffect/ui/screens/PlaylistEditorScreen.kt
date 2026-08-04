@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
@@ -26,12 +27,13 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -56,8 +58,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.app.nosatmosphereeffect.R
+import com.app.nosatmosphereeffect.helper.WallpaperFitHelper
 import com.app.nosatmosphereeffect.image.BitmapDecoder
 import com.app.nosatmosphereeffect.ui.components.AtmoAnimatedIconButton
 import com.app.nosatmosphereeffect.ui.components.AtmoChip
@@ -68,9 +72,9 @@ import com.app.nosatmosphereeffect.ui.components.AtmoSegmentedControl
 import com.app.nosatmosphereeffect.ui.components.AtmoTopBar
 import com.app.nosatmosphereeffect.ui.components.SettingSwitchRow
 import com.app.nosatmosphereeffect.ui.theme.LocalAtmoExpressive
+import kotlin.math.absoluteValue
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import kotlin.math.absoluteValue
 
 data class PlaylistEntry(
     val displayUri: Uri,
@@ -95,9 +99,15 @@ fun PlaylistEditorScreen(
     onDeleteItem: (Int) -> Unit,
     onAddMore: () -> Unit,
     onApply: () -> Unit,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    defaultFitMode: String,
+    onDefaultFitModeChanged: (String, String) -> Unit,
+    showCropOptions: Boolean,
+    onShowCropOptions: () -> Unit,
+    onDismissCropOptions: () -> Unit
 ) {
     val pagerState = rememberPagerState(pageCount = { entries.size })
+
     LaunchedEffect(selectedPlaylist) {
         if (entries.isNotEmpty()) pagerState.scrollToPage(0)
     }
@@ -107,7 +117,22 @@ fun PlaylistEditorScreen(
             AtmoTopBar(
                 title = title,
                 backIcon = painterResource(R.drawable.ic_arrow_back),
-                onBack = onBack
+                onBack = onBack,
+                actions = {
+                    Box {
+                        AtmoAnimatedIconButton(
+                            painter = painterResource(id = R.drawable.ic_crop),
+                            contentDescription = "Default Crop Options",
+                            onClick = onShowCropOptions
+                        )
+                        DefaultCropMenu(
+                            expanded = showCropOptions,
+                            onDismiss = onDismissCropOptions,
+                            currentFitMode = defaultFitMode,
+                            onFitChanged = onDefaultFitModeChanged
+                        )
+                    }
+                }
             )
         }
     ) { inner ->
@@ -161,16 +186,16 @@ fun PlaylistEditorScreen(
                         // Pager state can briefly outlive an entry removed during composition.
                         val entry = entries.getOrNull(page) ?: return@HorizontalPager
                         Box(
-                            Modifier.graphicsLayer {
-                                val pageOffset = (
-                                    (pagerState.currentPage - page) +
-                                        pagerState.currentPageOffsetFraction
-                                    ).absoluteValue.coerceIn(0f, 1f)
-                                val emphasis = 1f - pageOffset
-                                scaleX = 0.94f + emphasis * 0.06f
-                                scaleY = 0.94f + emphasis * 0.06f
-                                alpha = 0.72f + emphasis * 0.28f
-                            }
+                            // Modifier.graphicsLayer {
+                            //     val pageOffset = (
+                            //         (pagerState.currentPage - page) +
+                            //             pagerState.currentPageOffsetFraction
+                            //         ).absoluteValue.coerceIn(0f, 1f)
+                            //     val emphasis = 1f - pageOffset
+                            //     scaleX = 0.94f + emphasis * 0.06f
+                            //     scaleY = 0.94f + emphasis * 0.06f
+                            //     alpha = 0.72f + emphasis * 0.28f
+                            // }
                         ) {
                             PlaylistCard(
                                 entry = entry,
@@ -199,7 +224,7 @@ fun PlaylistEditorScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(top = 8.dp),
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    textAlign = TextAlign.Center
                 )
             }
 
@@ -222,7 +247,7 @@ fun PlaylistEditorScreen(
                             onCheckedChange = onAtmosphereGlassEnabledChange
                         )
                     }
-                    androidx.compose.foundation.layout.Row(
+                    Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
@@ -338,7 +363,7 @@ private fun PageIndicator(
     current: Int,
     modifier: Modifier = Modifier
 ) {
-    androidx.compose.foundation.layout.Row(
+    Row(
         modifier = modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically
@@ -393,7 +418,7 @@ private fun EmptyPlaylist(label: String) {
             "Tap Add to choose photos for $label.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+            textAlign = TextAlign.Center
         )
     }
 }
@@ -419,5 +444,69 @@ private fun decodeThumbnail(context: Context, uri: Uri): Bitmap? {
     } catch (error: Exception) {
         Log.w("PlaylistEditorScreen", "Could not create a thumbnail for $uri", error)
         null
+    }
+}
+
+@Composable
+fun DefaultCropMenu(
+    expanded: Boolean,
+    onDismiss: () -> Unit,
+    currentFitMode: String,
+    onFitChanged: (fit: String, fill: String) -> Unit
+) {
+    val fitOptions = remember {
+        listOf(
+            "Screen Fill (Crop)" to WallpaperFitHelper.MODE_FILL,
+            "Fit Image (Show All)" to WallpaperFitHelper.MODE_FIT,
+            "Stretch" to WallpaperFitHelper.MODE_STRETCH,
+            "Rotate to Fit (Landscape)" to WallpaperFitHelper.MODE_ROTATE_FIT
+        )
+    }
+    val fillOptions = remember {
+        listOf(
+            "Black Bars" to WallpaperFitHelper.FILL_BLACK,
+            "Repeat Pattern" to WallpaperFitHelper.FILL_REPEAT,
+            "Mirror Pattern" to WallpaperFitHelper.FILL_MIRROR
+        )
+    }
+
+    var showFillSubmenu by remember { mutableStateOf(false) }
+
+    DropdownMenu(
+        expanded = expanded,
+        onDismissRequest = onDismiss
+    ) {
+        if (showFillSubmenu) {
+            DropdownMenuItem(
+                text = { Text("Back") },
+                onClick = { showFillSubmenu = false }
+            )
+            fillOptions.forEach { (label, fill) ->
+                DropdownMenuItem(
+                    text = { Text(label) },
+                    onClick = {
+                        onFitChanged(currentFitMode, fill)
+                        onDismiss()
+                    }
+                )
+            }
+        } else {
+            fitOptions.forEach { (label, fit) ->
+                DropdownMenuItem(
+                    text = { Text(label) },
+                    onClick = {
+                        val letterboxed = fit == WallpaperFitHelper.MODE_FIT || fit == WallpaperFitHelper.MODE_ROTATE_FIT
+                        if (letterboxed) {
+                            onFitChanged(fit, WallpaperFitHelper.FILL_BLACK)
+                            // showFillSubmenu = true // This would show a sub-menu, but for now we just default
+                            onDismiss() // For simplicity, just dismiss
+                        } else {
+                            onFitChanged(fit, WallpaperFitHelper.FILL_BLACK)
+                            onDismiss()
+                        }
+                    }
+                )
+            }
+        }
     }
 }

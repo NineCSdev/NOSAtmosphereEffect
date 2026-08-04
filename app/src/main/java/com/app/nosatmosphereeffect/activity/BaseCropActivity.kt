@@ -54,8 +54,8 @@ abstract class BaseCropActivity : ComponentActivity() {
     private var pendingBitmap: Bitmap? = null
     private var imageLoadStarted = false
     private var showApplyConfirm by mutableStateOf(false)
-    private var currentFit = WallpaperFitHelper.MODE_FILL
-    private var currentFill = WallpaperFitHelper.FILL_BLACK
+    private lateinit var currentFit: String
+    private lateinit var currentFill: String
     private var restoredMatrix: FloatArray? = null
     private var isApplying
         get() = applyState.isApplying
@@ -86,9 +86,11 @@ abstract class BaseCropActivity : ComponentActivity() {
         )
         currentFit = normalizeFitMode(
             savedInstanceState?.getString(STATE_FIT_MODE)
+                ?: intent.getStringExtra(EXTRA_FIT_MODE)
         )
         currentFill = normalizeFillMode(
             savedInstanceState?.getString(STATE_FILL_MODE)
+                ?: intent.getStringExtra(EXTRA_FILL_MODE)
         )
         val uri = intent.data
         if (uri == null) {
@@ -316,14 +318,10 @@ abstract class BaseCropActivity : ComponentActivity() {
                             }
 
                         WallpaperFitHelper.setActiveModes(
-                            this,
-                            WallpaperFitHelper.MODE_FILL,
-                            WallpaperFitHelper.FILL_BLACK
+                            this, currentFit, currentFill
                         )
                         WallpaperFitHelper.setNextModes(
-                            this,
-                            WallpaperFitHelper.MODE_FILL,
-                            WallpaperFitHelper.FILL_BLACK
+                            this, currentFit, currentFill
                         )
                         FileTransactions.commitAll(fileTransactions)
                     } catch (failure: Exception) {
@@ -495,6 +493,8 @@ abstract class BaseCropActivity : ComponentActivity() {
     private companion object {
         const val TAG = "BaseCropActivity"
         const val EXTRA_EFFECT_ID = "EFFECT_ID"
+        const val EXTRA_FIT_MODE = "FIT_MODE"
+        const val EXTRA_FILL_MODE = "FILL_MODE"
         const val APP_PREFERENCES = "app_prefs"
         const val WALLPAPER_PREFERENCES = "wallpaper_prefs"
         const val STATE_MATRIX = "crop_matrix"
