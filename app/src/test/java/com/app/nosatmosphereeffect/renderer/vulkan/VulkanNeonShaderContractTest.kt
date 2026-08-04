@@ -8,7 +8,7 @@ class VulkanNeonShaderContractTest {
     @Test
     fun canvasUsesTheDeviceTestedAndroidBitmapOrientation() {
         val shader = File(
-            "src/main/shaders/vulkan/neon/neon.vert"
+            "src/main/shaders/neon/neon.vert"
         ).readText()
 
         assertTrue(shader.contains("vec2(0.0, 0.0)"))
@@ -19,7 +19,7 @@ class VulkanNeonShaderContractTest {
     @Test
     fun canvasCompositionRetainsOpenGlLineAndBlendConstants() {
         val shader = File(
-            "src/main/shaders/vulkan/neon/neon.frag"
+            "src/main/shaders/neon/neon.frag"
         ).readText()
 
         assertTrue(shader.contains("baseWidth * 0.78"))
