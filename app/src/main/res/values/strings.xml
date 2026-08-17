@@ -30,5 +30,6 @@
     <string name="renderer_preference_vulkan_helper">Requests Vulkan, but unsupported devices and runtime failures still fall back to OpenGL ES. Applies immediately to effect previews and the active live wallpaper.</string>
     <string name="renderer_preference_opengl_helper">Always uses OpenGL ES and skips the Vulkan probe. Applies immediately to effect previews and the active live wallpaper.</string>
     <string name="experimental">Experimental</string>
+    <string name="manualCroppingWillBeDisabled">(Manual Cropping Will Be Disabled)</string>
 
 </resources>

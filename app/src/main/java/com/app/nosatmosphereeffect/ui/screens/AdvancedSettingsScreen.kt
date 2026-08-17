@@ -935,7 +935,7 @@ private fun DisplaySettings(
         SettingsGroup("Home screen") {
             SettingSwitchRow(
                 title = "Wallpaper scrolling",
-                subtitle = stringResource(R.string.experimental),
+                subtitle = "${stringResource(R.string.experimental)} ${stringResource(R.string.manualCroppingWillBeDisabled)}",
                 checked = scrollEnabled,
                 onCheckedChange = onScrollEnabledChange
             )
