@@ -43,7 +43,9 @@ float halftoneChannel(
 
 float foregroundProtection(vec2 uv) {
     if (params.controls.z <= 0.5) return 0.0;
-    if (params.controls.w <= 0.5) return 1.0;
+    // No subject mask: nothing is known to protect, so don't revert the
+    // whole frame back to the untouched image.
+    if (params.controls.w <= 0.5) return 0.0;
 
     vec2 stepSize = 2.0 / vec2(textureSize(subjectMask, 0));
     float mask = texture(subjectMask, uv).r;

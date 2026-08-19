@@ -94,7 +94,9 @@ vec3 staticGlass() {
             );
             backgroundCoverage = 1.0 - smoothstep(0.30, 0.72, subject);
         } else {
-            backgroundCoverage = 0.0;
+            // No subject mask: nothing is known to protect, so cover the
+            // whole frame rather than suppressing the effect everywhere.
+            backgroundCoverage = 1.0;
         }
     }
     return mix(sharpColor, glassColor, backgroundCoverage);

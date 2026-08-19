@@ -26,6 +26,7 @@ class SubjectMaskExtractor(
         const val CONFIDENT_FOREGROUND = 0.55f
         const val HIGH_CONFIDENCE = 0.75f
         const val MIN_FOREGROUND_FRACTION = 0.012f
+        const val MAX_FOREGROUND_FRACTION = 0.90f
         const val MIN_HIGH_CONFIDENCE_FRACTION = 0.003f
         const val MASK_LOW = 0.28f
         const val MASK_HIGH = 0.72f
@@ -42,6 +43,8 @@ class SubjectMaskExtractor(
 
     fun extract(bitmap: Bitmap, requestId: Long) {
         if (closed || bitmap.width <= 0 || bitmap.height <= 0) return
+
+        Log.d("Dimentions", "Extracting mask for RequestID: $requestId | Bitmap size: ${bitmap.width}x${bitmap.height}")
 
         val inputBitmap = try {
             makeInputBitmap(bitmap)
@@ -123,12 +126,23 @@ class SubjectMaskExtractor(
                                     subjectWidth >= inputBitmap.width * 0.04f &&
                                         subjectHeight >= inputBitmap.height * 0.04f
 
-                                if (foregroundFraction < MIN_FOREGROUND_FRACTION ||
+                                Log.d("foregroundFraction", foregroundFraction.toString())
+
+                                if (foregroundFraction !in MIN_FOREGROUND_FRACTION..MAX_FOREGROUND_FRACTION ||
                                     highConfidenceFraction < MIN_HIGH_CONFIDENCE_FRACTION ||
                                     !hasUsefulBounds
                                 ) {
+                                    Log.d(TAG, "Mask rejected: foregroundFraction=$foregroundFraction")
                                     return@maskComputation null
                                 }
+
+//                                if (foregroundFraction < MIN_FOREGROUND_FRACTION ||
+//                                    highConfidenceFraction < MIN_HIGH_CONFIDENCE_FRACTION ||
+//                                    !hasUsefulBounds
+//                                ) {
+//                                    Log.d("foregroundFraction complete", "complete")
+//                                    return@maskComputation null
+//                                }
 
                                 val pixels = IntArray(count)
                                 for (index in values.indices) {
@@ -182,7 +196,7 @@ class SubjectMaskExtractor(
         val scale = MAX_INPUT_SIDE.toFloat() / longestSide
         val width = (source.width * scale).roundToInt().coerceAtLeast(1)
         val height = (source.height * scale).roundToInt().coerceAtLeast(1)
-        return Bitmap.createScaledBitmap(source, width, height, true)
+        return BitmapDownscale.toStagedSize(source, width, height)
     }
 
     override fun close() {

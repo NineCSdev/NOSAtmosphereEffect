@@ -129,7 +129,10 @@ vec3 sampleStaticAtmosphereGlass() {
             );
             backgroundCoverage = 1.0 - smoothstep(0.30, 0.72, subject);
         } else {
-            backgroundCoverage = 0.0;
+            // No subject mask (extraction failed/ambiguous/pending): nothing
+            // is known to protect, so don't withhold the effect from the
+            // whole frame — that reads as "the whole photo is the subject".
+            backgroundCoverage = 1.0;
         }
     }
     return mix(sharpColor, glassColor, backgroundCoverage);

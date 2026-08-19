@@ -29,6 +29,7 @@ class SubjectMaskExtractor(
         const val CONFIDENT_FOREGROUND = 0.55f
         const val HIGH_CONFIDENCE = 0.75f
         const val MIN_FOREGROUND_FRACTION = 0.012f
+        const val MAX_FOREGROUND_FRACTION = 0.90f
         const val MIN_HIGH_CONFIDENCE_FRACTION = 0.003f
         const val MIN_RAW_CONFIDENCE = 0.40f
         const val MIN_CONFIDENCE_RANGE = 0.10f
@@ -161,10 +162,14 @@ class SubjectMaskExtractor(
         val hasUsefulBounds =
             subjectWidth >= INPUT_SIZE * 0.04f && subjectHeight >= INPUT_SIZE * 0.04f
 
+        Log.d("foregroundFraction", foregroundFraction.toString())
+
+
         if (foregroundFraction < MIN_FOREGROUND_FRACTION ||
             highConfidenceFraction < MIN_HIGH_CONFIDENCE_FRACTION ||
             !hasUsefulBounds
         ) {
+            Log.d("foregroundFraction done", "complete")
             return null
         }
 
@@ -200,13 +205,23 @@ class SubjectMaskExtractor(
     }
 
     private fun makeInputBitmap(source: Bitmap): Bitmap {
+        // Get most of the way to the model's input size in halving steps
+        // first (see BitmapDownscale) so a full-resolution wallpaper isn't
+        // squeezed down to 320x320 in one steep, aliasing-prone pass — that
+        // single-pass squeeze is what let the same photo segment fine from
+        // the smaller in-app preview bitmap but come back wrong for the
+        // full-resolution wallpaper bitmap.
+        val staged = BitmapDownscale.toStagedSize(source, INPUT_SIZE, INPUT_SIZE)
+        if (staged.width == INPUT_SIZE && staged.height == INPUT_SIZE) return staged
+
         val target = createBitmap(INPUT_SIZE, INPUT_SIZE, Bitmap.Config.ARGB_8888)
         Canvas(target).drawBitmap(
-            source,
+            staged,
             null,
             Rect(0, 0, INPUT_SIZE, INPUT_SIZE),
             Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
         )
+        staged.recycle()
         return target
     }
 
