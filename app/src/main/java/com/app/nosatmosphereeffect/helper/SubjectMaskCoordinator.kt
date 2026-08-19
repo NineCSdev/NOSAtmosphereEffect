@@ -66,7 +66,11 @@ internal class SubjectMaskCoordinator(
     }
 
     fun discardPending() {
-        takePending()?.bitmap.recycleSafely()
+        val bitmap = synchronized(lock) {
+            latestRequest = -1L
+            pendingMask?.bitmap.also { pendingMask = null }
+        }
+        bitmap.recycleSafely()
     }
 
     private fun onMaskResult(generation: Long, bitmap: Bitmap?) {

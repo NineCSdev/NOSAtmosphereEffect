@@ -10,6 +10,7 @@ import android.util.Log
 import com.app.nosatmosphereeffect.helper.ImageFitMode
 import com.app.nosatmosphereeffect.helper.ImageFitPolicy
 import com.app.nosatmosphereeffect.helper.MatrixStatePolicy
+import com.app.nosatmosphereeffect.helper.WallpaperFitHelper
 import com.app.nosatmosphereeffect.image.BitmapDecoder
 import com.app.nosatmosphereeffect.image.BitmapStore
 import java.io.File
@@ -30,6 +31,7 @@ internal data class PlaylistImageSource(
 
 internal object PlaylistCollectionStore {
     private const val TAG = "PlaylistCollectionStore"
+    private const val STAGED_JPEG_QUALITY = 100
 
     @Throws(IOException::class, SecurityException::class)
     fun stage(
@@ -38,7 +40,8 @@ internal object PlaylistCollectionStore {
         stagedImages: File,
         stagedOriginals: File,
         targetWidth: Int,
-        targetHeight: Int
+        targetHeight: Int,
+        onProgress: (processed: Int, total: Int) -> Unit = { _, _ -> }
     ) {
         if (items.isEmpty()) throw IOException("Playlist is empty")
         if (targetWidth <= 0 || targetHeight <= 0) {
@@ -61,19 +64,32 @@ internal object PlaylistCollectionStore {
                     ?: throw FileNotFoundException("Edited image $index is missing")
                 UriFiles.copyAtomically(context, Uri.fromFile(edited), wallpaper)
             } else {
-                val bitmap = decodeCenterCrop(
+                // Decode close to the wallpaper's actual target size instead
+                // of the general-purpose 4096px cap: this bitmap is fit and
+                // discarded immediately below, so for a high-megapixel photo
+                // decoding far more pixels than the screen will ever show
+                // just burns extra decode time and peak memory for nothing.
+                val source = BitmapDecoder.decodeUri(
                     context,
                     item.originalUri,
                     targetWidth,
                     targetHeight
                 )
+                val bitmap = WallpaperFitHelper.fitBitmap(
+                    source,
+                    targetWidth,
+                    targetHeight,
+                    item.fitMode,
+                    item.fillMode
+                )
                 try {
-                    BitmapStore.writeJpegAtomically(bitmap, wallpaper, quality = 100)
+                    BitmapStore.writeJpegAtomically(bitmap, wallpaper, quality = STAGED_JPEG_QUALITY)
                 } finally {
                     bitmap.recycle()
                 }
             }
             metadata.put(metadataFor(index, item))
+            onProgress(index + 1, items.size)
         }
 
         FileTransactions.writeTextAtomically(
@@ -158,34 +174,4 @@ internal object PlaylistCollectionStore {
         }
     }
 
-    private fun decodeCenterCrop(
-        context: Context,
-        uri: Uri,
-        width: Int,
-        height: Int
-    ): Bitmap {
-        val source = BitmapDecoder.decodeUri(context, uri, width, height)
-        try {
-            val transform = ImageFitPolicy.transform(
-                source.width,
-                source.height,
-                width,
-                height,
-                ImageFitMode.FILL
-            )
-            return Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also { output ->
-                val matrix = Matrix().apply {
-                    setScale(transform.scaleX, transform.scaleY)
-                    postTranslate(transform.translateX, transform.translateY)
-                }
-                Canvas(output).drawBitmap(
-                    source,
-                    matrix,
-                    Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
-                )
-            }
-        } finally {
-            source.recycle()
-        }
-    }
 }

@@ -27,6 +27,7 @@ class SubjectMaskExtractor(
         const val HIGH_CONFIDENCE = 0.75f
         const val MIN_FOREGROUND_FRACTION = 0.012f
         const val MIN_HIGH_CONFIDENCE_FRACTION = 0.003f
+        const val MAX_FOREGROUND_FRACTION = 0.90f
         const val MASK_LOW = 0.28f
         const val MASK_HIGH = 0.72f
     }
@@ -42,7 +43,6 @@ class SubjectMaskExtractor(
 
     fun extract(bitmap: Bitmap, requestId: Long) {
         if (closed || bitmap.width <= 0 || bitmap.height <= 0) return
-
         val inputBitmap = try {
             makeInputBitmap(bitmap)
         } catch (error: Exception) {
@@ -123,7 +123,7 @@ class SubjectMaskExtractor(
                                     subjectWidth >= inputBitmap.width * 0.04f &&
                                         subjectHeight >= inputBitmap.height * 0.04f
 
-                                if (foregroundFraction < MIN_FOREGROUND_FRACTION ||
+                                if (foregroundFraction !in MIN_FOREGROUND_FRACTION..MAX_FOREGROUND_FRACTION ||
                                     highConfidenceFraction < MIN_HIGH_CONFIDENCE_FRACTION ||
                                     !hasUsefulBounds
                                 ) {
@@ -182,7 +182,7 @@ class SubjectMaskExtractor(
         val scale = MAX_INPUT_SIDE.toFloat() / longestSide
         val width = (source.width * scale).roundToInt().coerceAtLeast(1)
         val height = (source.height * scale).roundToInt().coerceAtLeast(1)
-        return Bitmap.createScaledBitmap(source, width, height, true)
+        return BitmapDownscale.toStagedSize(source, width, height)
     }
 
     override fun close() {

@@ -4,15 +4,18 @@ import android.content.SharedPreferences
 import android.graphics.Bitmap
 import android.util.Log
 import com.app.nosatmosphereeffect.helper.CanvasSubjectSettings
+import com.app.nosatmosphereeffect.helper.GLWallpaperService
 import com.app.nosatmosphereeffect.helper.SubjectIsolationPolicy
-import com.app.nosatmosphereeffect.renderer.ColorFillRenderer
+import com.app.nosatmosphereeffect.renderer.ColorFillRenderController
+import com.app.nosatmosphereeffect.renderer.FrostedRenderController
 import com.app.nosatmosphereeffect.renderer.FrostedRenderer
-import com.app.nosatmosphereeffect.renderer.HalftoneRenderer
-import com.app.nosatmosphereeffect.renderer.NeonRenderer
+import com.app.nosatmosphereeffect.renderer.HalftoneProgressPolicy
+import com.app.nosatmosphereeffect.renderer.HalftoneRenderController
+import com.app.nosatmosphereeffect.renderer.NeonRenderController
 
 abstract class ColorFillWallpaperService protected constructor(
     private val reverseEffect: Boolean
-) : AnimatedEffectWallpaperService<ColorFillRenderer>() {
+) : AnimatedEffectWallpaperService<ColorFillRenderController>() {
 
     final override val effectId =
         if (reverseEffect) "COLORFILL_REVERSE" else "COLORFILL"
@@ -20,35 +23,51 @@ abstract class ColorFillWallpaperService protected constructor(
     final override val unlockedProgress = if (reverseEffect) 1f else 0f
     final override val defaultAnimationDurationMs = 1_500L
 
-    final override fun createEffectRenderer(): ColorFillRenderer {
-        return ColorFillRenderer(applicationContext, isReverse = reverseEffect)
+    final override fun createEffectRenderer(): ColorFillRenderController {
+        return ColorFillRenderController(applicationContext, isReverse = reverseEffect)
+    }
+
+    final override fun attachEffectRenderer(
+        engine: GLWallpaperService.GLEngine,
+        renderer: ColorFillRenderController
+    ) {
+        renderer.attach(engine)
     }
 
     final override fun configureRenderer(
-        renderer: ColorFillRenderer,
+        renderer: ColorFillRenderController,
         preferences: SharedPreferences
     ) {
-        renderer.dimLevel = preferences.getFloat("dim_level", 0f)
-        renderer.originX = preferences.getFloat("origin_x", 0.5f)
-        renderer.originY = preferences.getFloat("origin_y", 0.8f)
+        renderer.configure(
+            dimLevel = preferences.getFloat("dim_level", 0f),
+            originX = preferences.getFloat("origin_x", 0.5f),
+            originY = preferences.getFloat("origin_y", 0.8f)
+        )
     }
 
-    final override fun setEffectProgress(renderer: ColorFillRenderer, progress: Float) {
-        renderer.blurStrength = progress
+    final override fun setEffectProgress(renderer: ColorFillRenderController, progress: Float) {
+        renderer.setProgress(progress)
     }
 
-    final override fun reloadRenderer(renderer: ColorFillRenderer) {
+    final override fun reloadRenderer(renderer: ColorFillRenderController) {
         renderer.reloadTexture()
     }
 
-    final override fun queuePlaylistTransition(renderer: ColorFillRenderer, bitmap: Bitmap) {
+    final override fun queuePlaylistTransition(
+        renderer: ColorFillRenderController,
+        bitmap: Bitmap
+    ) {
         renderer.queuePlaylistTransition(bitmap)
+    }
+
+    final override fun releaseRenderer(renderer: ColorFillRenderController) {
+        renderer.release()
     }
 }
 
 abstract class FrostedWallpaperService protected constructor(
     private val reverseEffect: Boolean
-) : AnimatedEffectWallpaperService<FrostedRenderer>() {
+) : AnimatedEffectWallpaperService<FrostedRenderController>() {
 
     final override val effectId =
         if (reverseEffect) "FROSTED_REVERSE" else "FROSTED"
@@ -58,143 +77,176 @@ abstract class FrostedWallpaperService protected constructor(
     final override val initialProgress: Float? = if (reverseEffect) 1f else null
     final override val blurDrawerWhenHidden = reverseEffect
 
-    final override fun createEffectRenderer(): FrostedRenderer {
-        return FrostedRenderer(applicationContext)
+    final override fun createEffectRenderer(): FrostedRenderController {
+        return FrostedRenderController(applicationContext, isReverse = reverseEffect)
+    }
+
+    final override fun attachEffectRenderer(
+        engine: GLWallpaperService.GLEngine,
+        renderer: FrostedRenderController
+    ) {
+        renderer.attach(engine)
     }
 
     final override fun configureRenderer(
-        renderer: FrostedRenderer,
+        renderer: FrostedRenderController,
         preferences: SharedPreferences
     ) {
-        renderer.dimLevel = preferences.getFloat("dim_level", 0.2f)
-        renderer.enableNoise = preferences.getBoolean("enable_noise", false)
-        renderer.noiseScale = preferences.getFloat("noise_scale", 2_000f)
-        renderer.noiseStrength = preferences.getFloat("noise_strength", 0.06f)
-
-        val savedRadius = preferences.getFloat("frosted_blur_radius", 200f)
-        if (renderer.blurRadius != savedRadius) {
-            renderer.blurRadius = savedRadius
-            renderer.reloadTexture()
-        }
+        renderer.configure(
+            dimLevel = preferences.getFloat("dim_level", 0.2f),
+            enableNoise = preferences.getBoolean("enable_noise", false),
+            noiseScale = preferences.getFloat("noise_scale", 2_000f),
+            noiseStrength = preferences.getFloat("noise_strength", 0.06f),
+            blurRadius = preferences.getFloat("frosted_blur_radius", 200f)
+        )
     }
 
-    final override fun setEffectProgress(renderer: FrostedRenderer, progress: Float) {
-        renderer.blurStrength = progress
+    final override fun setEffectProgress(
+        renderer: FrostedRenderController,
+        progress: Float
+    ) {
+        renderer.setProgress(progress)
     }
 
-    final override fun reloadRenderer(renderer: FrostedRenderer) {
+    final override fun reloadRenderer(renderer: FrostedRenderController) {
         renderer.reloadTexture()
     }
 
-    final override fun queuePlaylistTransition(renderer: FrostedRenderer, bitmap: Bitmap) {
+    final override fun queuePlaylistTransition(
+        renderer: FrostedRenderController,
+        bitmap: Bitmap
+    ) {
         renderer.queuePlaylistTransition(bitmap)
     }
 
-    final override fun setDrawerBlurred(renderer: FrostedRenderer, blurred: Boolean) {
+    final override fun setDrawerBlurred(
+        renderer: FrostedRenderController,
+        blurred: Boolean
+    ) {
         renderer.setDrawerBlurred(blurred)
+    }
+
+    final override fun releaseRenderer(renderer: FrostedRenderController) {
+        renderer.release()
     }
 }
 
 abstract class HalftoneWallpaperService protected constructor(
     private val reverseEffect: Boolean
-) : AnimatedEffectWallpaperService<HalftoneRenderer>() {
+) : AnimatedEffectWallpaperService<HalftoneRenderController>() {
 
     final override val effectId =
         if (reverseEffect) "HALFTONE_REVERSE" else "HALFTONE"
-    final override val lockedProgress = 0f
-    final override val unlockedProgress = 1f
+    final override val lockedProgress = HalftoneProgressPolicy.LOCKED_PROGRESS
+    final override val unlockedProgress = HalftoneProgressPolicy.UNLOCKED_PROGRESS
     final override val defaultAnimationDurationMs = 500L
 
-    final override fun createEffectRenderer(): HalftoneRenderer {
-        return HalftoneRenderer(applicationContext, isReverse = reverseEffect)
+    final override fun createEffectRenderer(): HalftoneRenderController {
+        return HalftoneRenderController(applicationContext, isReverse = reverseEffect)
+    }
+
+    final override fun attachEffectRenderer(
+        engine: GLWallpaperService.GLEngine,
+        renderer: HalftoneRenderController
+    ) {
+        renderer.attach(engine)
     }
 
     final override fun configureRenderer(
-        renderer: HalftoneRenderer,
+        renderer: HalftoneRenderController,
         preferences: SharedPreferences
     ) {
-        renderer.dimLevel = preferences.readFloat("dim_level", 0f)
-        renderer.dotSize = preferences.readFloat("halftone_dot_size", 12f)
-        renderer.grayscale = preferences.readBoolean("halftone_grayscale", false)
-        renderer.configureBackgroundOnly(
-            preferences.readBoolean(
+        renderer.configure(
+            dimLevel = preferences.readFloat("dim_level", 0f),
+            dotSize = preferences.readFloat("halftone_dot_size", 12f),
+            grayscale = preferences.readBoolean("halftone_grayscale", false),
+            backgroundOnly = preferences.readBoolean(
                 SubjectIsolationPolicy.HALFTONE_BACKGROUND_ONLY_KEY,
                 false
             )
         )
     }
 
-    final override fun setEffectProgress(renderer: HalftoneRenderer, progress: Float) {
-        renderer.blurStrength = progress
+    final override fun setEffectProgress(
+        renderer: HalftoneRenderController,
+        progress: Float
+    ) {
+        renderer.setProgress(progress)
     }
 
-    final override fun reloadRenderer(renderer: HalftoneRenderer) {
+    final override fun reloadRenderer(renderer: HalftoneRenderController) {
         renderer.reloadTexture()
     }
 
-    final override fun queuePlaylistTransition(renderer: HalftoneRenderer, bitmap: Bitmap) {
+    final override fun queuePlaylistTransition(
+        renderer: HalftoneRenderController,
+        bitmap: Bitmap
+    ) {
         renderer.queuePlaylistTransition(bitmap)
     }
 
-    final override fun onRendererAttached(
-        renderer: HalftoneRenderer,
-        requestRender: () -> Unit
-    ) {
-        renderer.onSubjectMaskUpdated = requestRender
-        renderer.onRenderRetryRequested = requestRender
-    }
-
-    final override fun releaseRenderer(renderer: HalftoneRenderer) {
+    final override fun releaseRenderer(renderer: HalftoneRenderController) {
         renderer.release()
     }
 }
 
 abstract class NeonWallpaperService protected constructor(
     private val reverseEffect: Boolean
-) : AnimatedEffectWallpaperService<NeonRenderer>() {
+) : AnimatedEffectWallpaperService<NeonRenderController>() {
 
     final override val effectId = if (reverseEffect) "NEON_REVERSE" else "NEON"
     final override val lockedProgress = 0f
     final override val unlockedProgress = 1f
     final override val defaultAnimationDurationMs = 1_000L
 
-    final override fun createEffectRenderer(): NeonRenderer {
-        return NeonRenderer(applicationContext, isReverse = reverseEffect)
+    final override fun createEffectRenderer(): NeonRenderController {
+        return NeonRenderController(
+            applicationContext,
+            isReverse = reverseEffect
+        )
+    }
+
+    final override fun attachEffectRenderer(
+        engine: GLWallpaperService.GLEngine,
+        renderer: NeonRenderController
+    ) {
+        renderer.attach(engine)
     }
 
     final override fun configureRenderer(
-        renderer: NeonRenderer,
+        renderer: NeonRenderController,
         preferences: SharedPreferences
     ) {
-        renderer.dimLevel = preferences.getFloat("dim_level", 0f)
-        renderer.lineWidth = preferences.getFloat("neon_line_width", 1.5f)
-        renderer.sensitivity = preferences.getFloat("neon_sensitivity", 0.5f)
-        renderer.configureSubjectSegmentation(
-            preferences.getBoolean(CanvasSubjectSettings.ENABLED_KEY, false)
+        renderer.configure(
+            dimLevel = preferences.readFloat("dim_level", 0f),
+            lineWidth = preferences.readFloat("neon_line_width", 1.5f),
+            sensitivity = preferences.readFloat("neon_sensitivity", 0.5f),
+            subjectSegmentationEnabled = preferences.readBoolean(
+                CanvasSubjectSettings.ENABLED_KEY,
+                false
+            )
         )
-        renderer.rebuildSketch()
     }
 
-    final override fun setEffectProgress(renderer: NeonRenderer, progress: Float) {
-        renderer.blurStrength = progress
+    final override fun setEffectProgress(
+        renderer: NeonRenderController,
+        progress: Float
+    ) {
+        renderer.setProgress(progress)
     }
 
-    final override fun reloadRenderer(renderer: NeonRenderer) {
+    final override fun reloadRenderer(renderer: NeonRenderController) {
         renderer.reloadTexture()
     }
 
-    final override fun queuePlaylistTransition(renderer: NeonRenderer, bitmap: Bitmap) {
+    final override fun queuePlaylistTransition(
+        renderer: NeonRenderController,
+        bitmap: Bitmap
+    ) {
         renderer.queuePlaylistTransition(bitmap)
     }
 
-    final override fun onRendererAttached(
-        renderer: NeonRenderer,
-        requestRender: () -> Unit
-    ) {
-        renderer.onSketchUpdated = requestRender
-    }
-
-    final override fun releaseRenderer(renderer: NeonRenderer) {
+    final override fun releaseRenderer(renderer: NeonRenderController) {
         renderer.release()
     }
 }

@@ -53,6 +53,10 @@ object WallpaperFitHelper {
     const val KEY_NEXT_FIT = "next_fit_mode"
     const val KEY_NEXT_FILL = "next_fill_mode"
 
+    // Default modes for new crops.
+    const val KEY_DEFAULT_FIT = "default_fit_mode"
+    const val KEY_DEFAULT_FILL = "default_fill_mode"
+
     // Horizontal wallpaper scrolling (home-screen page parallax). Lives in
     // display_prefs alongside the fit modes so it survives the app_prefs /
     // wallpaper_prefs wipe that happens on every new wallpaper. Global (not
@@ -94,6 +98,24 @@ object WallpaperFitHelper {
 
     fun getNextFillMode(context: Context): String =
         prefs(context).getString(KEY_NEXT_FILL, FILL_BLACK) ?: FILL_BLACK
+
+    fun getDefaultFitMode(context: Context): String =
+        prefs(context).getString(KEY_DEFAULT_FIT, MODE_FILL) ?: MODE_FILL
+
+    fun getDefaultFillMode(context: Context): String =
+        prefs(context).getString(KEY_DEFAULT_FILL, FILL_BLACK) ?: FILL_BLACK
+
+    /** Sets the default display mode for new crops. */
+    fun setDefaultModes(context: Context, fitMode: String, fillMode: String) {
+        if (
+            !prefs(context).edit()
+                .putString(KEY_DEFAULT_FIT, fitMode)
+                .putString(KEY_DEFAULT_FILL, fillMode)
+                .commit()
+        ) {
+            throw IOException("Could not persist default wallpaper display modes")
+        }
+    }
 
     /** Sets the display mode for the active wallpaper (single-image crop, and the first playlist image). */
     fun setActiveModes(context: Context, fitMode: String, fillMode: String) {

@@ -39,6 +39,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.app.nosatmosphereeffect.R
 import com.app.nosatmosphereeffect.helper.AlwaysAppliedTarget
@@ -47,6 +48,7 @@ import com.app.nosatmosphereeffect.helper.GlassTransitionStyle
 import com.app.nosatmosphereeffect.helper.SubjectModelDelivery
 import com.app.nosatmosphereeffect.helper.SubjectModelPhase
 import com.app.nosatmosphereeffect.helper.SubjectModelState
+import com.app.nosatmosphereeffect.renderer.backend.GraphicsBackendPreference
 import com.app.nosatmosphereeffect.ui.components.AtmoDropdownField
 import com.app.nosatmosphereeffect.ui.components.AtmoNumberField
 import com.app.nosatmosphereeffect.ui.components.AtmoOutlinedButton
@@ -99,7 +101,8 @@ data class AdvancedConfig(
     val glassBackgroundOnly: Boolean,
     val halftoneBackgroundOnly: Boolean,
     val subjectSegmentationEnabled: Boolean,
-    val scrollEnabled: Boolean
+    val scrollEnabled: Boolean,
+    val rendererPreference: GraphicsBackendPreference
 )
 
 data class AdvancedResult(
@@ -129,7 +132,8 @@ data class AdvancedResult(
     val halftoneBackgroundOnly: Boolean,
     val subjectSegmentationEnabled: Boolean,
     val rotationIndex: Int,
-    val scrollEnabled: Boolean
+    val scrollEnabled: Boolean,
+    val rendererPreference: GraphicsBackendPreference
 )
 
 private enum class FineTuneTab(val label: String) {
@@ -188,6 +192,7 @@ fun AdvancedSettingsScreen(
     var noiseScale by remember { mutableStateOf(config.noiseScale) }
     var noiseStrength by remember { mutableStateOf(config.noiseStrength) }
     var scrollEnabled by remember { mutableStateOf(config.scrollEnabled) }
+    var rendererPreference by remember { mutableStateOf(config.rendererPreference) }
     var infoDialog by remember { mutableStateOf<InfoDialog?>(null) }
 
     val bundledSubjectModel = subjectModelDelivery == SubjectModelDelivery.BUNDLED_FOSS
@@ -255,7 +260,8 @@ fun AdvancedSettingsScreen(
         halftoneBackgroundOnly = halftoneBackgroundOnly,
         subjectSegmentationEnabled = subjectSegmentationEnabled,
         rotationIndex = rotationIndex,
-        scrollEnabled = scrollEnabled
+        scrollEnabled = scrollEnabled,
+        rendererPreference = rendererPreference
     )
 
     Scaffold(
@@ -396,6 +402,8 @@ fun AdvancedSettingsScreen(
                         onBlurStrengthChange = { blurStrength = it },
                         scrollEnabled = scrollEnabled,
                         onScrollEnabledChange = { scrollEnabled = it },
+                        rendererPreference = rendererPreference,
+                        onRendererPreferenceChange = { rendererPreference = it },
                         rotationIndex = rotationIndex,
                         onRotationSelected = { rotationIndex = it }
                     )
@@ -869,9 +877,25 @@ private fun DisplaySettings(
     onBlurStrengthChange: (Float) -> Unit,
     scrollEnabled: Boolean,
     onScrollEnabledChange: (Boolean) -> Unit,
+    rendererPreference: GraphicsBackendPreference,
+    onRendererPreferenceChange: (GraphicsBackendPreference) -> Unit,
     rotationIndex: Int,
     onRotationSelected: (Int) -> Unit
 ) {
+    val rendererOptions = listOf(
+        stringResource(R.string.renderer_preference_automatic),
+        stringResource(R.string.renderer_preference_vulkan),
+        stringResource(R.string.renderer_preference_opengl)
+    )
+    val rendererHelper = when (rendererPreference) {
+        GraphicsBackendPreference.AUTOMATIC ->
+            stringResource(R.string.renderer_preference_automatic_helper)
+        GraphicsBackendPreference.VULKAN ->
+            stringResource(R.string.renderer_preference_vulkan_helper)
+        GraphicsBackendPreference.OPENGL_ES ->
+            stringResource(R.string.renderer_preference_opengl_helper)
+    }
+
     SettingsScroll {
         SettingsGroup("Wallpaper appearance") {
             LabeledSlider(
@@ -893,9 +917,25 @@ private fun DisplaySettings(
                 )
             }
         }
+        SettingsGroup(stringResource(R.string.renderer_preference_group)) {
+            AtmoDropdownField(
+                label = stringResource(R.string.renderer_preference_label),
+                options = rendererOptions,
+                selectedIndex = rendererPreference.ordinal,
+                onSelected = { index ->
+                    onRendererPreferenceChange(
+                        GraphicsBackendPreference.entries.getOrElse(index) {
+                            GraphicsBackendPreference.AUTOMATIC
+                        }
+                    )
+                },
+                helper = rendererHelper
+            )
+        }
         SettingsGroup("Home screen") {
             SettingSwitchRow(
                 title = "Wallpaper scrolling",
+                subtitle = "${stringResource(R.string.experimental)} ${stringResource(R.string.manualCroppingWillBeDisabled)}",
                 checked = scrollEnabled,
                 onCheckedChange = onScrollEnabledChange
             )
@@ -951,8 +991,7 @@ private fun SettingsGroup(
 private enum class InfoDialog(val title: String, val message: String) {
     Poll(
         "Unlock check interval",
-        "Lower values react sooner after unlock but check more often. Use 30000 ms on " +
-            "Samsung or 50 ms if the animation starts late."
+        "Lower values provide a faster reaction after unlocking but require more frequent checks, which may impact battery life. Use 30000 ms on Samsung devices, or 50 ms if the animation starts late."
     ),
     Delay(
         "Lock delay",

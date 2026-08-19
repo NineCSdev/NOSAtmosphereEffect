@@ -13,4 +13,23 @@
     <string name="update_wallpaper_dimness">Update Wallpaper Dimness</string>
     <string name="fine_tune">Fine Tune</string>
 
+    <string name="renderer_status_label">Renderer</string>
+    <string name="renderer_vulkan_active">Vulkan active</string>
+    <string name="renderer_vulkan_version">Version %1$s</string>
+    <string name="renderer_opengl_active">OpenGL ES active</string>
+    <string name="renderer_vulkan_fallback_reason">Vulkan fallback: %1$s</string>
+    <string name="renderer_current_wallpaper_renderer">Current wallpaper renderer</string>
+    <string name="renderer_backend_vulkan">Vulkan</string>
+    <string name="renderer_backend_opengl">OpenGL ES</string>
+    <string name="renderer_preference_group">Display renderer</string>
+    <string name="renderer_preference_label">Graphics API</string>
+    <string name="renderer_preference_automatic">Automatic (recommended)</string>
+    <string name="renderer_preference_vulkan">Vulkan</string>
+    <string name="renderer_preference_opengl">OpenGL ES</string>
+    <string name="renderer_preference_automatic_helper">Uses Vulkan when it is compatible and falls back safely to OpenGL ES. Applies immediately to effect previews and the active live wallpaper.</string>
+    <string name="renderer_preference_vulkan_helper">Requests Vulkan, but unsupported devices and runtime failures still fall back to OpenGL ES. Applies immediately to effect previews and the active live wallpaper.</string>
+    <string name="renderer_preference_opengl_helper">Always uses OpenGL ES and skips the Vulkan probe. Applies immediately to effect previews and the active live wallpaper.</string>
+    <string name="experimental">Experimental</string>
+    <string name="manualCroppingWillBeDisabled">(Manual Cropping Will Be Disabled)</string>
+
 </resources>
