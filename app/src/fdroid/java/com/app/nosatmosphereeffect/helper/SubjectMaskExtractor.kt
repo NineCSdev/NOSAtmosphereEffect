@@ -29,7 +29,6 @@ class SubjectMaskExtractor(
         const val CONFIDENT_FOREGROUND = 0.55f
         const val HIGH_CONFIDENCE = 0.75f
         const val MIN_FOREGROUND_FRACTION = 0.012f
-        const val MAX_FOREGROUND_FRACTION = 0.90f
         const val MIN_HIGH_CONFIDENCE_FRACTION = 0.003f
         const val MIN_RAW_CONFIDENCE = 0.40f
         const val MIN_CONFIDENCE_RANGE = 0.10f
@@ -162,14 +161,10 @@ class SubjectMaskExtractor(
         val hasUsefulBounds =
             subjectWidth >= INPUT_SIZE * 0.04f && subjectHeight >= INPUT_SIZE * 0.04f
 
-        Log.d("foregroundFraction", foregroundFraction.toString())
-
-
         if (foregroundFraction < MIN_FOREGROUND_FRACTION ||
             highConfidenceFraction < MIN_HIGH_CONFIDENCE_FRACTION ||
             !hasUsefulBounds
         ) {
-            Log.d("foregroundFraction done", "complete")
             return null
         }
 
