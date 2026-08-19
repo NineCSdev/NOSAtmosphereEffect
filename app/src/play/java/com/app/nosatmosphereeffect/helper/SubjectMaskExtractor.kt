@@ -42,7 +42,6 @@ class SubjectMaskExtractor(
 
     fun extract(bitmap: Bitmap, requestId: Long) {
         if (closed || bitmap.width <= 0 || bitmap.height <= 0) return
-
         val inputBitmap = try {
             makeInputBitmap(bitmap)
         } catch (error: Exception) {
@@ -182,7 +181,7 @@ class SubjectMaskExtractor(
         val scale = MAX_INPUT_SIDE.toFloat() / longestSide
         val width = (source.width * scale).roundToInt().coerceAtLeast(1)
         val height = (source.height * scale).roundToInt().coerceAtLeast(1)
-        return Bitmap.createScaledBitmap(source, width, height, true)
+        return BitmapDownscale.toStagedSize(source, width, height)
     }
 
     override fun close() {

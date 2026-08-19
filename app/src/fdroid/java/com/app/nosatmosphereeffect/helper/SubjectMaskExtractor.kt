@@ -200,13 +200,23 @@ class SubjectMaskExtractor(
     }
 
     private fun makeInputBitmap(source: Bitmap): Bitmap {
+        // Get most of the way to the model's input size in halving steps
+        // first (see BitmapDownscale) so a full-resolution wallpaper isn't
+        // squeezed down to 320x320 in one steep, aliasing-prone pass — that
+        // single-pass squeeze is what let the same photo segment fine from
+        // the smaller in-app preview bitmap but come back wrong for the
+        // full-resolution wallpaper bitmap.
+        val staged = BitmapDownscale.toStagedSize(source, INPUT_SIZE, INPUT_SIZE)
+        if (staged.width == INPUT_SIZE && staged.height == INPUT_SIZE) return staged
+
         val target = createBitmap(INPUT_SIZE, INPUT_SIZE, Bitmap.Config.ARGB_8888)
         Canvas(target).drawBitmap(
-            source,
+            staged,
             null,
             Rect(0, 0, INPUT_SIZE, INPUT_SIZE),
             Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
         )
+        staged.recycle()
         return target
     }
 
