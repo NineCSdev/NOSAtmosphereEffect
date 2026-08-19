@@ -360,7 +360,14 @@ class MainActivity : ComponentActivity() {
         for (i in 1 until uris.size) clipData.addItem(ClipData.Item(uris[i]))
         intent.clipData = clipData
         intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        intent.putParcelableArrayListExtra("IMAGE_URIS", uris)
+        // Don't also pass the same URIs via putParcelableArrayListExtra:
+        // ClipData already carries every URI (and is what grants read
+        // permission for each of them), so duplicating the whole list into
+        // a second extra doubles the Binder transaction payload for no
+        // reason. With large selections (hundreds+ of images) that can
+        // exceed the transaction size limit and crash startActivity()
+        // itself. PlaylistEditorActivity reads the URIs back out of
+        // intent.clipData.
         intent.putExtra("EFFECT_ID", effectId)
         startActivity(intent)
     }

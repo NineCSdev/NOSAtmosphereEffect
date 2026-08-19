@@ -238,7 +238,14 @@ class ThemePlaylistEditorActivity : ComponentActivity() {
                     )
                 }
                 if (isProcessing) {
-                    ProcessingOverlay(message = "Preparing theme playlists…")
+                    ProcessingOverlay(
+                        message = if (draftState.totalCount > 0) {
+                            "Processing ${draftState.processedCount} of " +
+                                "${draftState.totalCount} images…"
+                        } else {
+                            "Preparing theme playlists…"
+                        }
+                    )
                 }
             }
         }
@@ -253,14 +260,22 @@ class ThemePlaylistEditorActivity : ComponentActivity() {
             STATE_ATMOSPHERE_GLASS,
             draftState.atmosphereGlassEnabled
         )
-        outState.putParcelableArrayList(
-            STATE_LIGHT_ITEMS,
-            PlaylistDraftStateCodec.encode(lightItems)
-        )
-        outState.putParcelableArrayList(
-            STATE_DARK_ITEMS,
-            PlaylistDraftStateCodec.encode(darkItems)
-        )
+        // See PlaylistEditorActivity.onSaveInstanceState: skip the Bundle
+        // round-trip for a playlist large enough to risk a
+        // TransactionTooLargeException. The ViewModel already keeps both
+        // drafts across ordinary config changes on its own.
+        if (lightItems.size <= MAX_ITEMS_TO_PERSIST_IN_BUNDLE) {
+            outState.putParcelableArrayList(
+                STATE_LIGHT_ITEMS,
+                PlaylistDraftStateCodec.encode(lightItems)
+            )
+        }
+        if (darkItems.size <= MAX_ITEMS_TO_PERSIST_IN_BUNDLE) {
+            outState.putParcelableArrayList(
+                STATE_DARK_ITEMS,
+                PlaylistDraftStateCodec.encode(darkItems)
+            )
+        }
     }
 
     override fun onDestroy() {
@@ -319,6 +334,8 @@ class ThemePlaylistEditorActivity : ComponentActivity() {
         isProcessing = true
         draftState.applyCompleted = false
         draftState.applyError = null
+        draftState.processedCount = 0
+        draftState.totalCount = lightSnapshot.size + darkSnapshot.size
         ioExecutor.execute {
             try {
                 WallpaperStorageCoordinator.runExclusive {
@@ -342,7 +359,13 @@ class ThemePlaylistEditorActivity : ComponentActivity() {
                             lightSnapshot,
                             darkSnapshot,
                             bounds.width(),
-                            bounds.height()
+                            bounds.height(),
+                            onProgress = { processed, total ->
+                                runOnUiThread {
+                                    draftState.processedCount = processed
+                                    draftState.totalCount = total
+                                }
+                            }
                         )
 
                         val isNightMode = PlaylistModeManager.currentNightMode(this)
@@ -441,7 +464,8 @@ class ThemePlaylistEditorActivity : ComponentActivity() {
         light: List<ThemePlaylistItem>,
         dark: List<ThemePlaylistItem>,
         width: Int,
-        height: Int
+        height: Int,
+        onProgress: (processed: Int, total: Int) -> Unit = { _, _ -> }
     ): FileTransactions.ReplacementTransaction {
         val token = UUID.randomUUID().toString()
         val stagedLight = File(filesDir, ".playlist-light-$token.staged")
@@ -456,6 +480,7 @@ class ThemePlaylistEditorActivity : ComponentActivity() {
             stagedDark,
             stagedDarkOriginals
         )
+        val total = light.size + dark.size
 
         try {
             PlaylistCollectionStore.stage(
@@ -464,7 +489,8 @@ class ThemePlaylistEditorActivity : ComponentActivity() {
                 stagedLight,
                 stagedLightOriginals,
                 width,
-                height
+                height,
+                onProgress = { processed, _ -> onProgress(processed, total) }
             )
             PlaylistCollectionStore.stage(
                 this,
@@ -472,7 +498,8 @@ class ThemePlaylistEditorActivity : ComponentActivity() {
                 stagedDark,
                 stagedDarkOriginals,
                 width,
-                height
+                height,
+                onProgress = { processed, _ -> onProgress(light.size + processed, total) }
             )
             return FileTransactions.beginReplacingDirectories(
                 listOf(
@@ -742,6 +769,9 @@ class ThemePlaylistEditorActivity : ComponentActivity() {
         const val KEY_LAST_LIGHT_IMAGE = "last_playlist_image_light"
         const val KEY_LAST_DARK_IMAGE = "last_playlist_image_dark"
         const val STATE_LIGHT_ITEMS = "light_playlist_items"
+        // Comfortably under the ~1MB shared Binder transaction limit even
+        // accounting for per-item overhead (Uri, matrix state, strings).
+        const val MAX_ITEMS_TO_PERSIST_IN_BUNDLE = 300
         const val STATE_DARK_ITEMS = "dark_playlist_items"
         const val STATE_ATMOSPHERE_GLASS = "theme_playlist_atmosphere_glass"
         const val ACTION_RELOAD_WALLPAPER =

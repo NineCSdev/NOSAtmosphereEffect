@@ -31,6 +31,7 @@ internal data class PlaylistImageSource(
 
 internal object PlaylistCollectionStore {
     private const val TAG = "PlaylistCollectionStore"
+    private const val STAGED_JPEG_QUALITY = 100
 
     @Throws(IOException::class, SecurityException::class)
     fun stage(
@@ -39,7 +40,8 @@ internal object PlaylistCollectionStore {
         stagedImages: File,
         stagedOriginals: File,
         targetWidth: Int,
-        targetHeight: Int
+        targetHeight: Int,
+        onProgress: (processed: Int, total: Int) -> Unit = { _, _ -> }
     ) {
         if (items.isEmpty()) throw IOException("Playlist is empty")
         if (targetWidth <= 0 || targetHeight <= 0) {
@@ -62,7 +64,17 @@ internal object PlaylistCollectionStore {
                     ?: throw FileNotFoundException("Edited image $index is missing")
                 UriFiles.copyAtomically(context, Uri.fromFile(edited), wallpaper)
             } else {
-                val source = BitmapDecoder.decodeUri(context, item.originalUri)
+                // Decode close to the wallpaper's actual target size instead
+                // of the general-purpose 4096px cap: this bitmap is fit and
+                // discarded immediately below, so for a high-megapixel photo
+                // decoding far more pixels than the screen will ever show
+                // just burns extra decode time and peak memory for nothing.
+                val source = BitmapDecoder.decodeUri(
+                    context,
+                    item.originalUri,
+                    targetWidth,
+                    targetHeight
+                )
                 val bitmap = WallpaperFitHelper.fitBitmap(
                     source,
                     targetWidth,
@@ -71,12 +83,13 @@ internal object PlaylistCollectionStore {
                     item.fillMode
                 )
                 try {
-                    BitmapStore.writeJpegAtomically(bitmap, wallpaper, quality = 100)
+                    BitmapStore.writeJpegAtomically(bitmap, wallpaper, quality = STAGED_JPEG_QUALITY)
                 } finally {
                     bitmap.recycle()
                 }
             }
             metadata.put(metadataFor(index, item))
+            onProgress(index + 1, items.size)
         }
 
         FileTransactions.writeTextAtomically(

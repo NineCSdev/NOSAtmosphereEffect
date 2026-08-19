@@ -156,7 +156,10 @@ class EffectSelectionActivity : ComponentActivity() {
         for (i in 1 until uris.size) clipData.addItem(ClipData.Item(uris[i]))
         intent.clipData = clipData
         intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        intent.putParcelableArrayListExtra("IMAGE_URIS", uris)
+        // See MainActivity.launchMultiCropActivity: ClipData already carries
+        // every URI, so don't also duplicate the whole list into a second
+        // extra — that doubles the Binder transaction payload and can
+        // crash startActivity() outright for large selections.
         intent.putExtra("EFFECT_ID", selectedEffectId)
         startActivity(intent)
         finish()

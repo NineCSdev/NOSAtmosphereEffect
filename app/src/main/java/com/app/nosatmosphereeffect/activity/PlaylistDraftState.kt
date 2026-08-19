@@ -29,6 +29,8 @@ internal class StandardPlaylistDraftState : ViewModel() {
     var isProcessing by mutableStateOf(false)
     var applyCompleted by mutableStateOf(false)
     var applyError by mutableStateOf<String?>(null)
+    var processedCount by mutableStateOf(0)
+    var totalCount by mutableStateOf(0)
 }
 
 internal class ThemePlaylistDraftState : ViewModel() {
@@ -39,6 +41,8 @@ internal class ThemePlaylistDraftState : ViewModel() {
     var isProcessing by mutableStateOf(false)
     var applyCompleted by mutableStateOf(false)
     var applyError by mutableStateOf<String?>(null)
+    var processedCount by mutableStateOf(0)
+    var totalCount by mutableStateOf(0)
 }
 
 internal object PlaylistDraftStateCodec {
