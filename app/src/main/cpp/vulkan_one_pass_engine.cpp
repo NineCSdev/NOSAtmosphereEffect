@@ -995,7 +995,24 @@ private:
         swapchainInfo.imageArrayLayers = 1;
         swapchainInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
         swapchainInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
-        swapchainInfo.preTransform = capabilities.currentTransform;
+        // Always prefer an identity preTransform over blindly forwarding
+        // capabilities.currentTransform. Nothing downstream in this engine
+        // pre-rotates its vertices/UVs to compensate for a non-identity
+        // transform, so if currentTransform is ever queried while it's
+        // transiently non-identity (e.g. right as a foreground landscape
+        // app like a video player hands back to a portrait-locked home
+        // screen), that rotated transform gets baked into the swapchain
+        // and never gets a chance to correct itself — the wallpaper is
+        // then stuck presenting as landscape until the whole engine is
+        // torn down and rebuilt (e.g. by switching render backends).
+        // Android's ANativeWindow-backed surfaces support IDENTITY
+        // virtually universally, so this is a no-op in the common case
+        // and only changes behavior for the stuck-rotation scenario.
+        swapchainInfo.preTransform =
+            (capabilities.supportedTransforms &
+             VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR) != 0
+                ? VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR
+                : capabilities.currentTransform;
         swapchainInfo.compositeAlpha = compositeAlpha;
         swapchainInfo.presentMode = VK_PRESENT_MODE_FIFO_KHR;
         swapchainInfo.clipped = VK_TRUE;
