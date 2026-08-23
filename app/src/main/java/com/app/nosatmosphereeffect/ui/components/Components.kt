@@ -40,7 +40,6 @@ import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.OutlinedButton
@@ -79,10 +78,6 @@ import com.app.nosatmosphereeffect.ui.theme.LocalAtmoExpressive
 import java.util.Locale
 import kotlinx.coroutines.delay
 import kotlin.math.roundToInt
-
-/* -------------------------------------------------------------------------- */
-/*  Buttons                                                                    */
-/* -------------------------------------------------------------------------- */
 
 @Composable
 fun AtmoReveal(
@@ -272,11 +267,6 @@ fun AtmoTextButton(
     }
 }
 
-/* -------------------------------------------------------------------------- */
-/*  Cards / sections                                                           */
-/* -------------------------------------------------------------------------- */
-
-/** A bordered, slightly-elevated surface used to group related settings. */
 @Composable
 fun AtmoCard(
     modifier: Modifier = Modifier,
@@ -340,10 +330,6 @@ fun SectionHeader(title: String, modifier: Modifier = Modifier) {
         modifier = modifier
     )
 }
-
-/* -------------------------------------------------------------------------- */
-/*  Sliders                                                                    */
-/* -------------------------------------------------------------------------- */
 
 /**
  * Label + live value + a clean (tick-free) slider. [step], when > 0, snaps the
@@ -425,10 +411,6 @@ private fun defaultFormat(value: Float, step: Float): String =
         step >= 0.1f -> String.format(Locale.ROOT, "%.1f", value)
         else -> String.format(Locale.ROOT, "%.2f", value)
     }
-
-/* -------------------------------------------------------------------------- */
-/*  Switch row                                                                 */
-/* -------------------------------------------------------------------------- */
 
 @Composable
 fun SettingSwitchRow(
@@ -512,10 +494,6 @@ fun SettingSwitchRow(
     }
 }
 
-/* -------------------------------------------------------------------------- */
-/*  Dropdown                                                                   */
-/* -------------------------------------------------------------------------- */
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AtmoDropdownField(
@@ -578,10 +556,6 @@ fun AtmoDropdownField(
     }
 }
 
-/* -------------------------------------------------------------------------- */
-/*  Number field (with optional info action)                                   */
-/* -------------------------------------------------------------------------- */
-
 @Composable
 fun AtmoNumberField(
     label: String,
@@ -610,13 +584,13 @@ fun AtmoNumberField(
             ),
             trailingIcon = if (infoIcon != null && onInfoClick != null) {
                 {
-                    IconButton(onClick = onInfoClick) {
-                        Icon(
-                            infoIcon,
-                            contentDescription = "More info",
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                    }
+                    AtmoAnimatedIconButton(
+                        painter = infoIcon,
+                        contentDescription = "More info",
+                        onClick = onInfoClick,
+                        motion = AtmoIconMotion.PRESS,
+                        iconTint = MaterialTheme.colorScheme.primary
+                    )
                 }
             } else null,
             colors = atmoFieldColors(),
@@ -649,41 +623,26 @@ private fun atmoFieldColors() = TextFieldDefaults.colors(
     errorIndicatorColor = MaterialTheme.colorScheme.error
 )
 
-/* -------------------------------------------------------------------------- */
-/*  Top app bar                                                                */
-/* -------------------------------------------------------------------------- */
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AtmoTopBar(
     title: String,
     backIcon: Painter,
     onBack: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    actions: @Composable () -> Unit = {}
 ) {
-    val expressive = LocalAtmoExpressive.current
-    val haptics = LocalHapticFeedback.current
-    val interaction = remember { MutableInteractionSource() }
-    val pressed by interaction.collectIsPressedAsState()
-    val scale by animateFloatAsState(
-        targetValue = if (pressed && expressive) 0.82f else 1f,
-        animationSpec = spring(stiffness = 520f, dampingRatio = 0.6f),
-        label = "topBarBackScale"
-    )
     TopAppBar(
         title = { Text(title, style = MaterialTheme.typography.headlineSmall) },
         navigationIcon = {
-            IconButton(
-                onClick = {
-                    if (expressive) haptics.performHapticFeedback(HapticFeedbackType.ContextClick)
-                    onBack()
-                },
-                interactionSource = interaction,
-                modifier = Modifier.scale(scale)
-            ) {
-                Icon(backIcon, contentDescription = "Back", tint = MaterialTheme.colorScheme.onSurface)
-            }
+            AtmoAnimatedIconButton(
+                painter = backIcon,
+                contentDescription = "Back",
+                onClick = onBack,
+                motion = AtmoIconMotion.BACK
+            )
         },
+        actions = { actions() },
         colors = TopAppBarDefaults.topAppBarColors(
             containerColor = Color.Transparent,
             titleContentColor = MaterialTheme.colorScheme.onSurface
@@ -691,10 +650,6 @@ fun AtmoTopBar(
         modifier = modifier
     )
 }
-
-/* -------------------------------------------------------------------------- */
-/*  Small pill / chip                                                          */
-/* -------------------------------------------------------------------------- */
 
 @Composable
 fun AtmoSegmentedControl(
@@ -790,15 +745,6 @@ fun AtmoChip(text: String, modifier: Modifier = Modifier) {
     }
 }
 
-/* -------------------------------------------------------------------------- */
-/*  Dialog selection row                                                       */
-/* -------------------------------------------------------------------------- */
-
-/**
- * A tappable option row used inside selection dialogs (e.g. choose single vs
- * playlist). Renders a bold title with an optional supporting line, wrapped in
- * a subtle rounded surface for a clear, touch-friendly target.
- */
 @Composable
 fun AtmoDialogRow(
     title: String,
@@ -853,7 +799,6 @@ fun AtmoDialogRow(
     }
 }
 
-/** Reusable no-op interaction source factory to avoid re-allocations in lists. */
 @Composable
 fun rememberNoRippleInteraction(): MutableInteractionSource =
     remember { MutableInteractionSource() }

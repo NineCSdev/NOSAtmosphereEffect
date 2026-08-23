@@ -1,11 +1,11 @@
 # Third-Party Notices
 
-Atmo Engine is licensed under the MIT License. Subject segmentation has separate Google Play and F-Droid implementations. The following components retain their respective licenses and terms.
+Atmo Engine is licensed under the MIT License. The subject-isolation model shared by Canvas Sketch, Glass Effect, and Halftone Print has separate Google Play and F-Droid implementations. The following components retain their respective licenses and terms.
 
 ## Google Play Services ML Kit Subject Segmentation
 
 - Distribution: Google Play `play` flavor only.
-- Purpose: optional on-device foreground segmentation for Canvas Sketch.
+- Purpose: optional on-device foreground segmentation for Canvas Sketch and the background-only modes in Glass Effect and Halftone Print.
 - Dependencies: `com.google.android.gms:play-services-base:18.10.0` and `com.google.android.gms:play-services-mlkit-subject-segmentation:16.0.0-beta1`.
 - Delivery: the subject model is not bundled; Google Play services downloads it only after the user requests it in Advanced Settings.
 - Processing: wallpaper segmentation runs on-device after installation.
@@ -15,7 +15,7 @@ This proprietary integration and its source set are not compiled into the F-Droi
 
 ## U2NetP Foreground Model
 
-- Purpose: offline salient-foreground segmentation for Canvas Sketch.
+- Purpose: offline salient-foreground segmentation for Canvas Sketch and the background-only modes in Glass Effect and Halftone Print.
 - Upstream project: [xuebinqin/U-2-Net](https://github.com/xuebinqin/U-2-Net)
 - Architecture and original weights: U2NetP by Xuebin Qin and contributors.
 - License: Apache License 2.0.
@@ -36,3 +36,31 @@ The complete model license is included at `app/src/fdroid/assets/models/U2NET_LI
 - Note: this source-built package removes proprietary Google Play services and AI Delivery dependencies and is used by F-Droid builds of other open-source Android apps.
 
 The Java API is supplied by `com.google.ai.edge.litert:litert-api:1.4.1`, whose source is part of the Apache-2.0 TensorFlow/LiteRT project. The source-built F-Droid runtime supplies the native implementation.
+
+## Nothing Glass Reference
+
+The native Glass shader, including the static reeded-glass source option for
+Atmosphere, was visually calibrated against the open-source
+[Vauth/nothing-glass](https://github.com/Vauth/nothing-glass) reference and
+independently implemented for OpenGL ES.
+
+- Copyright (c) 2025 Vauth
+- License: MIT
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

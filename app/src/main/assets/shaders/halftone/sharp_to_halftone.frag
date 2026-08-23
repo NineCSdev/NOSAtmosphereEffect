@@ -5,13 +5,14 @@ in vec2 vTexCoord;
 out vec4 fragColor;
 
 uniform sampler2D uTextureSharp;
+uniform sampler2D uSubjectMask;
 uniform float uAspectRatio;
-uniform float uBlurStrength; // 1.0 = Sharp, 0.0 = Halftone
+uniform float uBlurStrength;
 uniform float uDimLevel;
-
-// NEW UNIFORMS
 uniform float uDotSize;
 uniform float uGrayscale;
+uniform float uBackgroundOnly;
+uniform float uHasSubject;
 
 float random(vec2 co) {
     return fract(sin(dot(co.xy, vec2(12.9898, 78.233))) * 43758.5453);
@@ -23,7 +24,6 @@ mat2 rotate2d(float angle) {
     return mat2(c, -s, s, c);
 }
 
-// Generates just the dot structure
 float halftoneChannel(vec2 uv, float angle, float value, vec2 texSize, float dotSize) {
     vec2 centerUV = uv - 0.5;
     centerUV.x *= uAspectRatio;
@@ -39,9 +39,22 @@ float halftoneChannel(vec2 uv, float angle, float value, vec2 texSize, float dot
     return smoothstep(radius + edge, radius - edge, dist);
 }
 
+float foregroundProtection(vec2 uv) {
+    if (uBackgroundOnly <= 0.5) return 0.0;
+    // No subject mask: nothing is known to protect, so don't revert the
+    // whole frame back to the untouched image.
+    if (uHasSubject <= 0.5) return 0.0;
+
+    vec2 stepSize = 2.0 / vec2(textureSize(uSubjectMask, 0));
+    float mask = texture(uSubjectMask, uv).r;
+    mask = max(mask, texture(uSubjectMask, clamp(uv + vec2(stepSize.x, 0.0), 0.0, 1.0)).r);
+    mask = max(mask, texture(uSubjectMask, clamp(uv - vec2(stepSize.x, 0.0), 0.0, 1.0)).r);
+    mask = max(mask, texture(uSubjectMask, clamp(uv + vec2(0.0, stepSize.y), 0.0, 1.0)).r);
+    mask = max(mask, texture(uSubjectMask, clamp(uv - vec2(0.0, stepSize.y), 0.0, 1.0)).r);
+    return smoothstep(0.30, 0.72, mask);
+}
+
 void main() {
-    // Reverse logic: uBlurStrength goes 1.0 -> 0.0 on unlock.
-    // For reverse, 1.0 is Sharp, 0.0 is Halftone.
     float effectStrength = 1.0 - clamp(uBlurStrength, 0.0, 1.0);
 
     vec3 sharp = texture(uTextureSharp, vTexCoord).rgb;
@@ -51,15 +64,12 @@ void main() {
 
     if (uDotSize < 0.1) {
         if (uGrayscale > 0.5) {
-            // Apply continuous Grayscale
             float luma = dot(sharp, vec3(0.299, 0.587, 0.114));
             halftoneOutput = vec3(luma);
         } else {
-            // Apply continuous Color (No effect)
             halftoneOutput = sharp;
         }
     } else {
-        // Normal Dot Generation
         if (uGrayscale > 0.5) {
             float luma = dot(sharp, vec3(0.299, 0.587, 0.114));
             float kDot = halftoneChannel(vTexCoord, radians(45.0), 1.0 - luma, texSize, uDotSize);
@@ -73,11 +83,8 @@ void main() {
         }
     }
 
-    // Blend smoothly from Sharp to Halftone Pattern using effectStrength
     vec3 finalColor = mix(sharp, halftoneOutput, effectStrength);
-
-    // Apply Dimness
     finalColor = mix(finalColor, vec3(0.0), uDimLevel * effectStrength);
-
+    finalColor = mix(finalColor, sharp, foregroundProtection(vTexCoord));
     fragColor = vec4(finalColor, 1.0);
 }

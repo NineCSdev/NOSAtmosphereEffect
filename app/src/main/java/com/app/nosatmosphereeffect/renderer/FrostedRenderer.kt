@@ -18,7 +18,6 @@ class FrostedRenderer(
     private val previewSource: (() -> Bitmap?)? = null
 ) : GLSurfaceView.Renderer, WallpaperScrollRenderer {
 
-    // --- Wallpaper scrolling (home-screen parallax) ---
     @Volatile private var scrollOffsetX: Float = 0.5f
     private var currentWindowX: Float = 1f
     private var nextWindowX: Float = 1f
@@ -26,9 +25,8 @@ class FrostedRenderer(
     override fun setWallpaperOffset(xOffset: Float) {
         scrollOffsetX = xOffset.coerceIn(0f, 1f)
     }
-    // ---------------------------------------------------
 
-    // --- App-drawer / recents blur (driven by wallpaper visibility, not zoom) ---
+    // Wallpaper visibility is independent from zoom and blurStrength.
     // Only the reverse Frosted engine flips this on (when the wallpaper leaves view
     // while the screen is still on), blending toward the frosted texture so the drawer
     // shows a blur instead of the sharp home image. Forward Frosted never sets it, and
@@ -38,9 +36,7 @@ class FrostedRenderer(
     fun setDrawerBlurred(blurred: Boolean) {
         drawerBlur = if (blurred) 1f else 0f
     }
-    // ----------------------------------------------------------------------------
 
-    // --- RING BUFFER LOGIC ---
     private class TextureSet {
         var sharpId = 0
         var blurId = 0
@@ -51,14 +47,13 @@ class FrostedRenderer(
     }
 
     private var currentSet = TextureSet()
-    private var nextSet = TextureSet() // The "Back Buffer"
+    private var nextSet = TextureSet()
 
     @Volatile private var pendingPlaylistBitmap: Bitmap? = null
 
-    // Track temp texture dimensions for safe memory overwriting
+    // Texture storage can only be reused while its dimensions still match.
     private var tempTextureWidth: Int = 0
     private var tempTextureHeight: Int = 0
-    // -------------------------
 
     @Volatile var blurStrength: Float = 0.0f
         set(value) {
@@ -77,12 +72,10 @@ class FrostedRenderer(
     private var fboId: Int = 0
     private var aspectRatio: Float = 1.0f
 
-    // --- DISPLAY FIT: actual surface size + the size the textures were fitted for ---
     @Volatile private var surfaceWidth: Int = 0
     @Volatile private var surfaceHeight: Int = 0
     private var fittedForWidth: Int = -1
     private var fittedForHeight: Int = -1
-    // --------------------------------------------------------------------------------
 
     fun queuePlaylistTransition(bitmap: Bitmap, value: Float = 0.0f) {
         pendingPlaylistBitmap = bitmap
@@ -150,7 +143,6 @@ class FrostedRenderer(
     }
 
     private fun loadAndApplyTextures() {
-        // Destroy ONLY current set
         if (currentSet.isValid()) {
             val ids = intArrayOf(currentSet.sharpId, currentSet.blurId)
             GLES30.glDeleteTextures(2, ids, 0)
@@ -188,14 +180,13 @@ class FrostedRenderer(
 
     private fun processPlaylistTransition() {
         val raw = pendingPlaylistBitmap ?: return
-        // Fit the incoming image to the current surface (display settings + foldables + scroll)
         val render = WallpaperFitHelper.fitForRender(context, raw, surfaceWidth, surfaceHeight)
         val bitmap = render.bitmap
         nextWindowX = render.windowX
         fittedForWidth = surfaceWidth
         fittedForHeight = surfaceHeight
 
-        // Overwrite the existing nextSet IDs instead of deleting them. Pass dimensions.
+        // Reuse queued texture IDs; dimensions determine whether storage is reallocated.
         nextSet.sharpId = uploadTexture(bitmap, nextSet.sharpId, nextSet.width, nextSet.height)
 
         tempTextureId = createEmptyTexture(bitmap.width, bitmap.height, tempTextureId, tempTextureWidth, tempTextureHeight)
@@ -211,9 +202,8 @@ class FrostedRenderer(
         nextSet.width = bitmap.width
         nextSet.height = bitmap.height
 
-        bitmap.recycle() // Done with raw bitmap
+        bitmap.recycle()
 
-        // SWAP! Old current becomes next
         val temp = currentSet
         currentSet = nextSet
         nextSet = temp
@@ -296,7 +286,6 @@ class FrostedRenderer(
         GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_S, GLES30.GL_CLAMP_TO_EDGE)
         GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_T, GLES30.GL_CLAMP_TO_EDGE)
 
-        // Only call glTexImage2D if it's a new ID or the dimensions have changed
         if (existingTextureId == 0 || existingWidth != width || existingHeight != height) {
             GLES30.glTexImage2D(GLES30.GL_TEXTURE_2D, 0, GLES30.GL_RGBA, width, height, 0, GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, null)
         }

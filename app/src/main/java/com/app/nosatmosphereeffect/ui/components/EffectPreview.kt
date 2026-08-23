@@ -45,7 +45,15 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
+import com.app.nosatmosphereeffect.helper.AtmosphereGlassPolicy
+import com.app.nosatmosphereeffect.helper.AlwaysAppliedTarget
 import com.app.nosatmosphereeffect.helper.CanvasSubjectSettings
+import com.app.nosatmosphereeffect.helper.GlassEffectPolicy
+import com.app.nosatmosphereeffect.helper.SubjectIsolationPolicy
+import com.app.nosatmosphereeffect.helper.WallpaperBehaviorPreferences
+import com.app.nosatmosphereeffect.helper.WallpaperBehaviorPolicy
+import com.app.nosatmosphereeffect.helper.WallpaperBehaviorSettings
+import com.app.nosatmosphereeffect.renderer.backend.GraphicsBackendPreferences
 import com.app.nosatmosphereeffect.ui.model.EffectCatalog
 import com.app.nosatmosphereeffect.ui.preview.EffectPreviewService
 import com.app.nosatmosphereeffect.ui.preview.EffectPreviewSettingsMode
@@ -60,20 +68,61 @@ fun WallpaperTransitionPreview(
     modifier: Modifier = Modifier,
     progress: Float? = null,
     showDeviceChrome: Boolean = true,
-    settingsMode: EffectPreviewSettingsMode = EffectPreviewSettingsMode.SAVED_ACTIVE
+    settingsMode: EffectPreviewSettingsMode = EffectPreviewSettingsMode.SAVED_ACTIVE,
+    atmosphereGlassEnabledOverride: Boolean? = null
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val preferences = remember(context) {
         context.getSharedPreferences("app_prefs", android.content.Context.MODE_PRIVATE)
     }
+    val behaviorPreferences = remember(context) {
+        context.getSharedPreferences(
+            WallpaperBehaviorPreferences.PREFS_NAME,
+            android.content.Context.MODE_PRIVATE
+        )
+    }
+    val rendererPreferences = remember(context) {
+        context.getSharedPreferences(
+            GraphicsBackendPreferences.PREFS_NAME,
+            android.content.Context.MODE_PRIVATE
+        )
+    }
     var duration by remember(effectId, settingsMode) { mutableIntStateOf(
         EffectPreviewService.durationMillis(context, effectId, settingsMode)
     ) }
-    var configurationVersion by remember(effectId, wallpaper, settingsMode) {
+    var behaviorVersion by remember(effectId, settingsMode) { mutableIntStateOf(0) }
+    var rendererVersion by remember(effectId, settingsMode) { mutableIntStateOf(0) }
+    var configurationVersion by remember(
+        effectId,
+        wallpaper,
+        settingsMode,
+        atmosphereGlassEnabledOverride
+    ) {
         mutableIntStateOf(0)
     }
-    val automaticProgress = remember(effectId, wallpaper, settingsMode) { Animatable(0f) }
+    val automaticProgress = remember(
+        effectId,
+        wallpaper,
+        settingsMode,
+        atmosphereGlassEnabledOverride
+    ) {
+        Animatable(0f)
+    }
+    val behaviorSettings = remember(settingsMode, behaviorVersion) {
+        if (settingsMode == EffectPreviewSettingsMode.SAVED_ACTIVE) {
+            WallpaperBehaviorPreferences.read(context)
+        } else {
+            WallpaperBehaviorSettings()
+        }
+    }
+    val fixedMode = progress == null &&
+        settingsMode == EffectPreviewSettingsMode.SAVED_ACTIVE &&
+        !behaviorSettings.transitionsEnabled
+    val fixedPreviewProgress = when (behaviorSettings.alwaysAppliedTarget) {
+        AlwaysAppliedTarget.LOCK -> 0f
+        AlwaysAppliedTarget.HOME, AlwaysAppliedTarget.BOTH -> 1f
+    }
 
     DisposableEffect(preferences, effectId, settingsMode) {
         if (settingsMode != EffectPreviewSettingsMode.SAVED_ACTIVE) {
@@ -93,6 +142,12 @@ fun WallpaperTransitionPreview(
             "origin_y",
             "neon_line_width",
             "neon_sensitivity",
+            GlassEffectPolicy.LINE_COUNT_KEY,
+            GlassEffectPolicy.LINE_THICKNESS_KEY,
+            GlassEffectPolicy.TRANSITION_STYLE_KEY,
+            GlassEffectPolicy.BACKGROUND_ONLY_KEY,
+            AtmosphereGlassPolicy.ENABLED_KEY,
+            SubjectIsolationPolicy.HALFTONE_BACKGROUND_ONLY_KEY,
             CanvasSubjectSettings.ENABLED_KEY
         )
         val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
@@ -105,9 +160,52 @@ fun WallpaperTransitionPreview(
         onDispose { preferences.unregisterOnSharedPreferenceChangeListener(listener) }
     }
 
-    LaunchedEffect(effectId, wallpaper, progress, duration, settingsMode) {
+    DisposableEffect(behaviorPreferences, effectId, settingsMode) {
+        if (settingsMode != EffectPreviewSettingsMode.SAVED_ACTIVE) {
+            return@DisposableEffect onDispose { }
+        }
+        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == null ||
+                key == WallpaperBehaviorPolicy.TRANSITIONS_ENABLED_KEY ||
+                key == WallpaperBehaviorPolicy.ALWAYS_APPLIED_TARGET_KEY
+            ) {
+                behaviorVersion++
+            }
+        }
+        behaviorPreferences.registerOnSharedPreferenceChangeListener(listener)
+        onDispose {
+            behaviorPreferences.unregisterOnSharedPreferenceChangeListener(listener)
+        }
+    }
+
+    DisposableEffect(rendererPreferences, effectId, settingsMode) {
+        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == null || key == GraphicsBackendPreferences.PREFERENCE_KEY) {
+                rendererVersion++
+            }
+        }
+        rendererPreferences.registerOnSharedPreferenceChangeListener(listener)
+        onDispose {
+            rendererPreferences.unregisterOnSharedPreferenceChangeListener(listener)
+        }
+    }
+
+    LaunchedEffect(
+        effectId,
+        wallpaper,
+        progress,
+        duration,
+        settingsMode,
+        atmosphereGlassEnabledOverride,
+        fixedMode,
+        fixedPreviewProgress
+    ) {
         if (progress != null) {
             automaticProgress.snapTo(progress.coerceIn(0f, 1f))
+            return@LaunchedEffect
+        }
+        if (fixedMode) {
+            automaticProgress.snapTo(fixedPreviewProgress)
             return@LaunchedEffect
         }
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
@@ -136,15 +234,23 @@ fun WallpaperTransitionPreview(
             .clip(shape)
             .background(MaterialTheme.colorScheme.surfaceContainerHighest)
             .semantics {
-                contentDescription = "${EffectCatalog.find(effectId).title} transition preview"
+                contentDescription = if (fixedMode) {
+                    "${EffectCatalog.find(effectId).title} always-applied preview"
+                } else {
+                    "${EffectCatalog.find(effectId).title} transition preview"
+                }
             }
     ) {
         ProductionEffectSurface(
             effectId = effectId,
             wallpaper = wallpaper,
             progress = shownProgress,
+            fixedEffectApplied = fixedMode,
             configurationVersion = configurationVersion,
+            rendererVersion = rendererVersion,
             settingsMode = settingsMode,
+            atmosphereGlassEnabledOverride =
+                atmosphereGlassEnabledOverride,
             modifier = Modifier.fillMaxSize()
         )
 
@@ -157,8 +263,11 @@ private fun ProductionEffectSurface(
     effectId: String,
     wallpaper: ImageBitmap?,
     progress: Float,
+    fixedEffectApplied: Boolean,
     configurationVersion: Int,
+    rendererVersion: Int,
     settingsMode: EffectPreviewSettingsMode,
+    atmosphereGlassEnabledOverride: Boolean?,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -172,15 +281,19 @@ private fun ProductionEffectSurface(
         effectId,
         wallpaper,
         configurationVersion,
+        rendererVersion,
         expressive,
-        settingsMode
+        settingsMode,
+        atmosphereGlassEnabledOverride
     ) {
         EffectPreviewService(
             context = context,
             effectId = effectId,
             source = source,
             cornerRadiusPx = radiusPx,
-            settingsMode = settingsMode
+            settingsMode = settingsMode,
+            atmosphereGlassEnabledOverride =
+                atmosphereGlassEnabledOverride
         )
     }
 
@@ -206,7 +319,13 @@ private fun ProductionEffectSurface(
         key(preview) {
             AndroidView(
                 factory = { preview.view },
-                update = { preview.setProgress(progress) },
+                update = {
+                    if (fixedEffectApplied) {
+                        preview.setAppliedState(effectApplied = true)
+                    } else {
+                        preview.setProgress(progress)
+                    }
+                },
                 modifier = Modifier.fillMaxSize()
             )
         }

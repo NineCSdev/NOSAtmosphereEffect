@@ -39,11 +39,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.app.nosatmosphereeffect.R
+import com.app.nosatmosphereeffect.helper.AlwaysAppliedTarget
+import com.app.nosatmosphereeffect.helper.GlassEffectPolicy
+import com.app.nosatmosphereeffect.helper.GlassTransitionStyle
 import com.app.nosatmosphereeffect.helper.SubjectModelDelivery
 import com.app.nosatmosphereeffect.helper.SubjectModelPhase
 import com.app.nosatmosphereeffect.helper.SubjectModelState
+import com.app.nosatmosphereeffect.renderer.backend.GraphicsBackendPreference
 import com.app.nosatmosphereeffect.ui.components.AtmoDropdownField
 import com.app.nosatmosphereeffect.ui.components.AtmoNumberField
 import com.app.nosatmosphereeffect.ui.components.AtmoOutlinedButton
@@ -54,6 +59,7 @@ import com.app.nosatmosphereeffect.ui.components.AtmoTopBar
 import com.app.nosatmosphereeffect.ui.components.AtmoTextButton
 import com.app.nosatmosphereeffect.ui.components.LabeledSlider
 import com.app.nosatmosphereeffect.ui.components.SettingSwitchRow
+import kotlin.math.roundToInt
 
 data class AdvancedConfig(
     val activeEffectTitle: String,
@@ -62,6 +68,10 @@ data class AdvancedConfig(
     val showColorFill: Boolean,
     val showNeon: Boolean,
     val showFrosted: Boolean,
+    val showGlass: Boolean,
+    val showAtmosphereGlassToggle: Boolean,
+    val atmosphereGlassEnabled: Boolean,
+    val glassReverse: Boolean,
     val showNoiseSwitch: Boolean,
     val showBlob: Boolean,
     val isPlaylistMode: Boolean,
@@ -70,6 +80,8 @@ data class AdvancedConfig(
     val poll: String,
     val delay: String,
     val duration: String,
+    val transitionsEnabled: Boolean,
+    val alwaysAppliedTarget: AlwaysAppliedTarget,
     val dimness: Float,
     val blurStrength: Float,
     val enableNoise: Boolean,
@@ -83,14 +95,22 @@ data class AdvancedConfig(
     val contrast: Float,
     val neonSensitivity: Float,
     val neonLineWidth: Float,
+    val glassLineCount: Int,
+    val glassLineThickness: Float,
+    val glassTransitionStyle: GlassTransitionStyle,
+    val glassBackgroundOnly: Boolean,
+    val halftoneBackgroundOnly: Boolean,
     val subjectSegmentationEnabled: Boolean,
-    val scrollEnabled: Boolean
+    val scrollEnabled: Boolean,
+    val rendererPreference: GraphicsBackendPreference
 )
 
 data class AdvancedResult(
     val poll: String,
     val delay: String,
     val duration: String,
+    val transitionsEnabled: Boolean,
+    val alwaysAppliedTarget: AlwaysAppliedTarget,
     val dimness: Float,
     val blurStrength: Float,
     val enableNoise: Boolean,
@@ -104,9 +124,16 @@ data class AdvancedResult(
     val contrast: Float,
     val neonSensitivity: Float,
     val neonLineWidth: Float,
+    val atmosphereGlassEnabled: Boolean,
+    val glassLineCount: Int,
+    val glassLineThickness: Float,
+    val glassTransitionStyle: GlassTransitionStyle,
+    val glassBackgroundOnly: Boolean,
+    val halftoneBackgroundOnly: Boolean,
     val subjectSegmentationEnabled: Boolean,
     val rotationIndex: Int,
-    val scrollEnabled: Boolean
+    val scrollEnabled: Boolean,
+    val rendererPreference: GraphicsBackendPreference
 )
 
 private enum class FineTuneTab(val label: String) {
@@ -129,6 +156,8 @@ fun AdvancedSettingsScreen(
     var poll by remember { mutableStateOf(config.poll) }
     var delay by remember { mutableStateOf(config.delay) }
     var duration by remember { mutableStateOf(config.duration) }
+    var transitionsEnabled by remember { mutableStateOf(config.transitionsEnabled) }
+    var alwaysAppliedTarget by remember { mutableStateOf(config.alwaysAppliedTarget) }
     var dimness by remember { mutableFloatStateOf(config.dimness) }
     var blurStrength by remember { mutableFloatStateOf(config.blurStrength) }
     var rotationIndex by remember { mutableIntStateOf(config.initialRotationIndex) }
@@ -140,6 +169,22 @@ fun AdvancedSettingsScreen(
     var contrast by remember { mutableFloatStateOf(config.contrast) }
     var neonSensitivity by remember { mutableFloatStateOf(config.neonSensitivity) }
     var neonLineWidth by remember { mutableFloatStateOf(config.neonLineWidth) }
+    var atmosphereGlassEnabled by remember {
+        mutableStateOf(config.atmosphereGlassEnabled)
+    }
+    var glassLineCount by remember { mutableFloatStateOf(config.glassLineCount.toFloat()) }
+    var glassLineThickness by remember {
+        mutableFloatStateOf(config.glassLineThickness)
+    }
+    var glassTransitionStyle by remember {
+        mutableStateOf(config.glassTransitionStyle)
+    }
+    var glassBackgroundOnly by remember {
+        mutableStateOf(config.glassBackgroundOnly)
+    }
+    var halftoneBackgroundOnly by remember {
+        mutableStateOf(config.halftoneBackgroundOnly)
+    }
     var subjectSegmentationEnabled by remember {
         mutableStateOf(config.subjectSegmentationEnabled)
     }
@@ -147,6 +192,7 @@ fun AdvancedSettingsScreen(
     var noiseScale by remember { mutableStateOf(config.noiseScale) }
     var noiseStrength by remember { mutableStateOf(config.noiseStrength) }
     var scrollEnabled by remember { mutableStateOf(config.scrollEnabled) }
+    var rendererPreference by remember { mutableStateOf(config.rendererPreference) }
     var infoDialog by remember { mutableStateOf<InfoDialog?>(null) }
 
     val bundledSubjectModel = subjectModelDelivery == SubjectModelDelivery.BUNDLED_FOSS
@@ -191,6 +237,8 @@ fun AdvancedSettingsScreen(
         poll = poll,
         delay = delay,
         duration = duration,
+        transitionsEnabled = transitionsEnabled,
+        alwaysAppliedTarget = alwaysAppliedTarget,
         dimness = dimness,
         blurStrength = blurStrength,
         enableNoise = noiseEnabled,
@@ -204,9 +252,16 @@ fun AdvancedSettingsScreen(
         contrast = contrast,
         neonSensitivity = neonSensitivity,
         neonLineWidth = neonLineWidth,
+        atmosphereGlassEnabled = atmosphereGlassEnabled,
+        glassLineCount = GlassEffectPolicy.sanitizeLineCount(glassLineCount),
+        glassLineThickness = GlassEffectPolicy.sanitizeLineThickness(glassLineThickness),
+        glassTransitionStyle = glassTransitionStyle,
+        glassBackgroundOnly = glassBackgroundOnly,
+        halftoneBackgroundOnly = halftoneBackgroundOnly,
         subjectSegmentationEnabled = subjectSegmentationEnabled,
         rotationIndex = rotationIndex,
-        scrollEnabled = scrollEnabled
+        scrollEnabled = scrollEnabled,
+        rendererPreference = rendererPreference
     )
 
     Scaffold(
@@ -276,6 +331,7 @@ fun AdvancedSettingsScreen(
                 when (tab) {
                     FineTuneTab.Effect -> EffectSettings(
                         config = config,
+                        transitionsEnabled = transitionsEnabled,
                         dotSize = dotSize,
                         onDotSizeChange = { dotSize = it },
                         grayscale = grayscale,
@@ -292,6 +348,20 @@ fun AdvancedSettingsScreen(
                         onNeonSensitivityChange = { neonSensitivity = it },
                         neonLineWidth = neonLineWidth,
                         onNeonLineWidthChange = { neonLineWidth = it },
+                        atmosphereGlassEnabled = atmosphereGlassEnabled,
+                        onAtmosphereGlassEnabledChange = {
+                            atmosphereGlassEnabled = it
+                        },
+                        glassLineCount = glassLineCount,
+                        onGlassLineCountChange = { glassLineCount = it },
+                        glassLineThickness = glassLineThickness,
+                        onGlassLineThicknessChange = { glassLineThickness = it },
+                        glassTransitionStyle = glassTransitionStyle,
+                        onGlassTransitionStyleChange = { glassTransitionStyle = it },
+                        glassBackgroundOnly = glassBackgroundOnly,
+                        onGlassBackgroundOnlyChange = { glassBackgroundOnly = it },
+                        halftoneBackgroundOnly = halftoneBackgroundOnly,
+                        onHalftoneBackgroundOnlyChange = { halftoneBackgroundOnly = it },
                         subjectSegmentationEnabled = subjectSegmentationEnabled,
                         onSubjectSegmentationChange = { subjectSegmentationEnabled = it },
                         subjectModelDelivery = subjectModelDelivery,
@@ -317,6 +387,10 @@ fun AdvancedSettingsScreen(
                         onDelayChange = { delay = it.filterDigits() },
                         duration = duration,
                         onDurationChange = { duration = it.filterDigits() },
+                        transitionsEnabled = transitionsEnabled,
+                        onTransitionsEnabledChange = { transitionsEnabled = it },
+                        alwaysAppliedTarget = alwaysAppliedTarget,
+                        onAlwaysAppliedTargetChange = { alwaysAppliedTarget = it },
                         onPollInfo = { infoDialog = InfoDialog.Poll },
                         onDelayInfo = { infoDialog = InfoDialog.Delay }
                     )
@@ -328,6 +402,8 @@ fun AdvancedSettingsScreen(
                         onBlurStrengthChange = { blurStrength = it },
                         scrollEnabled = scrollEnabled,
                         onScrollEnabledChange = { scrollEnabled = it },
+                        rendererPreference = rendererPreference,
+                        onRendererPreferenceChange = { rendererPreference = it },
                         rotationIndex = rotationIndex,
                         onRotationSelected = { rotationIndex = it }
                     )
@@ -352,6 +428,7 @@ fun AdvancedSettingsScreen(
 @Composable
 private fun EffectSettings(
     config: AdvancedConfig,
+    transitionsEnabled: Boolean,
     dotSize: Float,
     onDotSizeChange: (Float) -> Unit,
     grayscale: Boolean,
@@ -368,6 +445,18 @@ private fun EffectSettings(
     onNeonSensitivityChange: (Float) -> Unit,
     neonLineWidth: Float,
     onNeonLineWidthChange: (Float) -> Unit,
+    atmosphereGlassEnabled: Boolean,
+    onAtmosphereGlassEnabledChange: (Boolean) -> Unit,
+    glassLineCount: Float,
+    onGlassLineCountChange: (Float) -> Unit,
+    glassLineThickness: Float,
+    onGlassLineThicknessChange: (Float) -> Unit,
+    glassTransitionStyle: GlassTransitionStyle,
+    onGlassTransitionStyleChange: (GlassTransitionStyle) -> Unit,
+    glassBackgroundOnly: Boolean,
+    onGlassBackgroundOnlyChange: (Boolean) -> Unit,
+    halftoneBackgroundOnly: Boolean,
+    onHalftoneBackgroundOnlyChange: (Boolean) -> Unit,
     subjectSegmentationEnabled: Boolean,
     onSubjectSegmentationChange: (Boolean) -> Unit,
     subjectModelDelivery: SubjectModelDelivery,
@@ -385,6 +474,97 @@ private fun EffectSettings(
     onNoiseStrengthChange: (String) -> Unit
 ) {
     SettingsScroll {
+        if (
+            config.showGlass ||
+            (config.showAtmosphereGlassToggle && transitionsEnabled)
+        ) {
+            SettingsGroup("Glass effect") {
+                if (config.showAtmosphereGlassToggle) {
+                    SettingSwitchRow(
+                        title = "Add glass effect",
+                        checked = atmosphereGlassEnabled,
+                        onCheckedChange = onAtmosphereGlassEnabledChange,
+                        subtitle = if (atmosphereGlassEnabled) {
+                            "The sharp Atmosphere state uses the Glass effect."
+                        } else {
+                            "The sharp Atmosphere state uses the original wallpaper."
+                        }
+                    )
+                }
+
+                AnimatedVisibility(
+                    visible = config.showGlass || atmosphereGlassEnabled
+                ) {
+                    Column {
+                        if (config.showAtmosphereGlassToggle) {
+                            Spacer(Modifier.height(18.dp))
+                        }
+                        LabeledSlider(
+                            label = "Number of lines",
+                            value = glassLineCount,
+                            onValueChange = onGlassLineCountChange,
+                            valueRange = GlassEffectPolicy.MIN_LINE_COUNT.toFloat()..
+                                GlassEffectPolicy.MAX_LINE_COUNT.toFloat(),
+                            step = 1f,
+                            valueText = { it.roundToInt().toString() }
+                        )
+                        Spacer(Modifier.height(12.dp))
+                        LabeledSlider(
+                            label = "Line thickness",
+                            value = glassLineThickness,
+                            onValueChange = onGlassLineThicknessChange,
+                            valueRange = GlassEffectPolicy.MIN_LINE_THICKNESS..
+                                GlassEffectPolicy.MAX_LINE_THICKNESS,
+                            step = 0.05f,
+                            valueText = { "${(it * 100).roundToInt()}%" }
+                        )
+                        if (config.showGlass && transitionsEnabled) {
+                            Spacer(Modifier.height(18.dp))
+                            Text(
+                                "Transition style",
+                                style = MaterialTheme.typography.labelLarge
+                            )
+                            Spacer(Modifier.height(8.dp))
+                            AtmoSegmentedControl(
+                                options = if (config.glassReverse) {
+                                    listOf("Left to right", "Fade out")
+                                } else {
+                                    listOf("Right to left", "Fade in")
+                                },
+                                selectedIndex = glassTransitionStyle.ordinal,
+                                onSelected = {
+                                    onGlassTransitionStyleChange(
+                                        GlassTransitionStyle.entries.getOrElse(it) {
+                                            GlassTransitionStyle.RIGHT_TO_LEFT
+                                        }
+                                    )
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                        Spacer(Modifier.height(18.dp))
+                        SubjectIsolationSetting(
+                            title = "Background only",
+                            checked = glassBackgroundOnly,
+                            onCheckedChange = onGlassBackgroundOnlyChange,
+                            inactiveText = "Applies the glass lines to the complete wallpaper.",
+                            activeDescription =
+                                "The subject stays sharp while the background becomes glass.",
+                            waitingText =
+                                "The wallpaper stays unchanged until the subject model is ready.",
+                            subjectModelDelivery = subjectModelDelivery,
+                            subjectModelReady = subjectModelReady,
+                            subjectModelWorking = subjectModelWorking,
+                            subjectModelButtonText = subjectModelButtonText,
+                            subjectModelStatusText = subjectModelStatusText,
+                            subjectModelState = subjectModelState,
+                            onDownloadSubjectModel = onDownloadSubjectModel
+                        )
+                    }
+                }
+            }
+        }
+
         if (config.showHalftone) {
             SettingsGroup("Halftone") {
                 LabeledSlider(
@@ -400,10 +580,26 @@ private fun EffectSettings(
                     checked = grayscale,
                     onCheckedChange = onGrayscaleChange
                 )
+                Spacer(Modifier.height(18.dp))
+                SubjectIsolationSetting(
+                    title = "Background only",
+                    checked = halftoneBackgroundOnly,
+                    onCheckedChange = onHalftoneBackgroundOnlyChange,
+                    inactiveText = "Applies Halftone to the complete wallpaper.",
+                    activeDescription = "The subject stays sharp while the background is printed.",
+                    waitingText = "The wallpaper stays unchanged until the subject model is ready.",
+                    subjectModelDelivery = subjectModelDelivery,
+                    subjectModelReady = subjectModelReady,
+                    subjectModelWorking = subjectModelWorking,
+                    subjectModelButtonText = subjectModelButtonText,
+                    subjectModelStatusText = subjectModelStatusText,
+                    subjectModelState = subjectModelState,
+                    onDownloadSubjectModel = onDownloadSubjectModel
+                )
             }
         }
 
-        if (config.showColorFill) {
+        if (config.showColorFill && transitionsEnabled) {
             SettingsGroup("Color origin") {
                 LabeledSlider(
                     label = "Horizontal position",
@@ -425,52 +621,20 @@ private fun EffectSettings(
 
         if (config.showNeon) {
             SettingsGroup("Canvas Sketch") {
-                SettingSwitchRow(
+                SubjectIsolationSetting(
                     title = "Subject segmentation",
                     checked = subjectSegmentationEnabled,
                     onCheckedChange = onSubjectSegmentationChange,
-                    enabled = subjectModelReady || subjectSegmentationEnabled,
-                    subtitle = when {
-                        !subjectSegmentationEnabled -> "Sketches the complete wallpaper."
-                        subjectModelDelivery == SubjectModelDelivery.BUNDLED_FOSS ->
-                            "Uses the bundled U2NetP model locally to isolate the foreground."
-                        subjectModelReady ->
-                            "Uses the installed ML Kit model locally to isolate the foreground."
-                        else -> "The complete wallpaper is sketched until the model is installed."
-                    }
-                )
-                if (subjectModelDelivery == SubjectModelDelivery.GOOGLE_PLAY_SERVICES) {
-                    Spacer(Modifier.height(10.dp))
-                    AtmoOutlinedButton(
-                        text = subjectModelButtonText,
-                        onClick = onDownloadSubjectModel,
-                        enabled = !subjectModelWorking && !subjectModelReady,
-                        accent = true,
-                        icon = if (!subjectModelWorking && !subjectModelReady) {
-                            painterResource(R.drawable.ic_download)
-                        } else {
-                            null
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    if (subjectModelWorking) {
-                        Spacer(Modifier.height(10.dp))
-                        val percent = subjectModelState.progressPercent
-                        if (percent != null) {
-                            LinearProgressIndicator(
-                                progress = { percent / 100f },
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                        } else {
-                            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                        }
-                    }
-                }
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    subjectModelStatusText,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    inactiveText = "Sketches the complete wallpaper.",
+                    activeDescription = "The subject silhouette anchors the sketch.",
+                    waitingText = "The complete wallpaper is sketched until the model is ready.",
+                    subjectModelDelivery = subjectModelDelivery,
+                    subjectModelReady = subjectModelReady,
+                    subjectModelWorking = subjectModelWorking,
+                    subjectModelButtonText = subjectModelButtonText,
+                    subjectModelStatusText = subjectModelStatusText,
+                    subjectModelState = subjectModelState,
+                    onDownloadSubjectModel = onDownloadSubjectModel
                 )
                 Spacer(Modifier.height(18.dp))
                 LabeledSlider(
@@ -544,6 +708,71 @@ private fun EffectSettings(
 }
 
 @Composable
+private fun SubjectIsolationSetting(
+    title: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    inactiveText: String,
+    activeDescription: String,
+    waitingText: String,
+    subjectModelDelivery: SubjectModelDelivery,
+    subjectModelReady: Boolean,
+    subjectModelWorking: Boolean,
+    subjectModelButtonText: String,
+    subjectModelStatusText: String,
+    subjectModelState: SubjectModelState,
+    onDownloadSubjectModel: () -> Unit
+) {
+    SettingSwitchRow(
+        title = title,
+        checked = checked,
+        onCheckedChange = onCheckedChange,
+        enabled = subjectModelReady || checked,
+        subtitle = when {
+            !checked -> inactiveText
+            subjectModelDelivery == SubjectModelDelivery.BUNDLED_FOSS ->
+                "Uses the bundled on-device model. $activeDescription"
+            subjectModelReady ->
+                "Uses the installed on-device model. $activeDescription"
+            else -> waitingText
+        }
+    )
+    if (subjectModelDelivery == SubjectModelDelivery.GOOGLE_PLAY_SERVICES) {
+        Spacer(Modifier.height(10.dp))
+        AtmoOutlinedButton(
+            text = subjectModelButtonText,
+            onClick = onDownloadSubjectModel,
+            enabled = !subjectModelWorking && !subjectModelReady,
+            accent = true,
+            icon = if (!subjectModelWorking && !subjectModelReady) {
+                painterResource(R.drawable.ic_download)
+            } else {
+                null
+            },
+            modifier = Modifier.fillMaxWidth()
+        )
+        if (subjectModelWorking) {
+            Spacer(Modifier.height(10.dp))
+            val percent = subjectModelState.progressPercent
+            if (percent != null) {
+                LinearProgressIndicator(
+                    progress = { percent / 100f },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            } else {
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            }
+        }
+    }
+    Spacer(Modifier.height(8.dp))
+    Text(
+        subjectModelStatusText,
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
+}
+
+@Composable
 private fun TimingSettings(
     activeEffectTitle: String,
     recommendedDurationMs: Long,
@@ -553,37 +782,88 @@ private fun TimingSettings(
     onDelayChange: (String) -> Unit,
     duration: String,
     onDurationChange: (String) -> Unit,
+    transitionsEnabled: Boolean,
+    onTransitionsEnabledChange: (Boolean) -> Unit,
+    alwaysAppliedTarget: AlwaysAppliedTarget,
+    onAlwaysAppliedTargetChange: (AlwaysAppliedTarget) -> Unit,
     onPollInfo: () -> Unit,
     onDelayInfo: () -> Unit
 ) {
     val info = painterResource(R.drawable.ic_info)
+    val alwaysAppliedDescription = when (alwaysAppliedTarget) {
+        AlwaysAppliedTarget.HOME ->
+            "The effect stays on the Home screen. The Lock screen shows the original."
+        AlwaysAppliedTarget.LOCK ->
+            "The effect stays on the Lock screen. The Home screen shows the original."
+        AlwaysAppliedTarget.BOTH ->
+            "The effect stays on both screens."
+    }
     SettingsScroll {
-        SettingsGroup("Unlock response") {
-            AtmoNumberField(
-                label = "Unlock check interval (ms)",
-                value = poll,
-                onValueChange = onPollChange,
-                helper = "Standard: 50 | Samsung: 30000",
-                infoIcon = info,
-                onInfoClick = onPollInfo
-            )
-            Spacer(Modifier.height(16.dp))
-            AtmoNumberField(
-                label = "Lock delay (ms)",
-                value = delay,
-                onValueChange = onDelayChange,
-                helper = "Standard: 800 | Samsung: 0",
-                infoIcon = info,
-                onInfoClick = onDelayInfo
+        SettingsGroup("Effect behavior") {
+            SettingSwitchRow(
+                title = "Animate transitions",
+                checked = transitionsEnabled,
+                onCheckedChange = onTransitionsEnabledChange,
+                subtitle = if (transitionsEnabled) {
+                    "Changes between effect states when the screen locks or unlocks."
+                } else {
+                    "Keeps the fully applied effect visible on the selected screens."
+                }
             )
         }
-        SettingsGroup("Animation") {
-            AtmoNumberField(
-                label = "Duration (ms)",
-                value = duration,
-                onValueChange = onDurationChange,
-                helper = "Recommended for $activeEffectTitle: $recommendedDurationMs ms"
-            )
+
+        AnimatedVisibility(visible = transitionsEnabled) {
+            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                SettingsGroup("Unlock response") {
+                    AtmoNumberField(
+                        label = "Unlock check interval (ms)",
+                        value = poll,
+                        onValueChange = onPollChange,
+                        helper = "Standard: 50 | Samsung: 30000",
+                        infoIcon = info,
+                        onInfoClick = onPollInfo
+                    )
+                    Spacer(Modifier.height(16.dp))
+                    AtmoNumberField(
+                        label = "Lock delay (ms)",
+                        value = delay,
+                        onValueChange = onDelayChange,
+                        helper = "Standard: 800 | Samsung: 0",
+                        infoIcon = info,
+                        onInfoClick = onDelayInfo
+                    )
+                }
+                SettingsGroup("Animation") {
+                    AtmoNumberField(
+                        label = "Duration (ms)",
+                        value = duration,
+                        onValueChange = onDurationChange,
+                        helper = "Recommended for $activeEffectTitle: $recommendedDurationMs ms"
+                    )
+                }
+            }
+        }
+
+        AnimatedVisibility(visible = !transitionsEnabled) {
+            SettingsGroup("Keep effect applied on") {
+                AtmoSegmentedControl(
+                    options = listOf("Home screen", "Lock screen", "Both"),
+                    selectedIndex = alwaysAppliedTarget.ordinal,
+                    onSelected = { index ->
+                        onAlwaysAppliedTargetChange(
+                            AlwaysAppliedTarget.entries.getOrElse(index) {
+                                AlwaysAppliedTarget.BOTH
+                            }
+                        )
+                    }
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "$alwaysAppliedDescription Atmo Engine remains a live wallpaper.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
     }
 }
@@ -597,9 +877,25 @@ private fun DisplaySettings(
     onBlurStrengthChange: (Float) -> Unit,
     scrollEnabled: Boolean,
     onScrollEnabledChange: (Boolean) -> Unit,
+    rendererPreference: GraphicsBackendPreference,
+    onRendererPreferenceChange: (GraphicsBackendPreference) -> Unit,
     rotationIndex: Int,
     onRotationSelected: (Int) -> Unit
 ) {
+    val rendererOptions = listOf(
+        stringResource(R.string.renderer_preference_automatic),
+        stringResource(R.string.renderer_preference_vulkan),
+        stringResource(R.string.renderer_preference_opengl)
+    )
+    val rendererHelper = when (rendererPreference) {
+        GraphicsBackendPreference.AUTOMATIC ->
+            stringResource(R.string.renderer_preference_automatic_helper)
+        GraphicsBackendPreference.VULKAN ->
+            stringResource(R.string.renderer_preference_vulkan_helper)
+        GraphicsBackendPreference.OPENGL_ES ->
+            stringResource(R.string.renderer_preference_opengl_helper)
+    }
+
     SettingsScroll {
         SettingsGroup("Wallpaper appearance") {
             LabeledSlider(
@@ -621,9 +917,25 @@ private fun DisplaySettings(
                 )
             }
         }
+        SettingsGroup(stringResource(R.string.renderer_preference_group)) {
+            AtmoDropdownField(
+                label = stringResource(R.string.renderer_preference_label),
+                options = rendererOptions,
+                selectedIndex = rendererPreference.ordinal,
+                onSelected = { index ->
+                    onRendererPreferenceChange(
+                        GraphicsBackendPreference.entries.getOrElse(index) {
+                            GraphicsBackendPreference.AUTOMATIC
+                        }
+                    )
+                },
+                helper = rendererHelper
+            )
+        }
         SettingsGroup("Home screen") {
             SettingSwitchRow(
                 title = "Wallpaper scrolling",
+                subtitle = "${stringResource(R.string.experimental)} ${stringResource(R.string.manualCroppingWillBeDisabled)}",
                 checked = scrollEnabled,
                 onCheckedChange = onScrollEnabledChange
             )
@@ -679,8 +991,7 @@ private fun SettingsGroup(
 private enum class InfoDialog(val title: String, val message: String) {
     Poll(
         "Unlock check interval",
-        "Lower values react sooner after unlock but check more often. Use 30000 ms on " +
-            "Samsung or 50 ms if the animation starts late."
+        "Lower values provide a faster reaction after unlocking but require more frequent checks, which may impact battery life. Use 30000 ms on Samsung devices, or 50 ms if the animation starts late."
     ),
     Delay(
         "Lock delay",

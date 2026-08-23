@@ -40,6 +40,7 @@ class SubjectMaskExtractor(
     private val worker = Executors.newSingleThreadExecutor { task ->
         Thread(task, "canvas-subject-segmentation")
     }
+    private val closeLock = Any()
     private val interpreterLock = Any()
     private val inputBuffer = ByteBuffer.allocateDirect(INPUT_SIZE * INPUT_SIZE * 3 * 4)
         .order(ByteOrder.nativeOrder())
@@ -56,8 +57,11 @@ class SubjectMaskExtractor(
     fun extract(bitmap: Bitmap, requestId: Long) {
         if (closed || bitmap.width <= 0 || bitmap.height <= 0) return
 
-        val inputBitmap = runCatching { makeInputBitmap(bitmap) }.getOrElse {
-            onResult(requestId, null)
+        val inputBitmap = try {
+            makeInputBitmap(bitmap)
+        } catch (error: Exception) {
+            Log.w(TAG, "Could not prepare an image for subject segmentation", error)
+            if (!closed) onResult(requestId, null)
             return
         }
 
@@ -78,7 +82,8 @@ class SubjectMaskExtractor(
                     onResult(requestId, mask)
                 }
             }
-        } catch (_: RejectedExecutionException) {
+        } catch (error: RejectedExecutionException) {
+            Log.w(TAG, "Subject-segmentation request was rejected", error)
             inputBitmap.recycle()
             if (!closed) onResult(requestId, null)
         }
@@ -105,6 +110,7 @@ class SubjectMaskExtractor(
         outputBuffer.clear()
 
         synchronized(interpreterLock) {
+            if (closed) return null
             val engine = interpreter ?: createInterpreter().also { interpreter = it }
             engine.runForMultipleInputsOutputs(
                 arrayOf(inputBuffer),
@@ -194,24 +200,56 @@ class SubjectMaskExtractor(
     }
 
     private fun makeInputBitmap(source: Bitmap): Bitmap {
+        // Get most of the way to the model's input size in halving steps
+        // first (see BitmapDownscale) so a full-resolution wallpaper isn't
+        // squeezed down to 320x320 in one steep, aliasing-prone pass — that
+        // single-pass squeeze is what let the same photo segment fine from
+        // the smaller in-app preview bitmap but come back wrong for the
+        // full-resolution wallpaper bitmap.
+        val staged = BitmapDownscale.toStagedSize(source, INPUT_SIZE, INPUT_SIZE)
+        if (staged.width == INPUT_SIZE && staged.height == INPUT_SIZE) return staged
+
         val target = createBitmap(INPUT_SIZE, INPUT_SIZE, Bitmap.Config.ARGB_8888)
         Canvas(target).drawBitmap(
-            source,
+            staged,
             null,
             Rect(0, 0, INPUT_SIZE, INPUT_SIZE),
             Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
         )
+        staged.recycle()
         return target
     }
 
     override fun close() {
-        if (closed) return
-        closed = true
-        worker.shutdown()
+        val shouldClose = synchronized(closeLock) {
+            if (closed) {
+                false
+            } else {
+                closed = true
+                true
+            }
+        }
+        if (!shouldClose) return
+
+        try {
+            worker.execute(::closeInterpreter)
+        } catch (error: RejectedExecutionException) {
+            Log.w(TAG, "Subject-segmentation cleanup was rejected", error)
+        } finally {
+            worker.shutdown()
+        }
+    }
+
+    private fun closeInterpreter() {
         synchronized(interpreterLock) {
-            interpreter?.close()
-            interpreter = null
-            modelBuffer = null
+            try {
+                interpreter?.close()
+            } catch (error: RuntimeException) {
+                Log.w(TAG, "Could not close the subject-segmentation interpreter", error)
+            } finally {
+                interpreter = null
+                modelBuffer = null
+            }
         }
     }
 }

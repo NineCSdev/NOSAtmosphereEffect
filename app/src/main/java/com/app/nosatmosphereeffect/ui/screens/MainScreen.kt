@@ -35,8 +35,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Help
-import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Brightness6
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Collections
 import androidx.compose.material.icons.rounded.Edit
@@ -44,13 +44,13 @@ import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material.icons.rounded.Memory
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.Wallpaper
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -72,9 +72,13 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.app.nosatmosphereeffect.R
 import com.app.nosatmosphereeffect.ui.components.AtmoChip
+import com.app.nosatmosphereeffect.ui.components.AtmoAnimatedIconButton
+import com.app.nosatmosphereeffect.ui.components.AtmoIconMotion
 import com.app.nosatmosphereeffect.ui.components.AtmoOutlinedButton
 import com.app.nosatmosphereeffect.ui.components.AtmoPrimaryButton
 import com.app.nosatmosphereeffect.ui.components.AtmoReveal
@@ -82,7 +86,10 @@ import com.app.nosatmosphereeffect.ui.components.AtmoSegmentedControl
 import com.app.nosatmosphereeffect.ui.components.AtmoTonalButton
 import com.app.nosatmosphereeffect.ui.components.SettingSwitchRow
 import com.app.nosatmosphereeffect.ui.components.WallpaperTransitionPreview
+import com.app.nosatmosphereeffect.helper.AlwaysAppliedTarget
+import com.app.nosatmosphereeffect.helper.WallpaperBehaviorSettings
 import com.app.nosatmosphereeffect.ui.model.EffectCatalog
+import com.app.nosatmosphereeffect.ui.model.RendererStatusUiModel
 import com.app.nosatmosphereeffect.ui.preview.EffectPreviewSettingsMode
 import com.app.nosatmosphereeffect.ui.theme.AppThemeMode
 import com.app.nosatmosphereeffect.ui.theme.LocalAtmoExpressive
@@ -98,6 +105,7 @@ fun MainScreen(
     isPlaylistMode: Boolean,
     isThemePlaylistMode: Boolean,
     syncColors: Boolean,
+    wallpaperBehavior: WallpaperBehaviorSettings,
     onSyncColorsChange: (Boolean) -> Unit,
     expressiveThemeEnabled: Boolean,
     onExpressiveThemeChange: (Boolean) -> Unit,
@@ -112,7 +120,8 @@ fun MainScreen(
     onPickThemePlaylists: () -> Unit,
     onEditExistingPlaylist: () -> Unit,
     onAdvancedSettings: () -> Unit,
-    onTitleTap: () -> Unit
+    onTitleTap: () -> Unit,
+    rendererStatus: RendererStatusUiModel? = null
 ) {
     var showImageSheet by remember { mutableStateOf(false) }
     var showSettingsSheet by remember { mutableStateOf(false) }
@@ -131,7 +140,15 @@ fun MainScreen(
                             label = "wallpaperStatusLabel"
                         ) { active ->
                             Text(
-                                if (active) "Wallpaper active" else "Wallpaper studio",
+                                if (active) {
+                                    if (wallpaperBehavior.transitionsEnabled) {
+                                        "Wallpaper active"
+                                    } else {
+                                        "Live · effect always applied"
+                                    }
+                                } else {
+                                    "Wallpaper studio"
+                                },
                                 style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -140,17 +157,23 @@ fun MainScreen(
                 },
                 actions = {
                     if (isSamsungDevice) {
-                        AliveIconButton(
-                            icon = Icons.AutoMirrored.Rounded.Help,
-                            description = "Samsung adaptive clock setup",
-                            onClick = { showAdaptiveClockSheet = true }
+                        AtmoAnimatedIconButton(
+                            imageVector = Icons.AutoMirrored.Rounded.Help,
+                            contentDescription = "Samsung adaptive clock setup",
+                            onClick = { showAdaptiveClockSheet = true },
+                            motion = AtmoIconMotion.TILT,
+                            filledTonal = true,
+                            modifier = Modifier.size(48.dp)
                         )
                         Spacer(Modifier.width(8.dp))
                     }
-                    AliveIconButton(
-                        icon = Icons.Rounded.Settings,
-                        description = "Appearance settings",
-                        onClick = { showSettingsSheet = true }
+                    AtmoAnimatedIconButton(
+                        imageVector = Icons.Rounded.Settings,
+                        contentDescription = "Appearance settings",
+                        onClick = { showSettingsSheet = true },
+                        motion = AtmoIconMotion.SPIN,
+                        filledTonal = true,
+                        modifier = Modifier.size(48.dp)
                     )
                     Spacer(Modifier.width(8.dp))
                 },
@@ -182,6 +205,7 @@ fun MainScreen(
                                 previewBitmap = previewBitmap,
                                 isPlaylistMode = isPlaylistMode,
                                 isThemePlaylistMode = isThemePlaylistMode,
+                                wallpaperBehavior = wallpaperBehavior,
                                 onChangeEffect = onChangeEffect,
                                 onChangeImage = { showImageSheet = true }
                             )
@@ -224,6 +248,14 @@ fun MainScreen(
                         }
                     }
                 }
+
+                if (rendererStatus != null) {
+                    item(key = "rendererStatus") {
+                        AtmoReveal(delayMillis = 140) {
+                            RendererStatusFooter(status = rendererStatus)
+                        }
+                    }
+                }
             }
         }
     }
@@ -260,6 +292,108 @@ fun MainScreen(
             isPlaylistMode = isPlaylistMode,
             onDismiss = { showAdaptiveClockSheet = false }
         )
+    }
+}
+
+@Composable
+fun RendererStatusFooter(
+    status: RendererStatusUiModel,
+    modifier: Modifier = Modifier
+) {
+    val vulkanActive = status.isVulkanActive
+    val containerColor by animateColorAsState(
+        targetValue = if (vulkanActive) {
+            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.34f)
+        } else {
+            MaterialTheme.colorScheme.surfaceContainerLow
+        },
+        label = "rendererStatusContainer"
+    )
+
+    Surface(
+        color = containerColor,
+        shape = RoundedCornerShape(if (LocalAtmoExpressive.current) 28.dp else 18.dp),
+        modifier = modifier.fillMaxWidth()
+    ) {
+        AnimatedContent(
+            targetState = status,
+            transitionSpec = { fadeIn() togetherWith fadeOut() },
+            label = "rendererStatusContent"
+        ) { currentStatus ->
+            val active = currentStatus.isVulkanActive
+            Row(
+                modifier = Modifier.padding(horizontal = 18.dp, vertical = 16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Surface(
+                    shape = CircleShape,
+                    color = if (active) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.surfaceContainerHighest
+                    },
+                    modifier = Modifier.size(44.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Memory,
+                        contentDescription = null,
+                        tint = if (active) {
+                            MaterialTheme.colorScheme.onPrimary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                        modifier = Modifier.padding(10.dp)
+                    )
+                }
+                Spacer(Modifier.width(14.dp))
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    Text(
+                        text = stringResource(R.string.renderer_status_label),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = if (active) {
+                            stringResource(R.string.renderer_vulkan_active)
+                        } else {
+                            stringResource(R.string.renderer_opengl_active)
+                        },
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = if (active) {
+                            stringResource(
+                                R.string.renderer_vulkan_version,
+                                currentStatus.vulkanVersion.orEmpty()
+                            )
+                        } else if (currentStatus.fallbackReason != null) {
+                            stringResource(
+                                R.string.renderer_vulkan_fallback_reason,
+                                currentStatus.fallbackReason
+                            )
+                        } else {
+                            stringResource(R.string.renderer_current_wallpaper_renderer)
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Spacer(Modifier.width(12.dp))
+                AtmoChip(
+                    text = stringResource(
+                        if (active) {
+                            R.string.renderer_backend_vulkan
+                        } else {
+                            R.string.renderer_backend_opengl
+                        }
+                    )
+                )
+            }
+        }
     }
 }
 
@@ -487,6 +621,7 @@ private fun ActiveWallpaperPanel(
     previewBitmap: ImageBitmap?,
     isPlaylistMode: Boolean,
     isThemePlaylistMode: Boolean,
+    wallpaperBehavior: WallpaperBehaviorSettings,
     onChangeEffect: () -> Unit,
     onChangeImage: () -> Unit
 ) {
@@ -546,7 +681,18 @@ private fun ActiveWallpaperPanel(
                 overflow = TextOverflow.Ellipsis
             )
             Text(
-                effect.transition,
+                if (wallpaperBehavior.transitionsEnabled) {
+                    effect.transition
+                } else {
+                    when (wallpaperBehavior.alwaysAppliedTarget) {
+                        AlwaysAppliedTarget.HOME ->
+                            "Always applied on Home · original on Lock"
+                        AlwaysAppliedTarget.LOCK ->
+                            "Always applied on Lock · original on Home"
+                        AlwaysAppliedTarget.BOTH ->
+                            "Always applied on Home and Lock"
+                    }
+                },
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -831,33 +977,5 @@ private fun ModeOption(
                 )
             }
         }
-    }
-}
-
-@Composable
-private fun AliveIconButton(
-    icon: ImageVector,
-    description: String,
-    onClick: () -> Unit
-) {
-    val expressive = LocalAtmoExpressive.current
-    val haptics = LocalHapticFeedback.current
-    val interaction = remember { MutableInteractionSource() }
-    val pressed by interaction.collectIsPressedAsState()
-    val scale by animateFloatAsState(
-        targetValue = if (pressed && expressive) 0.9f else 1f,
-        animationSpec = spring(stiffness = 460f, dampingRatio = 0.6f),
-        label = "iconButtonScale"
-    )
-    FilledTonalIconButton(
-        onClick = {
-            if (expressive) haptics.performHapticFeedback(HapticFeedbackType.ContextClick)
-            onClick()
-        },
-        shape = if (expressive) CircleShape else RoundedCornerShape(16.dp),
-        interactionSource = interaction,
-        modifier = Modifier.size(48.dp).scale(scale)
-    ) {
-        Icon(icon, contentDescription = description)
     }
 }
