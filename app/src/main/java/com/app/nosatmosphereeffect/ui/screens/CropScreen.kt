@@ -28,6 +28,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -102,6 +103,13 @@ fun CropScreen(
     onBack: () -> Unit,
     onConfirm: () -> Unit
 ) {
+    // Tapping the image toggles the surrounding chrome so the user can see the
+    // full frame while positioning it. TouchImageView already distinguishes a
+    // tap from a drag/pinch internally (see performClick() in its touch
+    // handler), so we just listen for that click rather than adding a second,
+    // competing gesture detector on top of it.
+    var controlsVisible by remember { mutableStateOf(true) }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -119,6 +127,7 @@ fun CropScreen(
                     // frames the image with the correct fit (important when
                     // re-editing a playlist image saved as Fit/Rotate).
                     setFitMode(initialFit, initialFill)
+                    setOnClickListener { controlsVisible = !controlsVisible }
                 }.also { v ->
                     controller.view = v
                     onViewCreated(v)
@@ -126,6 +135,7 @@ fun CropScreen(
             }
         )
 
+        // Guide lines stay visible regardless of the chrome toggle below.
         Box(
             Modifier
                 .align(Alignment.Center)
@@ -141,71 +151,85 @@ fun CropScreen(
                 .background(Color.White.copy(alpha = 0.22f))
         )
 
-        Surface(
+        AnimatedVisibility(
+            visible = controlsVisible,
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .fillMaxWidth(),
-            color = MaterialTheme.colorScheme.surfaceContainerHigh,
-            contentColor = MaterialTheme.colorScheme.onSurface,
-            shape = RoundedCornerShape(bottomStart = 28.dp, bottomEnd = 28.dp)
+            enter = fadeIn(),
+            exit = fadeOut()
         ) {
-            androidx.compose.foundation.layout.Row(
-                modifier = Modifier.padding(horizontal = 8.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                contentColor = MaterialTheme.colorScheme.onSurface,
+                shape = RoundedCornerShape(bottomStart = 28.dp, bottomEnd = 28.dp)
             ) {
-                AtmoAnimatedIconButton(
-                    imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
-                    contentDescription = "Back",
-                    onClick = onBack,
-                    motion = AtmoIconMotion.BACK
-                )
-                Spacer(Modifier.size(8.dp))
-                Text(
-                    "Frame wallpaper",
-                    style = MaterialTheme.typography.titleLarge,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
+                androidx.compose.foundation.layout.Row(
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    AtmoAnimatedIconButton(
+                        imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
+                        contentDescription = "Back",
+                        onClick = onBack,
+                        motion = AtmoIconMotion.BACK
+                    )
+                    Spacer(Modifier.size(8.dp))
+                    Text(
+                        "Frame wallpaper",
+                        style = MaterialTheme.typography.titleLarge,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
             }
         }
 
-        Surface(
+        AnimatedVisibility(
+            visible = controlsVisible,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth(),
-            shape = RoundedCornerShape(topStart = 36.dp, topEnd = 36.dp),
-            color = MaterialTheme.colorScheme.surfaceContainerHigh,
-            contentColor = MaterialTheme.colorScheme.onSurface
+            enter = fadeIn(),
+            exit = fadeOut()
         ) {
-            Column(
-                modifier = Modifier
-                    .windowInsetsPadding(WindowInsets.navigationBars)
-                    .padding(horizontal = 20.dp, vertical = 18.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(14.dp)
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(topStart = 36.dp, topEnd = 36.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                contentColor = MaterialTheme.colorScheme.onSurface
             ) {
-                AtmoReveal(delayMillis = 50) {
-                    FitChooserSection(
-                        initialFit = initialFit,
-                        initialFill = initialFill,
-                        onFitChanged = onFitChanged
-                    )
-                }
-                if (showAtmosphereGlassOption) {
-                    AtmoReveal(delayMillis = 90) {
-                        SettingSwitchRow(
-                            title = "Add glass effect",
-                            subtitle = "Keeps the Atmosphere transition and finishes on reeded glass.",
-                            checked = atmosphereGlassEnabled,
-                            onCheckedChange = onAtmosphereGlassEnabledChange
+                Column(
+                    modifier = Modifier
+                        .windowInsetsPadding(WindowInsets.navigationBars)
+                        .padding(horizontal = 20.dp, vertical = 18.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    AtmoReveal(delayMillis = 50) {
+                        FitChooserSection(
+                            initialFit = initialFit,
+                            initialFill = initialFill,
+                            onFitChanged = onFitChanged
                         )
                     }
-                }
-                AtmoReveal(delayMillis = 140) {
-                    AtmoPrimaryButton(
-                        text = buttonLabel,
-                        onClick = onConfirm,
-                        modifier = Modifier.fillMaxWidth()
-                    )
+                    if (showAtmosphereGlassOption) {
+                        AtmoReveal(delayMillis = 90) {
+                            SettingSwitchRow(
+                                title = "Add glass effect",
+                                subtitle = "Keeps the Atmosphere transition and finishes on reeded glass.",
+                                checked = atmosphereGlassEnabled,
+                                onCheckedChange = onAtmosphereGlassEnabledChange
+                            )
+                        }
+                    }
+                    AtmoReveal(delayMillis = 140) {
+                        AtmoPrimaryButton(
+                            text = buttonLabel,
+                            onClick = onConfirm,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
                 }
             }
         }
